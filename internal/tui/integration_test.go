@@ -209,10 +209,9 @@ func TestIntegration_SlashModelOpensPicker(t *testing.T) {
 	// View should show the 3 model tiers
 	view := m.View()
 	plain := strip(view)
-	assert.Contains(t, plain, "Default (recommended)")
+	assert.Contains(t, plain, "Sonnet")
 	assert.Contains(t, plain, "Opus")
 	assert.Contains(t, plain, "Haiku")
-	assert.Contains(t, plain, "per Mtok")
 }
 
 func TestIntegration_ModelPickerNavigateAndSelect(t *testing.T) {

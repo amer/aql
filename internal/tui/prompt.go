@@ -17,11 +17,9 @@ func RenderPromptStreaming(spinnerFrame int, agentName string, width int) string
 	return RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", SpinnerBraille)
 }
 
-// RenderPromptArea renders the full prompt area matching Claude Code's layout:
-// ─────────────────────────────────── project-name ──
-// ❯ input
-// ───────────────────────────────────────────────────
-func RenderPromptArea(input string, projectName string, width int) string {
+// renderPromptFrame renders the separator-wrapped prompt area.
+// content is the middle line (prompt input or spinner).
+func renderPromptFrame(content string, projectName string, width int) string {
 	var b strings.Builder
 
 	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
@@ -41,9 +39,8 @@ func RenderPromptArea(input string, projectName string, width int) string {
 	b.WriteString(topLine)
 	b.WriteString("\n")
 
-	// Prompt line
-	cursor := PromptCursor.Render("❯ ")
-	b.WriteString(cursor + input + "█")
+	// Content line
+	b.WriteString(content)
 	b.WriteString("\n")
 
 	// Bottom separator
@@ -52,33 +49,14 @@ func RenderPromptArea(input string, projectName string, width int) string {
 	return b.String()
 }
 
+// RenderPromptArea renders the full prompt area matching Claude Code's layout.
+func RenderPromptArea(input string, projectName string, width int) string {
+	cursor := PromptCursor.Render("❯ ")
+	return renderPromptFrame(cursor+input+"█", projectName, width)
+}
+
 // RenderPromptAreaStreaming renders the prompt area during streaming.
 func RenderPromptAreaStreaming(spinnerFrame int, agentName string, projectName string, width int, st SpinnerType) string {
-	var b strings.Builder
-
-	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
-	badgeStyle := lipgloss.NewStyle().Foreground(mutedColor)
-
-	// Top separator with project badge
-	badge := badgeStyle.Render(projectName)
-	badgeWidth := lipgloss.Width(badge)
-	trailWidth := 2
-	leadWidth := width - badgeWidth - trailWidth - 2
-	if leadWidth < 1 {
-		leadWidth = 1
-	}
-	topLine := lineStyle.Render(strings.Repeat("─", leadWidth)) +
-		" " + badge + " " +
-		lineStyle.Render(strings.Repeat("─", trailWidth))
-	b.WriteString(topLine)
-	b.WriteString("\n")
-
-	// Spinner line
-	b.WriteString(RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", st))
-	b.WriteString("\n")
-
-	// Bottom separator
-	b.WriteString(lineStyle.Render(strings.Repeat("─", width)))
-
-	return b.String()
+	spinner := RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", st)
+	return renderPromptFrame(spinner, projectName, width)
 }

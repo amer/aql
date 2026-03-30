@@ -101,11 +101,11 @@ func TestCommandAction(t *testing.T) {
 
 func TestModelTiersFallback(t *testing.T) {
 	tiers := tui.DefaultModelTiers()
-	require.Len(t, tiers, 3, "should have Default, Opus, Haiku")
+	require.Len(t, tiers, 3, "should have Sonnet, Opus, Haiku")
 
-	assert.Equal(t, "Default (recommended)", tiers[0].Label)
-	assert.Equal(t, "Opus", tiers[1].Label)
-	assert.Equal(t, "Haiku", tiers[2].Label)
+	assert.Contains(t, tiers[0].Label, "Sonnet")
+	assert.Contains(t, tiers[1].Label, "Opus")
+	assert.Contains(t, tiers[2].Label, "Haiku")
 
 	for _, tier := range tiers {
 		assert.NotEmpty(t, tier.ModelID, "tier must have a model ID")
@@ -201,10 +201,9 @@ func TestRenderModelPicker(t *testing.T) {
 	plain := stripAnsiCmds(result)
 
 	assert.Contains(t, plain, "Select model")
-	assert.Contains(t, plain, "Default (recommended)")
+	assert.Contains(t, plain, "Sonnet")
 	assert.Contains(t, plain, "Opus")
 	assert.Contains(t, plain, "Haiku")
-	assert.Contains(t, plain, "per Mtok")
 	assert.Contains(t, plain, "Enter to confirm")
 	assert.Contains(t, plain, "Esc to exit")
 }

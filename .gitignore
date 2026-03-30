@@ -26,6 +26,8 @@ secrets/
 
 # AQL local preferences
 .aql_model
+.aql_models_cache.json
+.aql_tokens.json
 aql.log
 
 # OS
