@@ -196,8 +196,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			default:
 				if len(msg.String()) == 1 {
+					wasOnCustom := m.modelPickerIdx >= len(filtered)
 					m.modelPickerInput += msg.String()
-					m.modelPickerIdx = 0
+					newFiltered := m.filteredModels()
+					if wasOnCustom {
+						// Keep selection on "Use custom" entry
+						m.modelPickerIdx = len(newFiltered)
+					} else {
+						m.modelPickerIdx = 0
+					}
 				}
 				return m, nil
 			}

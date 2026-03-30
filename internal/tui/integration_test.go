@@ -289,15 +289,50 @@ func TestIntegration_ModelPickerCustomID(t *testing.T) {
 	m = applyKey(m, "enter")
 	require.True(t, m.IsModelPickerVisible())
 
-	// Type a custom model ID that doesn't match any listed model
+	// Type a custom model ID — no exact match in the list
 	for _, c := range "claude-opus-4-6-20260301" {
 		m = applyKey(m, string(c))
 	}
 
-	// Navigate down to "Use custom ID" entry (should be index 1 since no matches + custom)
-	// Actually with no matches, custom is at index 0
-	m = applyKey(m, "down") // move to custom entry
+	// idx=0, filtered is empty (input is longer than any listed ID)
+	// Enter should use custom input
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
 
+	assert.False(t, m.IsModelPickerVisible())
+	require.NotNil(t, cmd)
+	msg := cmd()
+	selected, ok := msg.(tui.ModelSelectedMsg)
+	assert.True(t, ok)
+	assert.Equal(t, "claude-opus-4-6-20260301", selected.Model)
+}
+
+func TestIntegration_ModelPickerArrowDownToCustom(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetAvailableModels([]tui.ModelOption{
+		{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", MaxInputTokens: 1000000},
+	})
+	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = u.(tui.Model)
+
+	// Open picker
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	// Arrow down past the listed model to "Use custom ID"
+	m = applyKey(m, "down")
+	assert.Equal(t, 1, m.ModelPickerSelected(), "should be on custom entry")
+
+	// Type a dated model ID while on custom entry
+	for _, c := range "claude-opus-4-6-20260301" {
+		m = applyKey(m, string(c))
+	}
+
+	// Should stay on custom entry even after typing
+	filtered := 0 // "claude-opus-4-6-20260301" is longer than "claude-opus-4-6", so no match
+	_ = filtered
+	// idx should be at the custom entry position
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(tui.Model)
 
