@@ -11,13 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRunnerIntegration_StreamsFromAPI calls the real Claude API and verifies
-// the full streaming pipeline: agent → API → StreamEvent channel.
-// Skipped if ANTHROPIC_API_KEY is not set.
-func TestRunnerIntegration_StreamsFromAPI(t *testing.T) {
+// TestRunnerLive_StreamsFromAPI calls the real Claude API.
+// Only runs when AQL_LIVE_TEST=1 is set — use this to validate the cache
+// or re-record fixtures.
+func TestRunnerLive_StreamsFromAPI(t *testing.T) {
+	if os.Getenv("AQL_LIVE_TEST") != "1" {
+		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
+	}
+
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		t.Skip("ANTHROPIC_API_KEY not set, skipping integration test")
+		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
 	workDir := t.TempDir()
@@ -55,7 +59,6 @@ func TestRunnerIntegration_StreamsFromAPI(t *testing.T) {
 	assert.True(t, gotDone, "should receive Done event")
 	assert.True(t, len(chunks) > 0, "should receive at least one text chunk")
 
-	// Reassemble full response
 	var full string
 	for _, c := range chunks {
 		full += c

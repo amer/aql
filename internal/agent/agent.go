@@ -7,6 +7,7 @@ import (
 
 	"github.com/amer/aql/internal/memory"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // Agent represents a single coding agent with its config, memory, and context.
@@ -33,11 +34,34 @@ func New(cfg Config, workDir string) (*Agent, error) {
 		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
 	}
 
+	return newAgent(cfg, memManager, claudeMD, anthropic.NewClient())
+}
+
+// NewWithBaseURL creates an agent that uses a custom API base URL.
+// Useful for testing with a fake HTTP server.
+func NewWithBaseURL(cfg Config, workDir string, baseURL string) (*Agent, error) {
+	slog.Debug("creating agent with custom base URL", "agent", cfg.Name, "baseURL", baseURL)
+
+	claudeMD := CollectClaudeMD(workDir)
+
+	memManager, err := memory.NewManager(cfg.Name, workDir)
+	if err != nil {
+		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
+	}
+
+	client := anthropic.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("test-key"),
+	)
+	return newAgent(cfg, memManager, claudeMD, client)
+}
+
+func newAgent(cfg Config, memManager *memory.Manager, claudeMD string, client anthropic.Client) (*Agent, error) {
 	a := &Agent{
 		config:     cfg,
 		memManager: memManager,
 		claudeMD:   claudeMD,
-		client:     anthropic.NewClient(),
+		client:     client,
 	}
 	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD)
 
