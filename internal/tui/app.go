@@ -68,6 +68,14 @@ type AgentToolCallMsg struct {
 	ToolCall  ToolCall
 }
 
+// AgentAskUserMsg is sent when the agent uses ask_user to request user input.
+// The TUI shows the question and sends the user's answer back via ResponseCh.
+type AgentAskUserMsg struct {
+	AgentName  string
+	Question   string
+	ResponseCh chan<- string
+}
+
 // ModelSelectedMsg is emitted when the user selects a model via /model <name>.
 // The main app should persist this selection and reconfigure agents.
 type ModelSelectedMsg struct {
@@ -122,10 +130,11 @@ type Model struct {
 	modelPickerIdx     int
 	modelPickerInput   string
 	spinnerType        SpinnerType
-	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
-	cancelStream       func()      // cancels the in-flight API call context
-	selection          Selection   // mouse text selection state
-	viewLines          []string    // plain text lines from last render (for selection extraction)
+	modelTiers         []ModelTier      // dynamic model tiers from API; nil = use defaults
+	cancelStream       func()           // cancels the in-flight API call context
+	selection          Selection        // mouse text selection state
+	viewLines          []string         // plain text lines from last render (for selection extraction)
+	pendingQuestion    *AgentAskUserMsg // non-nil when agent is waiting for user answer
 }
 
 // NewModel creates the initial TUI model.
@@ -391,6 +400,18 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, resultCmd
 	}
 
+	// Answer a pending ask_user question
+	if m.pendingQuestion != nil {
+		answer := strings.TrimSpace(cmd)
+		m.chat = append(m.chat, ChatEntry{Type: EntryUserInput, Content: answer})
+		m.inputBuf.Clear()
+		m.scrollToBottom()
+		responseCh := m.pendingQuestion.ResponseCh
+		m.pendingQuestion = nil
+		go func() { responseCh <- answer }()
+		return m, nil
+	}
+
 	// ! bash mode
 	if IsBashCommand(input) {
 		shellCmd := ParseBashCommand(input)
@@ -543,6 +564,15 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Type:      EntryAgentTool,
 			AgentName: msg.AgentName,
 			ToolCall:  &msg.ToolCall,
+		})
+		m.autoScroll()
+
+	case AgentAskUserMsg:
+		m.pendingQuestion = &msg
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: "❓ " + msg.Question,
+			Status:  AgentWaiting,
 		})
 		m.autoScroll()
 	}

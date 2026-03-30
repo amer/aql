@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-)
+import "github.com/charmbracelet/lipgloss"
 
 // RenderPrompt renders the input prompt with ❯ prefix.
 // The input parameter should already include cursor rendering.
@@ -13,36 +9,11 @@ func RenderPrompt(input string, width int) string {
 	return cursor + input
 }
 
-// renderPromptFrame renders the separator-wrapped prompt area.
+// renderPromptFrame renders the prompt area with a project badge.
 // content is the middle line (prompt input or spinner).
 func renderPromptFrame(content string, projectName string, width int) string {
-	var b strings.Builder
-
-	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
 	badgeStyle := lipgloss.NewStyle().Foreground(mutedColor)
-
-	// Top separator: ────────── project-name ──
-	badge := badgeStyle.Render(projectName)
-	badgeWidth := lipgloss.Width(badge)
-	trailWidth := 2
-	leadWidth := width - badgeWidth - trailWidth - 2 // 2 spaces around badge
-	if leadWidth < 1 {
-		leadWidth = 1
-	}
-	topLine := lineStyle.Render(strings.Repeat("─", leadWidth)) +
-		" " + badge + " " +
-		lineStyle.Render(strings.Repeat("─", trailWidth))
-	b.WriteString(topLine)
-	b.WriteString("\n")
-
-	// Content line
-	b.WriteString(content)
-	b.WriteString("\n")
-
-	// Bottom separator
-	b.WriteString(lineStyle.Render(strings.Repeat("─", width)))
-
-	return b.String()
+	return badgeStyle.Render(projectName) + "\n" + content
 }
 
 // RenderPromptArea renders the full prompt area matching Claude Code's layout.

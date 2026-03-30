@@ -966,16 +966,16 @@ func TestIntegration_SelectionHighlightInView(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
 
-	// Start selection (drag in progress — not released yet)
+	// Start selection on the agent header line (● coder)
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 5,
+		X:      0, Y: 4,
 	})
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 5,
+		X:      10, Y: 4,
 	})
 
 	view := m.View()
@@ -996,25 +996,25 @@ func TestIntegration_SelectionReleaseCopiesText(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
 
-	// Press starts selection and snapshots viewLines
+	// Press starts selection on the agent header line
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 5,
+		X:      0, Y: 4,
 	})
 
 	// Drag
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 5,
+		X:      10, Y: 4,
 	})
 
 	// Release should produce a clipboard command
 	_, cmd := applyMsgCmd(m, tea.MouseMsg{
 		Button: tea.MouseButtonNone,
 		Action: tea.MouseActionRelease,
-		X:      10, Y: 5,
+		X:      10, Y: 4,
 	})
 
 	// The command should not be nil if text was extracted
