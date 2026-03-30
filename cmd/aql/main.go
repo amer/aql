@@ -215,7 +215,10 @@ func run() error {
 		slog.Info("agent recreated with new model", "model", modelID)
 	})
 
-	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Note: mouse tracking (WithMouseCellMotion/WithMouseAllMotion) is intentionally
+	// omitted so users can select and copy text from the terminal natively.
+	// Scrolling is handled via keyboard: up/down arrows and pgup/pgdown.
+	program = tea.NewProgram(model, tea.WithAltScreen())
 
 	// Cancel background work when the TUI exits
 	bgCtx, bgCancel := context.WithCancel(context.Background())

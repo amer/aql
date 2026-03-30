@@ -548,54 +548,54 @@ func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {
 	assert.Contains(t, plain, "Line-0", "should show earlier messages when scrolled up")
 }
 
-// --- Mouse scroll tests ---
+// --- Keyboard scroll tests (mouse tracking disabled for native text selection) ---
 
-func TestScrollOffset_MouseWheelUpScrollsUp(t *testing.T) {
+func TestScrollOffset_ShiftUpKeyScrollsUp(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = fillChat(m, 50)
 
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	assert.Greater(t, m.ScrollOffset(), 0, "mouse wheel up should scroll up")
+	m = applyKey(m, "shift+up")
+	assert.Greater(t, m.ScrollOffset(), 0, "shift+up should scroll up")
 }
 
-func TestScrollOffset_MouseWheelDownScrollsDown(t *testing.T) {
+func TestScrollOffset_ShiftDownKeyScrollsDown(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = fillChat(m, 50)
 
 	// Scroll up first
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = applyKey(m, "shift+up")
+	m = applyKey(m, "shift+up")
+	m = applyKey(m, "shift+up")
 	offsetAfterUp := m.ScrollOffset()
 
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
-	assert.Less(t, m.ScrollOffset(), offsetAfterUp, "mouse wheel down should scroll down")
+	m = applyKey(m, "shift+down")
+	assert.Less(t, m.ScrollOffset(), offsetAfterUp, "shift+down should scroll down")
 }
 
-func TestScrollOffset_MouseWheelDownClampedAtBottom(t *testing.T) {
+func TestScrollOffset_ShiftDownClampedAtBottom(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = fillChat(m, 50)
 
 	// Already at bottom
-	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
-	assert.Equal(t, 0, m.ScrollOffset(), "mouse wheel down at bottom should stay at 0")
+	m = applyKey(m, "shift+down")
+	assert.Equal(t, 0, m.ScrollOffset(), "shift+down at bottom should stay at 0")
 }
 
-func TestScrollOffset_MouseWheelUpClampedAtTop(t *testing.T) {
+func TestScrollOffset_ShiftUpClampedAtTop(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = fillChat(m, 5) // few messages
 
 	// Scroll up way past content
 	for range 50 {
-		m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+		m = applyKey(m, "shift+up")
 	}
 
 	view := m.View()
-	assert.NotEmpty(t, view, "should render without panic when over-scrolled via mouse")
+	assert.NotEmpty(t, view, "should render without panic when over-scrolled via keyboard")
 }
 
 // --- Up/Down arrow controls history, not scroll ---
