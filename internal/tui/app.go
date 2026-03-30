@@ -2,11 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"os/user"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// Version is the application version, set at build time via ldflags.
+var Version = "dev"
 
 // ChatEntry represents a single item in the scrolling chat log.
 type ChatEntry struct {
@@ -125,6 +129,7 @@ type Model struct {
 	paletteVisible     bool
 	paletteSelected    int
 	paletteFiltered    []Command
+	paletteMaxItems    int // high-water mark: max items shown during this palette session
 	onModelSelected    func(modelID string)
 	modelPickerVisible bool
 	modelPickerIdx     int
@@ -135,6 +140,11 @@ type Model struct {
 	selection          Selection        // mouse text selection state
 	viewLines          []string         // plain text lines from last render (for selection extraction)
 	pendingQuestion    *AgentAskUserMsg // non-nil when agent is waiting for user answer
+	transcriptMode     bool             // Ctrl+O: expand all tools, enable search
+	tsSearching        bool             // actively typing a search query in transcript mode
+	tsSearchQuery      string           // current transcript search query
+	tsMatches          []int            // block indices matching the search
+	tsMatchIdx         int              // current match index
 }
 
 // NewModel creates the initial TUI model.
@@ -160,6 +170,22 @@ func (m *Model) SetModelName(name string) {
 // SetProjectPath sets the project path shown in the header.
 func (m *Model) SetProjectPath(path string) {
 	m.projectPath = path
+}
+
+// welcomeData builds the WelcomeData struct from the current model state.
+func (m Model) welcomeData() WelcomeData {
+	username := ""
+	if u, err := user.Current(); err == nil {
+		username = u.Username
+	}
+	return WelcomeData{
+		AppName:     "AQL",
+		Version:     Version,
+		ProjectPath: m.projectPath,
+		ModelName:   m.modelName,
+		Username:    username,
+		Width:       m.width,
+	}
 }
 
 // SetOnBash sets the callback for executing ! bash commands.
@@ -303,6 +329,37 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Transcript search mode intercept
+	if m.tsSearching {
+		return m.handleTranscriptSearchKey(msg)
+	}
+	if m.transcriptMode && !m.tsSearching {
+		switch msg.String() {
+		case "/":
+			m.tsSearching = true
+			m.tsSearchQuery = ""
+			return m, nil
+		case "n":
+			if len(m.tsMatches) > 0 {
+				m.tsMatchIdx = (m.tsMatchIdx + 1) % len(m.tsMatches)
+				m.scrollToTranscriptMatch()
+			}
+			return m, nil
+		case "N":
+			if len(m.tsMatches) > 0 {
+				m.tsMatchIdx = (m.tsMatchIdx - 1 + len(m.tsMatches)) % len(m.tsMatches)
+				m.scrollToTranscriptMatch()
+			}
+			return m, nil
+		case "esc":
+			m.transcriptMode = false
+			m.tsSearchQuery = ""
+			m.tsMatches = nil
+			m.tsMatchIdx = 0
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "ctrl+c", "ctrl+d":
 		if m.streaming && m.cancelStream != nil {
@@ -314,6 +371,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.paletteVisible = false
 			m.paletteSelected = 0
 			m.inputBuf.Clear()
+		} else if m.streaming {
+			if m.cancelStream != nil {
+				m.cancelStream()
+			}
+			m.streaming = false
+			m.chat = append(m.chat, ChatEntry{
+				Type:    EntryAgentStatus,
+				Content: "Interrupted",
+				Status:  AgentError,
+			})
+			m.autoScroll()
 		}
 	case "tab":
 		if m.paletteVisible && len(m.paletteFiltered) > 0 {
@@ -344,6 +412,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.updatePalette()
 	case "alt+p":
 		m.openModelPicker()
+	case "ctrl+o":
+		m.transcriptMode = !m.transcriptMode
 	case "shift+up":
 		m.scrollUp(3)
 	case "shift+down":
@@ -401,14 +471,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	if m.streaming {
-		return m, nil
-	}
-	if result, resultCmd := m.executeCommand(cmd); result != "" {
-		return m, resultCmd
-	}
-
-	// Answer a pending ask_user question
+	// Answer a pending ask_user question — always allowed, even during streaming.
 	if m.pendingQuestion != nil {
 		answer := strings.TrimSpace(cmd)
 		m.chat = append(m.chat, ChatEntry{Type: EntryUserInput, Content: answer})
@@ -418,6 +481,13 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		m.pendingQuestion = nil
 		go func() { responseCh <- answer }()
 		return m, nil
+	}
+
+	if m.streaming {
+		return m, nil
+	}
+	if result, resultCmd := m.executeCommand(cmd); result != "" {
+		return m, resultCmd
 	}
 
 	// ! bash mode
@@ -633,7 +703,7 @@ func (m *Model) scrollDown(delta int) {
 
 // visibleHeight returns the number of content lines visible in the chat area.
 func (m Model) visibleHeight() int {
-	header := RenderHeader(m.projectPath, m.modelName, m.width)
+	header := RenderWelcome(m.welcomeData())
 	headerLines := strings.Count(header, "\n") + 1
 	reservedLines := headerLines + 4 // prompt + status bar + padding
 	h := m.height - reservedLines
@@ -694,9 +764,14 @@ func (m *Model) updatePalette() {
 		if m.paletteSelected >= len(m.paletteFiltered) {
 			m.paletteSelected = 0
 		}
+		// Track high-water mark so the palette area never shrinks while typing
+		if len(m.paletteFiltered) > m.paletteMaxItems {
+			m.paletteMaxItems = len(m.paletteFiltered)
+		}
 	} else {
 		m.paletteVisible = false
 		m.paletteSelected = 0
+		m.paletteMaxItems = 0
 	}
 }
 
@@ -776,15 +851,16 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 func (m Model) View() string {
 	var b strings.Builder
 
-	// Header
-	header := RenderHeader(m.projectPath, m.modelName, m.width)
+	// Welcome box
+	header := RenderWelcome(m.welcomeData())
 	b.WriteString(header)
 	b.WriteString("\n\n")
 
-	// Render all chat entries
+	// Render chat as transcript blocks
 	var chatLines []string
-	for _, entry := range m.chat {
-		chatLines = append(chatLines, RenderChatEntry(entry, m.width))
+	blocks := BuildTranscriptBlocks(m.chat)
+	for _, block := range blocks {
+		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.transcriptMode))
 	}
 
 	// Calculate visible area
@@ -848,6 +924,10 @@ func (m Model) View() string {
 	if m.paletteVisible && len(m.paletteFiltered) > 0 {
 		b.WriteString("\n")
 		b.WriteString(RenderCommandPalette(m.paletteFiltered, m.paletteSelected, m.width))
+		// Pad with empty lines to maintain high-water mark height (prevents prompt bounce)
+		for i := len(m.paletteFiltered); i < m.paletteMaxItems; i++ {
+			b.WriteString("\n")
+		}
 	}
 
 	// Model picker (below prompt)
@@ -913,6 +993,67 @@ func (m Model) Chat() []ChatEntry {
 	return m.chat
 }
 
+// IsTranscriptMode returns whether transcript mode is active (for testing).
+func (m Model) IsTranscriptMode() bool {
+	return m.transcriptMode
+}
+
+// TranscriptSearchQuery returns the current transcript search query (for testing).
+func (m Model) TranscriptSearchQuery() string {
+	return m.tsSearchQuery
+}
+
+// TranscriptMatches returns the current search match indices (for testing).
+func (m Model) TranscriptMatches() []int {
+	return m.tsMatches
+}
+
+// TranscriptMatchIdx returns the current match cursor index (for testing).
+func (m Model) TranscriptMatchIdx() int {
+	return m.tsMatchIdx
+}
+
+// handleTranscriptSearchKey handles keystrokes while typing a search query.
+func (m Model) handleTranscriptSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.tsSearching = false
+		blocks := BuildTranscriptBlocks(m.chat)
+		m.tsMatches = SearchTranscriptBlocks(blocks, m.tsSearchQuery)
+		m.tsMatchIdx = 0
+		if len(m.tsMatches) > 0 {
+			m.scrollToTranscriptMatch()
+		}
+	case "esc":
+		m.tsSearching = false
+		m.tsSearchQuery = ""
+		m.tsMatches = nil
+	case "backspace":
+		if len(m.tsSearchQuery) > 0 {
+			m.tsSearchQuery = m.tsSearchQuery[:len(m.tsSearchQuery)-1]
+		}
+	default:
+		// Only accept printable runes
+		for _, r := range msg.String() {
+			if r >= ' ' {
+				m.tsSearchQuery += string(r)
+			}
+		}
+	}
+	return m, nil
+}
+
+// scrollToTranscriptMatch scrolls the view to center the current search match.
+func (m *Model) scrollToTranscriptMatch() {
+	if len(m.tsMatches) == 0 {
+		return
+	}
+	// Approximate: scroll to bottom then let the user navigate
+	// A proper implementation would compute the line offset of the matched block,
+	// but that requires rendering. For now, scroll to bottom as a simple approach.
+	m.scrollToBottom()
+}
+
 // Input returns the current input text (for testing).
 func (m Model) Input() string {
 	return m.inputBuf.String()
@@ -932,6 +1073,11 @@ func (m Model) IsStreaming() bool {
 // HasSelection returns whether a text selection is active (for testing).
 func (m Model) HasSelection() bool {
 	return m.selection.Active()
+}
+
+// HasPendingQuestion returns whether the model is waiting for a user answer (for testing).
+func (m Model) HasPendingQuestion() bool {
+	return m.pendingQuestion != nil
 }
 
 // IsPaletteVisible returns whether the command palette is visible (for testing).

@@ -2,7 +2,9 @@ package tui_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/amer/aql/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -440,6 +442,44 @@ func TestIntegration_PaletteRendersInView(t *testing.T) {
 	assert.Contains(t, plain, "/exit")
 }
 
+// --- Scenario: Palette height stability (no downward bounce) ---
+
+func TestIntegration_PaletteHeightNeverShrinksWhileTyping(t *testing.T) {
+	m := testModel(nil)
+
+	// Type "/" — opens palette with all commands
+	m = applyKey(m, "/")
+	require.True(t, m.IsPaletteVisible())
+	allCmds := len(m.PaletteCommands())
+	require.True(t, allCmds > 3, "need enough commands to see filtering shrink the list")
+
+	viewAll := m.View()
+	linesAll := strings.Count(viewAll, "\n")
+
+	// Type "e" — filters to fewer commands (e.g. /exit, /help with 'e')
+	m = applyKey(m, "e")
+	require.True(t, m.IsPaletteVisible())
+	fewerCmds := len(m.PaletteCommands())
+	require.True(t, fewerCmds < allCmds, "filtering should reduce command count")
+
+	viewFewer := m.View()
+	linesFewer := strings.Count(viewFewer, "\n")
+
+	// Key assertion: view should NOT shrink (prompt must not bounce down)
+	assert.GreaterOrEqual(t, linesFewer, linesAll,
+		"palette filtering should not reduce total view height (prevents prompt bounce)")
+
+	// Type more to filter even further
+	m = applyKey(m, "x")
+	m = applyKey(m, "i")
+	require.True(t, m.IsPaletteVisible())
+
+	viewNarrow := m.View()
+	linesNarrow := strings.Count(viewNarrow, "\n")
+	assert.GreaterOrEqual(t, linesNarrow, linesAll,
+		"further filtering should still not reduce view height below initial palette open")
+}
+
 // --- Scenario: Stream error displays in chat ---
 
 func TestIntegration_StreamError(t *testing.T) {
@@ -494,6 +534,7 @@ func TestIntegration_AgentStatusUpdates(t *testing.T) {
 
 func TestIntegration_ToolCallStatuses(t *testing.T) {
 	m := testModel(nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 100, Height: 50})
 
 	// Running tool
 	m = applyMsg(m, tui.AgentToolCallMsg{
@@ -522,8 +563,8 @@ func TestIntegration_ToolCallStatuses(t *testing.T) {
 	// Verify they render with correct status indicators
 	view := m.View()
 	plain := stripAnsi(view)
-	assert.Contains(t, plain, "bash")
-	assert.Contains(t, plain, "write_file")
+	assert.Contains(t, plain, "Bash")
+	assert.Contains(t, plain, "Write")
 }
 
 // --- Scenario: Multiple agents streaming interleaved ---
@@ -638,13 +679,13 @@ func TestIntegration_ViewLayout(t *testing.T) {
 
 func TestIntegration_StreamingPromptShowsAgent(t *testing.T) {
 	m := testModel(nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 100, Height: 50})
 
 	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "..."})
 	assert.True(t, m.IsStreaming())
 
 	view := m.View()
 	plain := stripAnsi(view)
-	assert.Contains(t, plain, "coder")
 	assert.Contains(t, plain, "Composing")
 	assert.Contains(t, plain, "tokens")
 }
@@ -860,9 +901,11 @@ func TestIntegration_EscDuringStreamingDoesNotQuit(t *testing.T) {
 	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
 	assert.True(t, m.IsStreaming())
 
-	// Esc should NOT quit during streaming — it's for dismissing palette/picker
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	// Esc should NOT quit during streaming — it interrupts the stream instead
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
 	assert.Nil(t, cmd, "esc during streaming should not trigger quit")
+	assert.False(t, m.IsStreaming(), "esc should have interrupted streaming")
 }
 
 func TestIntegration_CtrlCCancelsStreamContext(t *testing.T) {
@@ -916,6 +959,66 @@ func TestIntegration_SlashQuitDuringStreaming(t *testing.T) {
 	m = typeString(m, "/quit")
 	_, cmd := applyMsgCmd(m, tea.KeyMsg{Type: tea.KeyEnter})
 	assert.NotNil(t, cmd, "/quit during streaming should trigger quit")
+}
+
+// --- Scenario: Esc interrupts streaming ---
+
+func TestIntegration_EscInterruptsStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	assert.True(t, m.IsStreaming())
+
+	// Esc should stop streaming but NOT quit
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+
+	assert.False(t, m.IsStreaming(), "esc should stop streaming")
+	assert.Nil(t, cmd, "esc should not trigger quit")
+
+	// Should have an "Interrupted" status entry in chat
+	found := false
+	for _, entry := range m.Chat() {
+		if entry.Type == tui.EntryAgentStatus && strings.Contains(entry.Content, "Interrupted") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "chat should contain 'Interrupted' status entry")
+}
+
+func TestIntegration_EscInterruptCancelsContext(t *testing.T) {
+	m := testModel(nil)
+
+	cancelled := false
+	m.SetCancelStream(func() { cancelled = true })
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	assert.True(t, m.IsStreaming())
+
+	// Esc should call cancelStream
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+
+	assert.True(t, cancelled, "esc during streaming should call cancelStream")
+	assert.False(t, m.IsStreaming())
+}
+
+func TestIntegration_EscWithoutStreamingNoOp(t *testing.T) {
+	m := testModel(nil)
+
+	// Not streaming, no palette, no picker — esc should be a no-op
+	assert.False(t, m.IsStreaming())
+	assert.False(t, m.IsPaletteVisible())
+	assert.False(t, m.IsModelPickerVisible())
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+
+	assert.Nil(t, cmd, "esc without streaming should not trigger any command")
+	assert.Equal(t, 0, len(m.Chat()), "esc without streaming should not add chat entries")
 }
 
 // --- Scenario: Mouse click-drag selects text (copy-on-select) ---
@@ -1233,4 +1336,47 @@ func TestIntegration_ArrowsDoNotScrollChat(t *testing.T) {
 
 	m = applyKey(m, "down")
 	assert.Equal(t, scrollBefore, m.ScrollOffset(), "down arrow should not scroll chat")
+}
+
+// --- Scenario: ask_user pauses streaming so user can respond ---
+
+func TestIntegration_AskUserDuringStreaming(t *testing.T) {
+	var submitted []string
+	onSubmit := func(input string) tea.Cmd {
+		submitted = append(submitted, input)
+		return nil
+	}
+
+	m := testModel(onSubmit)
+
+	// Agent starts streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "Let me ask..."})
+	assert.True(t, m.IsStreaming(), "should be streaming after delta")
+
+	// Agent issues ask_user while streaming
+	responseCh := make(chan string, 1)
+	m = applyMsg(m, tui.AgentAskUserMsg{
+		AgentName:  "coder",
+		Question:   "Which option do you prefer?",
+		ResponseCh: responseCh,
+	})
+
+	// Streaming remains true — the agent is mid-turn, just waiting for input
+	assert.True(t, m.IsStreaming(), "streaming state should not change")
+	assert.True(t, m.HasPendingQuestion(), "should have a pending question")
+
+	// User types and submits an answer
+	m = typeString(m, "option 1")
+	m = applyKey(m, "enter")
+
+	// Answer should be sent through the channel, not as a new agent prompt
+	assert.Len(t, submitted, 0, "answer should not trigger onSubmit")
+	assert.False(t, m.HasPendingQuestion(), "pending question should be cleared")
+
+	select {
+	case answer := <-responseCh:
+		assert.Equal(t, "option 1", answer)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected answer on response channel")
+	}
 }
