@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"time"
@@ -17,11 +18,15 @@ type Manager struct {
 // NewManager creates a memory manager for the given agent.
 // The dir is used to store the shared memory file on disk.
 func NewManager(agentID string, dir string) (*Manager, error) {
+	slog.Debug("initializing memory manager", "agentID", agentID, "dir", dir)
+
 	shared, err := NewShared(filepath.Join(dir, agentID+"_shared.json"))
 	if err != nil {
+		slog.Error("failed to init shared memory", "agentID", agentID, "error", err)
 		return nil, err
 	}
 
+	slog.Debug("memory manager ready", "agentID", agentID)
 	return &Manager{
 		agentID:   agentID,
 		shortTerm: NewShortTerm(),
@@ -59,6 +64,8 @@ func (m *Manager) Query(queryEmbedding []float32, topK int) []Entry {
 	sharedEntries, _ := m.shared.List("")
 	all = append(all, sharedEntries...)
 
+	slog.Debug("memory query", "agentID", m.agentID, "topK", topK, "shortTerm", len(shortTermEntries), "shared", len(sharedEntries))
+
 	type scored struct {
 		entry Entry
 		score float64
@@ -80,6 +87,10 @@ func (m *Manager) Query(queryEmbedding []float32, topK int) []Entry {
 	result := make([]Entry, topK)
 	for i := 0; i < topK; i++ {
 		result[i] = ranked[i].entry
+	}
+
+	if len(result) > 0 {
+		slog.Debug("memory query results", "agentID", m.agentID, "returned", len(result), "topScore", ranked[0].score)
 	}
 	return result
 }

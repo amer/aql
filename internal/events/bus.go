@@ -1,6 +1,7 @@
 package events
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -38,6 +39,7 @@ func (b *Bus) Subscribe(eventType string, h Handler) int {
 		id:      b.nextID,
 		handler: h,
 	})
+	slog.Debug("event subscription added", "eventType", eventType, "subscriptionID", b.nextID)
 	return b.nextID
 }
 
@@ -66,6 +68,8 @@ func (b *Bus) Publish(e Event) {
 	subs := make([]subscription, len(b.subscribers[e.Type]))
 	copy(subs, b.subscribers[e.Type])
 	b.mu.Unlock()
+
+	slog.Debug("event published", "eventType", e.Type, "agentID", e.AgentID, "subscribers", len(subs))
 
 	for _, s := range subs {
 		s.handler(e)

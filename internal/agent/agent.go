@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/amer/aql/internal/memory"
@@ -21,10 +22,14 @@ type Agent struct {
 // New creates an agent from config. It loads CLAUDE.md from workDir
 // and initializes memory.
 func New(cfg Config, workDir string) (*Agent, error) {
+	slog.Debug("creating agent", "agent", cfg.Name, "role", cfg.Role, "workDir", workDir)
+
 	claudeMD := CollectClaudeMD(workDir)
+	slog.Debug("loaded CLAUDE.md", "agent", cfg.Name, "length", len(claudeMD))
 
 	memManager, err := memory.NewManager(cfg.Name, workDir)
 	if err != nil {
+		slog.Error("failed to init memory", "agent", cfg.Name, "error", err)
 		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
 	}
 
@@ -36,6 +41,7 @@ func New(cfg Config, workDir string) (*Agent, error) {
 	}
 	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD)
 
+	slog.Info("agent created", "agent", cfg.Name, "promptLength", len(a.systemPrompt))
 	return a, nil
 }
 

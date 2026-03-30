@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -22,9 +24,14 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 	go func() {
 		defer close(ch)
 
+		slog.Debug("agent run started", "agent", a.config.Name, "messageLength", len(userMessage))
+		start := time.Now()
+
 		a.history = append(a.history, anthropic.NewUserMessage(
 			anthropic.NewTextBlock(userMessage),
 		))
+
+		slog.Debug("starting API stream", "agent", a.config.Name, "model", string(anthropic.ModelClaudeSonnet4_20250514), "historyLength", len(a.history))
 
 		stream := a.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 			Model:     anthropic.ModelClaudeSonnet4_20250514,
@@ -36,6 +43,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		})
 
 		var fullResponse string
+		chunks := 0
 		for stream.Next() {
 			evt := stream.Current()
 			switch variant := evt.AsAny().(type) {
@@ -43,6 +51,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				switch delta := variant.Delta.AsAny().(type) {
 				case anthropic.TextDelta:
 					fullResponse += delta.Text
+					chunks++
 					ch <- StreamEvent{
 						AgentName: a.config.Name,
 						Text:      delta.Text,
@@ -52,6 +61,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		}
 
 		if err := stream.Err(); err != nil {
+			slog.Error("API stream error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "chunksReceived", chunks)
 			ch <- StreamEvent{
 				AgentName: a.config.Name,
 				Error:     err,
@@ -63,6 +73,8 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		a.history = append(a.history, anthropic.NewAssistantMessage(
 			anthropic.NewTextBlock(fullResponse),
 		))
+
+		slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "responseLength", len(fullResponse), "chunks", chunks)
 
 		ch <- StreamEvent{
 			AgentName: a.config.Name,

@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/amer/aql/internal/agent"
@@ -43,6 +44,7 @@ func (o *Orchestrator) WorkflowName() string {
 
 // RegisterAgent adds an agent to the orchestrator's registry.
 func (o *Orchestrator) RegisterAgent(a *agent.Agent) {
+	slog.Info("registering agent", "agent", a.Name(), "workflow", o.workflow.Name)
 	o.registry.Register(a)
 }
 
@@ -71,12 +73,14 @@ func (o *Orchestrator) Status() Status {
 func (o *Orchestrator) setStatus(s Status) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	slog.Debug("orchestrator status change", "workflow", o.workflow.Name, "from", string(o.status), "to", string(s))
 	o.status = s
 }
 
 // Start begins workflow execution. Returns a channel that receives
 // an error (or nil) when the orchestrator stops.
 func (o *Orchestrator) Start(ctx context.Context) <-chan error {
+	slog.Info("starting orchestrator", "workflow", o.workflow.Name, "agents", len(o.registry.List()))
 	errCh := make(chan error, 1)
 	o.setStatus(StatusRunning)
 
