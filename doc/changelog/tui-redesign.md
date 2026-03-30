@@ -46,6 +46,11 @@ a dashboard panel layout to a scrolling chat interface.
 - Warning amber: `#D4A843`
 - Error red: `#D9534F`
 
+### Command Palette Position
+
+- Palette now renders **below** the prompt (matching Claude Code behavior)
+- Previously rendered above — fixed after visual comparison with Claude Code
+
 ### Dependencies Added
 
 - `github.com/charmbracelet/glamour` — terminal markdown rendering
