@@ -31,10 +31,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			anthropic.NewTextBlock(userMessage),
 		))
 
-		slog.Debug("starting API stream", "agent", a.config.Name, "model", string(anthropic.ModelClaudeSonnet4_20250514), "historyLength", len(a.history))
+		model := ResolveModel(a.config.Model)
+		slog.Debug("starting API stream", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history))
 
 		stream := a.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
-			Model:     anthropic.ModelClaudeSonnet4_20250514,
+			Model:     model,
 			MaxTokens: 4096,
 			System: []anthropic.TextBlockParam{
 				{Text: a.systemPrompt},

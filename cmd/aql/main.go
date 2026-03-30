@@ -70,9 +70,10 @@ func run() error {
 		}
 	}
 
+	resolvedModel := string(agent.ResolveModel(""))
 	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
 	model.SetProjectPath(workDir)
-	model.SetModelName("claude-sonnet-4")
+	model.SetModelName(resolvedModel)
 
 	program = tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()

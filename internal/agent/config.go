@@ -12,6 +12,7 @@ type Config struct {
 	Name         string       `yaml:"name"`
 	Role         string       `yaml:"role"`
 	SystemPrompt string       `yaml:"system_prompt"`
+	Model        string       `yaml:"model"`
 	Tools        []string     `yaml:"tools"`
 	Memory       MemoryConfig `yaml:"memory"`
 	Events       EventsConfig `yaml:"events"`
