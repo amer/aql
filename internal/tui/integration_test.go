@@ -894,6 +894,134 @@ func TestIntegration_CtrlCWithoutStreamingDoesNotCancel(t *testing.T) {
 	assert.NotNil(t, cmd, "ctrl+c should trigger quit")
 }
 
+// --- Scenario: Mouse click-drag selects text (copy-on-select) ---
+
+func TestIntegration_MouseClickStartsSelection(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	// Left click starts selection
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      5, Y: 3,
+	})
+	assert.True(t, m.HasSelection(), "left click should start selection")
+}
+
+func TestIntegration_MouseDragUpdatesSelection(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	// Press then drag
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      0, Y: 3,
+	})
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionMotion,
+		X:      10, Y: 3,
+	})
+	assert.True(t, m.HasSelection(), "drag should maintain selection")
+}
+
+func TestIntegration_MouseReleaseCompletesSelection(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	// Press, drag, release
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      0, Y: 3,
+	})
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionMotion,
+		X:      5, Y: 3,
+	})
+	// Release clears selection (text was copied via OSC 52)
+	m, _ = applyMsgCmd(m, tea.MouseMsg{
+		Button: tea.MouseButtonNone,
+		Action: tea.MouseActionRelease,
+		X:      5, Y: 3,
+	})
+	assert.False(t, m.HasSelection(), "release should clear selection after copy")
+}
+
+func TestIntegration_MouseScrollDoesNotStartSelection(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonWheelUp,
+		Action: tea.MouseActionPress,
+	})
+	assert.False(t, m.HasSelection(), "scroll wheel should not start selection")
+}
+
+func TestIntegration_SelectionHighlightInView(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	// Start selection (drag in progress — not released yet)
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      0, Y: 5,
+	})
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionMotion,
+		X:      10, Y: 5,
+	})
+
+	view := m.View()
+	// During active selection, View() should contain reverse-video ANSI escape
+	assert.Contains(t, view, "\x1b[7m", "active selection should render reverse-video highlight")
+}
+
+func TestIntegration_NoHighlightWithoutSelection(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	view := m.View()
+	// No selection active — no reverse video
+	assert.NotContains(t, view, "\x1b[7m", "no selection means no reverse-video highlight")
+}
+
+func TestIntegration_SelectionReleaseCopiesText(t *testing.T) {
+	m := testModel(nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+
+	// Press starts selection and snapshots viewLines
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      0, Y: 5,
+	})
+
+	// Drag
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionMotion,
+		X:      10, Y: 5,
+	})
+
+	// Release should produce a clipboard command
+	_, cmd := applyMsgCmd(m, tea.MouseMsg{
+		Button: tea.MouseButtonNone,
+		Action: tea.MouseActionRelease,
+		X:      10, Y: 5,
+	})
+
+	// The command should not be nil if text was extracted
+	// (exact text depends on view layout, but we verify the cmd exists)
+	assert.NotNil(t, cmd, "release with dragged selection should produce a clipboard command")
+}
+
 // --- Scenario: Paste renders in view ---
 
 func TestIntegration_PasteVisibleInView(t *testing.T) {

@@ -1,6 +1,63 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"regexp"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripAnsiString removes ANSI escape sequences from a string.
+func stripAnsiString(s string) string {
+	return ansiRegexp.ReplaceAllString(s, "")
+}
+
+// highlightLineRange applies ANSI reverse-video (\x1b[7m) to characters at
+// visible columns [fromCol, toCol) in a line that may contain ANSI escapes.
+// If toCol < 0, highlights to end of line.
+func highlightLineRange(line string, fromCol, toCol int) string {
+	var result strings.Builder
+	result.Grow(len(line) + 20)
+	col := 0
+	inHighlight := false
+	i := 0
+
+	for i < len(line) {
+		// Skip ANSI escape sequences without counting them as columns.
+		if line[i] == '\x1b' && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && !((line[j] >= 'A' && line[j] <= 'Z') || (line[j] >= 'a' && line[j] <= 'z')) {
+				j++
+			}
+			if j < len(line) {
+				j++ // include the terminating letter
+			}
+			result.WriteString(line[i:j])
+			i = j
+			continue
+		}
+
+		if col == fromCol && !inHighlight {
+			result.WriteString("\x1b[7m")
+			inHighlight = true
+		}
+		if toCol >= 0 && col == toCol && inHighlight {
+			result.WriteString("\x1b[27m")
+			inHighlight = false
+		}
+
+		result.WriteByte(line[i])
+		i++
+		col++
+	}
+
+	if inHighlight {
+		result.WriteString("\x1b[27m")
+	}
+	return result.String()
+}
 
 var (
 	// Tokyo Night Storm color palette
