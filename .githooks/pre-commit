@@ -13,6 +13,12 @@ if [ -n "$UNFORMATTED" ]; then
     exit 1
 fi
 
+# Markdown lint
+if command -v markdownlint &> /dev/null; then
+    echo "Running markdownlint..."
+    markdownlint '**/*.md' --ignore node_modules
+fi
+
 # Vet
 echo "Running go vet..."
 go vet ./...

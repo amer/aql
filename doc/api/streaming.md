@@ -41,7 +41,7 @@ if err := stream.Err(); err != nil {
 The stream emits server-sent events (SSE). Key event types:
 
 | Event | Description |
-|---|---|
+| --- | --- |
 | `message_start` | Contains the initial `Message` object |
 | `content_block_start` | Start of a content block (text, tool use) |
 | `content_block_delta` | Incremental update to a content block |
@@ -77,5 +77,5 @@ fmt.Println(message.Content[0].Text)
 
 ## Reference
 
-- API docs: https://docs.anthropic.com/en/api/messages-streaming
-- Go SDK: https://github.com/anthropics/anthropic-sdk-go
+- [API docs](https://docs.anthropic.com/en/api/messages-streaming)
+- [Go SDK](https://github.com/anthropics/anthropic-sdk-go)

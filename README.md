@@ -47,7 +47,7 @@ go vet ./...
 
 ## Project Structure
 
-```
+```text
 cmd/aql/           CLI entrypoint
 internal/           Private packages
 scripts/            Utility scripts

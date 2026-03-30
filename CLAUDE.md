@@ -41,7 +41,7 @@ All commit messages MUST follow the Conventional Commits specification.
 
 ### Format
 
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
