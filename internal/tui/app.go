@@ -96,6 +96,7 @@ type Model struct {
 	paletteSelected int
 	paletteFiltered []Command
 	availableModels []ModelOption
+	onModelSelected func(modelID string)
 }
 
 // NewModel creates the initial TUI model.
@@ -124,6 +125,11 @@ func (m *Model) SetProjectPath(path string) {
 // SetAvailableModels sets the list of models shown by /model.
 func (m *Model) SetAvailableModels(models []ModelOption) {
 	m.availableModels = models
+}
+
+// SetOnModelSelected sets a callback invoked when the user switches models.
+func (m *Model) SetOnModelSelected(fn func(modelID string)) {
+	m.onModelSelected = fn
 }
 
 // SetTokenCount sets the token count shown in the status bar.
@@ -283,6 +289,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Status:    msg.Status,
 		})
 		m.scrollToBottom()
+
+	case ModelSelectedMsg:
+		if m.onModelSelected != nil {
+			m.onModelSelected(msg.Model)
+		}
 
 	case AgentToolCallMsg:
 		m.chat = append(m.chat, ChatEntry{
