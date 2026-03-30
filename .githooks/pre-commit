@@ -13,10 +13,12 @@ if [ -n "$UNFORMATTED" ]; then
     exit 1
 fi
 
-# Markdown lint
-if command -v markdownlint &> /dev/null; then
-    echo "Running markdownlint..."
-    markdownlint '**/*.md' --ignore node_modules
+# Format markdown files with prettier
+STAGED_MD=$(git diff --cached --name-only --diff-filter=ACM -- '*.md')
+if [ -n "$STAGED_MD" ]; then
+    echo "Formatting markdown files with prettier..."
+    npx --yes prettier --write $STAGED_MD
+    git add $STAGED_MD
 fi
 
 # Vet
