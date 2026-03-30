@@ -108,8 +108,9 @@ type Model struct {
 	onBash             BashFunc
 	streaming          bool
 	spinnerFrame       int
-	streamStart        time.Time // when current streaming started
-	streamChars        int       // chars received in current stream
+	streamStart        time.Time   // when current streaming started
+	streamChars        int         // chars received in current stream
+	streamPhase        StreamPhase // current streaming phase (requesting/responding)
 	tokenCount         int
 	modelName          string
 	projectPath        string
@@ -123,6 +124,8 @@ type Model struct {
 	spinnerType        SpinnerType
 	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
 	cancelStream       func()      // cancels the in-flight API call context
+	selection          Selection   // mouse text selection state
+	viewLines          []string    // plain text lines from last render (for selection extraction)
 }
 
 // NewModel creates the initial TUI model.
@@ -221,11 +224,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
+		switch {
+		case msg.Button == tea.MouseButtonWheelUp:
 			m.scrollUp(5)
-		case tea.MouseButtonWheelDown:
+		case msg.Button == tea.MouseButtonWheelDown:
 			m.scrollDown(5)
+		case msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress:
+			m.computeViewLines() // snapshot screen content for selection extraction
+			m.selection.Start(msg.X, msg.Y)
+		case msg.Action == tea.MouseActionMotion && m.selection.Active():
+			m.selection.Update(msg.X, msg.Y)
+		case msg.Action == tea.MouseActionRelease && m.selection.Active():
+			m.selection.Update(msg.X, msg.Y)
+			text := m.selection.Extract(m.viewLines)
+			m.selection.Clear()
+			if text != "" {
+				return m, copyToClipboard(text)
+			}
 		}
 		return m, nil
 
@@ -428,6 +443,7 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AgentStreamStartMsg:
 		if !m.streaming {
 			m.startStream()
+			m.streamPhase = PhaseRequesting
 			return m, SpinnerTickFor(m.spinnerType)
 		}
 
@@ -436,6 +452,7 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !wasStreaming {
 			m.startStream()
 		}
+		m.streamPhase = PhaseResponding
 		m.streamChars += len(msg.Delta)
 		// Append to existing agent text entry or create new one
 		if len(m.chat) > 0 {
@@ -600,6 +617,37 @@ func (m *Model) autoScroll() {
 	}
 }
 
+// computeViewLines builds the plain text lines currently visible on screen.
+// Uses the actual View() output so coordinates match exactly what the terminal shows.
+func (m *Model) computeViewLines() {
+	rendered := m.View()
+	lines := strings.Split(rendered, "\n")
+	m.viewLines = make([]string, len(lines))
+	for i, line := range lines {
+		m.viewLines[i] = stripAnsiString(line)
+	}
+}
+
+// applySelectionHighlight overlays reverse-video ANSI on selected characters.
+func (m Model) applySelectionHighlight(view string) string {
+	sx, sy, ex, ey := m.selection.Normalized()
+	lines := strings.Split(view, "\n")
+
+	for y := sy; y <= ey && y < len(lines); y++ {
+		fromCol := 0
+		toCol := -1 // -1 means to end of line
+		if y == sy {
+			fromCol = sx
+		}
+		if y == ey {
+			toCol = ex
+		}
+		lines[y] = highlightLineRange(lines[y], fromCol, toCol)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (m *Model) updatePalette() {
 	input := m.inputBuf.String()
 	if strings.HasPrefix(input, "/") {
@@ -748,6 +796,7 @@ func (m Model) View() string {
 		status := StreamStatus{
 			Elapsed: time.Since(m.streamStart).Truncate(time.Second),
 			Tokens:  EstimateTokens(m.streamChars),
+			Phase:   m.streamPhase,
 		}
 		b.WriteString("\n")
 		b.WriteString(RenderStreamingIndicator(m.spinnerFrame, m.agentName(), status, m.spinnerType))
@@ -772,6 +821,11 @@ func (m Model) View() string {
 	// Status bar
 	b.WriteString("\n")
 	b.WriteString(RenderStatusBar(m.modelName, m.tokenCount, m.width))
+
+	// Apply selection highlight (reverse video) if active
+	if m.selection.Active() {
+		return m.applySelectionHighlight(b.String())
+	}
 
 	return b.String()
 }
@@ -835,6 +889,11 @@ func (m Model) ScrollOffset() int {
 // IsStreaming returns whether the model is currently streaming (for testing).
 func (m Model) IsStreaming() bool {
 	return m.streaming
+}
+
+// HasSelection returns whether a text selection is active (for testing).
+func (m Model) HasSelection() bool {
+	return m.selection.Active()
 }
 
 // IsPaletteVisible returns whether the command palette is visible (for testing).

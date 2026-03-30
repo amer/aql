@@ -5,20 +5,44 @@ import (
 	"time"
 )
 
+// StreamPhase represents the current phase of an API streaming interaction.
+type StreamPhase int
+
+const (
+	// PhaseResponding means tokens are arriving from the API (output).
+	PhaseResponding StreamPhase = iota
+	// PhaseRequesting means tokens are being sent to the API (input).
+	PhaseRequesting
+	// PhaseThinking means the model is thinking (output).
+	PhaseThinking
+	// PhaseToolUse means the model is calling a tool (output).
+	PhaseToolUse
+)
+
+// PhaseArrow returns the arrow direction for a streaming phase.
+// ↑ for requesting (input to API), ↓ for all other phases (output from API).
+func PhaseArrow(p StreamPhase) string {
+	if p == PhaseRequesting {
+		return "↑"
+	}
+	return "↓"
+}
+
 // StreamStatus holds the live stats for a streaming response.
 type StreamStatus struct {
 	Elapsed      time.Duration
 	Tokens       int
 	ThinkingTime time.Duration
+	Phase        StreamPhase
 }
 
 // FormatStreamStatus formats streaming stats like Claude Code:
-// "5s · ↓ 120 tokens" or "33s · ↓ 598 tokens · thought for 1s"
+// Requesting: "3s · ↑ 0 tokens"
+// Responding: "5s · ↓ 120 tokens" or "33s · ↓ 598 tokens · thought for 1s"
 func FormatStreamStatus(s StreamStatus) string {
 	elapsed := formatDuration(s.Elapsed)
-	tokens := FormatTokenCount(s.Tokens) + " tokens"
 
-	result := elapsed + " · ↓ " + tokens
+	result := elapsed + " · " + PhaseArrow(s.Phase) + " " + FormatTokenCount(s.Tokens) + " tokens"
 
 	if s.ThinkingTime > 0 {
 		result += " · thought for " + formatDuration(s.ThinkingTime)

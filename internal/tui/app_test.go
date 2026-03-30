@@ -489,6 +489,30 @@ func TestScrollOffset_StreamingNoAutoScrollWhenScrolledUp(t *testing.T) {
 	assert.Equal(t, offsetBefore, m.ScrollOffset(), "streaming should not auto-scroll when user scrolled up")
 }
 
+func TestStreamPhase_StartShowsUpArrow(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// AgentStreamStartMsg = requesting phase → ↑
+	m = applyMsg(m, tui.AgentStreamStartMsg{AgentName: "coder"})
+	view := m.View()
+	plain := stripAnsi(view)
+	assert.Contains(t, plain, "↑", "start (requesting) phase should show up arrow")
+}
+
+func TestStreamPhase_DeltaSwitchesToDownArrow(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	m = applyMsg(m, tui.AgentStreamStartMsg{AgentName: "coder"})
+	// Delta arrives = responding phase → ↓ with token count
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "hello"})
+	view := m.View()
+	plain := stripAnsi(view)
+	assert.Contains(t, plain, "↓", "responding phase should show down arrow")
+	assert.Contains(t, plain, "tokens", "responding phase should show token count")
+}
+
 func TestScrollOffset_SubmitResetsToBottom(t *testing.T) {
 	submitted := false
 	m := tui.NewModel("test", []string{"coder"}, func(input string) tea.Cmd {

@@ -8,15 +8,57 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStreamStatus_Basic(t *testing.T) {
+func TestStreamStatus_Responding(t *testing.T) {
+	s := tui.StreamStatus{
+		Elapsed: 5 * time.Second,
+		Tokens:  120,
+		Phase:   tui.PhaseResponding,
+	}
+	result := tui.FormatStreamStatus(s)
+	assert.Contains(t, result, "5s")
+	assert.Contains(t, result, "120 tokens")
+	assert.Contains(t, result, "↓", "responding phase shows down arrow (output)")
+}
+
+func TestStreamStatus_Requesting_ShowsZeroTokens(t *testing.T) {
+	s := tui.StreamStatus{
+		Elapsed: 3 * time.Second,
+		Tokens:  0,
+		Phase:   tui.PhaseRequesting,
+	}
+	result := tui.FormatStreamStatus(s)
+	assert.Contains(t, result, "3s", "requesting shows elapsed time")
+	assert.Contains(t, result, "↑", "requesting phase shows up arrow")
+	assert.Contains(t, result, "0 tokens", "requesting phase shows 0 tokens")
+}
+
+func TestStreamStatus_Thinking(t *testing.T) {
+	s := tui.StreamStatus{
+		Elapsed: 10 * time.Second,
+		Tokens:  250,
+		Phase:   tui.PhaseThinking,
+	}
+	result := tui.FormatStreamStatus(s)
+	assert.Contains(t, result, "↓", "thinking phase shows down arrow")
+}
+
+func TestStreamStatus_ToolUse(t *testing.T) {
+	s := tui.StreamStatus{
+		Elapsed: 8 * time.Second,
+		Tokens:  300,
+		Phase:   tui.PhaseToolUse,
+	}
+	result := tui.FormatStreamStatus(s)
+	assert.Contains(t, result, "↓", "tool-use phase shows down arrow")
+}
+
+func TestStreamStatus_DefaultPhaseIsResponding(t *testing.T) {
 	s := tui.StreamStatus{
 		Elapsed: 5 * time.Second,
 		Tokens:  120,
 	}
 	result := tui.FormatStreamStatus(s)
-	assert.Contains(t, result, "5s")
-	assert.Contains(t, result, "120 tokens")
-	assert.Contains(t, result, "↓")
+	assert.Contains(t, result, "↓", "zero-value phase defaults to down arrow")
 }
 
 func TestStreamStatus_WithThinking(t *testing.T) {
@@ -24,6 +66,7 @@ func TestStreamStatus_WithThinking(t *testing.T) {
 		Elapsed:      33 * time.Second,
 		Tokens:       598,
 		ThinkingTime: 1 * time.Second,
+		Phase:        tui.PhaseResponding,
 	}
 	result := tui.FormatStreamStatus(s)
 	assert.Contains(t, result, "33s")
@@ -82,6 +125,14 @@ func TestRenderCompletionIndicator_Short(t *testing.T) {
 	result := tui.RenderCompletionIndicator(3 * time.Second)
 	assert.Contains(t, result, "✻")
 	assert.Contains(t, result, "Crunched for 3s")
+}
+
+func TestPhaseArrow(t *testing.T) {
+	assert.Equal(t, "↑", tui.PhaseArrow(tui.PhaseRequesting))
+	assert.Equal(t, "↓", tui.PhaseArrow(tui.PhaseResponding))
+	assert.Equal(t, "↓", tui.PhaseArrow(tui.PhaseThinking))
+	assert.Equal(t, "↓", tui.PhaseArrow(tui.PhaseToolUse))
+	assert.Equal(t, "↓", tui.PhaseArrow(0), "zero-value defaults to down arrow")
 }
 
 func TestEstimateTokens(t *testing.T) {
