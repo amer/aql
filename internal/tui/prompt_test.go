@@ -34,10 +34,11 @@ func TestRenderPromptSeparatorAbove(t *testing.T) {
 	assert.Contains(t, plain, "❯ test input")
 }
 
-func TestRenderPromptAreaShowsProjectBadge(t *testing.T) {
+func TestRenderPromptAreaShowsBars(t *testing.T) {
 	result := tui.RenderPromptArea("", "my-project", 60)
 	plain := stripAnsi(result)
 	assert.Contains(t, plain, "my-project")
+	assert.Contains(t, plain, "─")
 }
 
 func TestRenderStatusBarClaude(t *testing.T) {
