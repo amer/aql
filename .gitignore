@@ -21,5 +21,8 @@ bin/
 # Secrets
 secrets/
 
+# Qdrant
+.qdrant_storage/
+
 # OS
 .DS_Store

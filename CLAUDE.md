@@ -21,6 +21,10 @@
 ## Rules
 
 - Always use TDD: write failing tests first, then implement code to make them pass, then refactor
+- Follow Functional Core, Imperative Shell: pure functions for logic, thin I/O shell at edges
+- Test logic with high-value unit tests on pure functions — avoid brittle tests that break on refactors
+- Integration tests only at system boundaries (API calls, Qdrant, file system)
+- Commit often: one logical change per commit, after each TDD cycle (test → implement → refactor → commit)
 - Do not use Makefiles
 - Do not create GitHub Actions workflows
 - Use `go` commands directly for build, test, and lint
