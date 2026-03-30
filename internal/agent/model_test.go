@@ -62,6 +62,19 @@ func TestFetchModelsFromFixture(t *testing.T) {
 		assert.NotEmpty(t, m.DisplayName)
 		assert.True(t, m.MaxInputTokens > 0, "model %s should have context window size", m.ID)
 	}
+
+	// Should include 1M context models
+	var foundOpus46 bool
+	for _, m := range models {
+		if m.ID == "claude-opus-4-6-20260301" {
+			foundOpus46 = true
+			assert.Equal(t, int64(1000000), m.MaxInputTokens)
+		}
+	}
+	assert.True(t, foundOpus46, "should include Opus 4.6 with 1M context")
+
+	// Should be sorted newest first
+	assert.Contains(t, models[0].ID, "4-6", "newest models should be first")
 }
 
 func TestFetchModelsLive(t *testing.T) {

@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -18,6 +20,7 @@ type ModelInfo struct {
 	ID             string
 	DisplayName    string
 	MaxInputTokens int64
+	CreatedAt      time.Time
 }
 
 // FetchModels lists available models from the Anthropic API.
@@ -38,21 +41,28 @@ func FetchModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelInfo, e
 func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]ModelInfo, error) {
 	slog.Debug("fetching available models from API")
 
-	page, err := client.Models.List(ctx, anthropic.ModelListParams{
+	pager := client.Models.ListAutoPaging(ctx, anthropic.ModelListParams{
 		Limit: param.NewOpt[int64](100),
 	})
-	if err != nil {
-		return nil, fmt.Errorf("list models: %w", err)
-	}
 
 	var models []ModelInfo
-	for _, m := range page.Data {
+	for pager.Next() {
+		m := pager.Current()
 		models = append(models, ModelInfo{
 			ID:             m.ID,
 			DisplayName:    m.DisplayName,
 			MaxInputTokens: m.MaxInputTokens,
+			CreatedAt:      m.CreatedAt,
 		})
 	}
+	if err := pager.Err(); err != nil {
+		return nil, fmt.Errorf("list models: %w", err)
+	}
+
+	// Sort by newest first
+	sort.Slice(models, func(i, j int) bool {
+		return models[i].CreatedAt.After(models[j].CreatedAt)
+	})
 
 	slog.Debug("fetched models", "count", len(models))
 	return models, nil
