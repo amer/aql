@@ -9,7 +9,7 @@
 
 - `cmd/aql/` — CLI entrypoint
 - `internal/` — private packages
-- `doc/` — documentation (architecture, changelog, mistakes, adr, api)
+- `doc/` — documentation (architecture, changelog, mistakes, adr, api, cli)
 
 ## Commands
 
@@ -32,6 +32,8 @@
 - Use the `run()` pattern in main to allow testable entrypoints
 - Document architecture decisions in `doc/adr/`
 - Record lessons learned in `doc/mistakes/`
+- When introducing or changing CLI commands, document them in `doc/cli/`
+- After changing code, update relevant docs to match — code is the source of truth, not docs
 
 ## Conventional Commits
 

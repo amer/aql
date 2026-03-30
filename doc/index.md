@@ -7,3 +7,4 @@
 - [Mistakes](mistakes/) — lessons learned and post-mortems
 - [ADR](adr/) — architecture decision records
 - [API](api/) — API reference and specifications
+- [CLI](cli/) — frequently used commands and recipes

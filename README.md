@@ -12,6 +12,14 @@ Early development — not yet ready for use.
 
 - Go 1.26.1+
 
+### Environment
+
+```sh
+source scripts/env.sh
+```
+
+This loads the `ANTHROPIC_API_KEY` from `secrets/`. The `secrets/` directory is gitignored.
+
 ### Build
 
 ```sh
