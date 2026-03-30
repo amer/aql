@@ -381,11 +381,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	input := m.inputBuf.String()
-	if input == "" || m.streaming {
+	if input == "" {
 		return m, nil
 	}
 
-	// Resolve command: palette selection takes priority
+	// Resolve command: palette selection takes priority.
 	cmd := strings.TrimSpace(input)
 	if m.paletteVisible && len(m.paletteFiltered) > 0 {
 		cmd = m.paletteFiltered[m.paletteSelected].Name
@@ -393,8 +393,16 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.paletteVisible = false
 	m.paletteSelected = 0
 
+	// Exit commands always work, even during streaming.
 	if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
+		if m.streaming && m.cancelStream != nil {
+			m.cancelStream()
+		}
 		return m, tea.Quit
+	}
+
+	if m.streaming {
+		return m, nil
 	}
 	if result, resultCmd := m.executeCommand(cmd); result != "" {
 		return m, resultCmd

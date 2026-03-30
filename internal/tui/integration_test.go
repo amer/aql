@@ -894,6 +894,30 @@ func TestIntegration_CtrlCWithoutStreamingDoesNotCancel(t *testing.T) {
 	assert.NotNil(t, cmd, "ctrl+c should trigger quit")
 }
 
+func TestIntegration_SlashExitDuringStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	assert.True(t, m.IsStreaming())
+
+	// Type /exit and press enter — should quit even during streaming
+	m = typeString(m, "/exit")
+	_, cmd := applyMsgCmd(m, tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, cmd, "/exit during streaming should trigger quit")
+}
+
+func TestIntegration_SlashQuitDuringStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	assert.True(t, m.IsStreaming())
+
+	m = typeString(m, "/quit")
+	_, cmd := applyMsgCmd(m, tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, cmd, "/quit during streaming should trigger quit")
+}
+
 // --- Scenario: Mouse click-drag selects text (copy-on-select) ---
 
 func TestIntegration_MouseClickStartsSelection(t *testing.T) {
