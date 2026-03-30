@@ -12,7 +12,11 @@ a dashboard panel layout to a scrolling chat interface.
 - Scrolling chat log replaces fixed agent panels
 - User messages display with orange `>` prefix
 - Agent responses stream inline with auto-scroll
+- Manual scroll via Shift+Up/Down (1 line), PageUp/PageDown (half-page), mouse wheel (3 lines)
+- Auto-scroll pauses when user scrolls up; resumes on submit
+- Scroll indicator shows `↑ N more lines below` when scrolled up
 - Multiline input via `Alt+Enter`; `Enter` submits
+- Bracketed paste support: pasted text inserted at cursor position preserving newlines
 
 ### Components
 
@@ -27,7 +31,7 @@ a dashboard panel layout to a scrolling chat interface.
 ### Slash Commands
 
 | Command    | Action                    |
-|------------|---------------------------|
+| ---------- | ------------------------- |
 | `/help`    | Show available commands   |
 | `/exit`    | Exit AQL                  |
 | `/quit`    | Exit AQL                  |

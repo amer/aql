@@ -24,6 +24,7 @@ func SlashCommands() []Command {
 		{Name: "/agents", Description: "List active agents", Action: "agents"},
 		{Name: "/status", Description: "Show workflow status", Action: "status"},
 		{Name: "/model", Description: "List/switch models (e.g. /model sonnet)", Action: "model"},
+		{Name: "/cost", Description: "Show token usage", Action: "cost"},
 		{Name: "/compact", Description: "Compact conversation context", Action: "compact"},
 		{Name: "/spinner", Description: "Cycle spinner animation style", Action: "spinner"},
 	}

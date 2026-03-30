@@ -18,7 +18,8 @@ type Agent struct {
 	systemPrompt string
 	client       anthropic.Client
 	history      []anthropic.MessageParam
-	isOAuth      bool // true when created via OAuth Console login (enables billing header for Opus)
+	isOAuth      bool   // true when created via OAuth Console login (enables billing header for Opus)
+	dir          string // working directory for tool execution
 }
 
 // New creates an agent from config. It loads CLAUDE.md from workDir
@@ -35,7 +36,7 @@ func New(cfg Config, workDir string) (*Agent, error) {
 		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
 	}
 
-	return newAgent(cfg, memManager, claudeMD, anthropic.NewClient())
+	return newAgent(cfg, memManager, claudeMD, anthropic.NewClient(), workDir)
 }
 
 // NewWithOAuthKey creates an agent using an OAuth-issued API key (sk-ant-oat01-*).
@@ -54,7 +55,7 @@ func NewWithOAuthKey(cfg Config, workDir string, apiKey string, baseURL ...strin
 		opts = append(opts, option.WithBaseURL(baseURL[0]))
 	}
 	client := anthropic.NewClient(opts...)
-	a, err := newAgent(cfg, memManager, claudeMD, client)
+	a, err := newAgent(cfg, memManager, claudeMD, client, workDir)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +78,7 @@ func NewWithBearerToken(cfg Config, workDir string, token string, baseURL ...str
 		opts = append(opts, option.WithBaseURL(baseURL[0]))
 	}
 	client := anthropic.NewClient(opts...)
-	return newAgent(cfg, memManager, claudeMD, client)
+	return newAgent(cfg, memManager, claudeMD, client, workDir)
 }
 
 // NewWithBaseURL creates an agent that uses a custom API base URL.
@@ -96,15 +97,16 @@ func NewWithBaseURL(cfg Config, workDir string, baseURL string) (*Agent, error) 
 		option.WithBaseURL(baseURL),
 		option.WithAPIKey("test-key"),
 	)
-	return newAgent(cfg, memManager, claudeMD, client)
+	return newAgent(cfg, memManager, claudeMD, client, workDir)
 }
 
-func newAgent(cfg Config, memManager *memory.Manager, claudeMD string, client anthropic.Client) (*Agent, error) {
+func newAgent(cfg Config, memManager *memory.Manager, claudeMD string, client anthropic.Client, workDir string) (*Agent, error) {
 	a := &Agent{
 		config:     cfg,
 		memManager: memManager,
 		claudeMD:   claudeMD,
 		client:     client,
+		dir:        workDir,
 	}
 	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD)
 

@@ -33,6 +33,11 @@ type AgentOutputMsg struct {
 	Output    string
 }
 
+// AgentStreamStartMsg is sent when the agent starts processing (before API call).
+type AgentStreamStartMsg struct {
+	AgentName string
+}
+
 // AgentStreamDeltaMsg is sent for each streamed text chunk.
 type AgentStreamDeltaMsg struct {
 	AgentName string
@@ -74,6 +79,17 @@ type ModelsLoadedMsg struct {
 	Tiers []ModelTier
 }
 
+// BashResultMsg is sent when a ! bash command completes.
+type BashResultMsg struct {
+	Command string
+	Output  string
+	Error   error
+}
+
+// BashFunc executes a shell command and returns a tea.Cmd with the result.
+// Set by the main app to provide actual shell execution.
+type BashFunc func(command string) tea.Cmd
+
 // SubmitFunc is called when the user submits input. It should return a tea.Cmd
 // that kicks off agent processing.
 type SubmitFunc func(input string) tea.Cmd
@@ -83,13 +99,17 @@ type Model struct {
 	workflowName       string
 	agentNames         []string
 	chat               []ChatEntry
-	input              string
+	inputBuf           *InputBuffer
+	history            *History
 	width              int
 	height             int
 	scrollOffset       int
 	onSubmit           SubmitFunc
+	onBash             BashFunc
 	streaming          bool
 	spinnerFrame       int
+	streamStart        time.Time // when current streaming started
+	streamChars        int       // chars received in current stream
 	tokenCount         int
 	modelName          string
 	projectPath        string
@@ -102,9 +122,6 @@ type Model struct {
 	modelPickerInput   string
 	spinnerType        SpinnerType
 	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
-	bootstrapping      bool        // true while background model probe is running
-	bootstrapStart     time.Time   // when bootstrapping started
-	bootstrapFrame     int         // spinner frame for bootstrapping
 }
 
 // NewModel creates the initial TUI model.
@@ -112,6 +129,8 @@ func NewModel(workflowName string, agentNames []string, onSubmit SubmitFunc) Mod
 	return Model{
 		workflowName: workflowName,
 		agentNames:   agentNames,
+		inputBuf:     NewInputBuffer(),
+		history:      NewHistory(),
 		width:        80,
 		height:       24,
 		onSubmit:     onSubmit,
@@ -128,6 +147,11 @@ func (m *Model) SetModelName(name string) {
 // SetProjectPath sets the project path shown in the header.
 func (m *Model) SetProjectPath(path string) {
 	m.projectPath = path
+}
+
+// SetOnBash sets the callback for executing ! bash commands.
+func (m *Model) SetOnBash(fn BashFunc) {
+	m.onBash = fn
 }
 
 // SetOnModelSelected sets a callback invoked when the user switches models.
@@ -153,19 +177,12 @@ func (m Model) GetModelTiers() []ModelTier {
 	return DefaultModelTiers()
 }
 
-// SetBootstrapping sets whether the app is bootstrapping (loading models in background).
-func (m *Model) SetBootstrapping(b bool) {
-	m.bootstrapping = b
-	if b {
-		m.bootstrapStart = time.Now()
-		m.bootstrapFrame = 0
-	}
-}
+// SetBootstrapping is a no-op kept for API compatibility.
+// Model probing runs silently in the background.
+func (m *Model) SetBootstrapping(_ bool) {}
 
-// IsBootstrapping returns whether the app is currently bootstrapping.
-func (m Model) IsBootstrapping() bool {
-	return m.bootstrapping
-}
+// IsBootstrapping always returns false — bootstrapping is invisible.
+func (m Model) IsBootstrapping() bool { return false }
 
 // SetSpinnerType sets the active spinner animation style.
 func (m *Model) SetSpinnerType(st SpinnerType) {
@@ -184,9 +201,6 @@ type TokenCountMsg struct {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
-	if m.bootstrapping {
-		return SpinnerTickFor(SpinnerBraille)
-	}
 	return nil
 }
 
@@ -248,20 +262,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.paletteVisible {
 				m.paletteVisible = false
 				m.paletteSelected = 0
-				m.input = ""
+				m.inputBuf.Clear()
 			}
 		case "tab":
 			if m.paletteVisible && len(m.paletteFiltered) > 0 {
-				m.input = m.paletteFiltered[m.paletteSelected].Name
+				m.inputBuf.Set(m.paletteFiltered[m.paletteSelected].Name)
 				m.paletteVisible = false
 				m.paletteSelected = 0
 			}
 		case "alt+enter":
-			m.input += "\n"
+			m.inputBuf.Insert('\n')
 		case "enter":
-			if m.input != "" && !m.streaming {
+			input := m.inputBuf.String()
+			if input != "" && !m.streaming {
 				// If palette is visible, execute the selected command
-				cmd := strings.TrimSpace(m.input)
+				cmd := strings.TrimSpace(input)
 				if m.paletteVisible && len(m.paletteFiltered) > 0 {
 					cmd = m.paletteFiltered[m.paletteSelected].Name
 				}
@@ -276,81 +291,153 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, resultCmd
 				}
 
+				// ! bash mode: execute shell command
+				if IsBashCommand(input) {
+					shellCmd := ParseBashCommand(input)
+					if shellCmd != "" {
+						m.history.Push(input)
+						m.chat = append(m.chat, ChatEntry{
+							Type:    EntryUserInput,
+							Content: input,
+						})
+						m.inputBuf.Clear()
+						m.scrollToBottom()
+						if m.onBash != nil {
+							return m, m.onBash(shellCmd)
+						}
+					}
+					return m, nil
+				}
+
+				m.history.Push(input)
 				m.chat = append(m.chat, ChatEntry{
 					Type:    EntryUserInput,
-					Content: m.input,
+					Content: input,
 				})
-				userInput := m.input
-				m.input = ""
+				m.inputBuf.Clear()
 				m.scrollToBottom()
 
 				if m.onSubmit != nil {
-					return m, m.onSubmit(userInput)
+					return m, m.onSubmit(input)
 				}
 			}
 		case "backspace":
-			if len(m.input) > 0 {
-				m.input = m.input[:len(m.input)-1]
+			m.inputBuf.DeleteBackward()
+			m.updatePalette()
+		case "left":
+			m.inputBuf.MoveLeft()
+		case "right":
+			m.inputBuf.MoveRight()
+		case "ctrl+a", "home":
+			m.inputBuf.MoveToStart()
+		case "ctrl+e", "end":
+			m.inputBuf.MoveToEnd()
+		case "alt+p":
+			m.modelPickerVisible = true
+			m.modelPickerIdx = 0
+			m.modelPickerInput = ""
+			for i, tier := range m.GetModelTiers() {
+				if tier.ModelID == m.modelName {
+					m.modelPickerIdx = i
+					break
+				}
 			}
+			return m, nil
+		case "shift+up":
+			m.scrollUp(1)
+			return m, nil
+		case "shift+down":
+			m.scrollDown(1)
+			return m, nil
+		case "pgup":
+			m.scrollUp(m.visibleHeight() / 2)
+			return m, nil
+		case "pgdown":
+			m.scrollDown(m.visibleHeight() / 2)
+			return m, nil
+		case "ctrl+d":
+			return m, tea.Quit
+		case "ctrl+j":
+			m.inputBuf.Insert('\n')
+		case "ctrl+k":
+			m.inputBuf.KillToEnd()
+			m.updatePalette()
+		case "ctrl+u":
+			m.inputBuf.KillToStart()
 			m.updatePalette()
 		case "up":
 			if m.paletteVisible {
 				if m.paletteSelected > 0 {
 					m.paletteSelected--
 				}
-			} else if m.scrollOffset > 0 {
-				m.scrollOffset--
+			} else if val, ok := m.history.Previous(); ok {
+				m.inputBuf.Set(val)
 			}
 		case "down":
 			if m.paletteVisible {
 				if m.paletteSelected < len(m.paletteFiltered)-1 {
 					m.paletteSelected++
 				}
-			} else {
-				m.scrollOffset++
+			} else if val, ok := m.history.Next(); ok {
+				m.inputBuf.Set(val)
 			}
 		default:
-			if len(msg.String()) == 1 {
-				m.input += msg.String()
+			if msg.Paste {
+				m.inputBuf.InsertString(string(msg.Runes))
+			} else if len(msg.String()) == 1 {
+				m.inputBuf.Insert(rune(msg.String()[0]))
 			}
 			m.updatePalette()
 		}
+
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollUp(3)
+		case tea.MouseButtonWheelDown:
+			m.scrollDown(3)
+		}
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
 	case SpinnerTickMsg:
-		if m.bootstrapping {
-			m.bootstrapFrame++
-			if !m.streaming {
-				return m, SpinnerTickFor(SpinnerBraille)
-			}
-		}
 		if m.streaming {
 			m.spinnerFrame++
 			return m, SpinnerTickFor(m.spinnerType)
 		}
-		if m.bootstrapping {
-			return m, SpinnerTickFor(SpinnerBraille)
-		}
 
 	case TokenCountMsg:
 		m.tokenCount = msg.Count
+
+	case AgentStreamStartMsg:
+		if !m.streaming {
+			m.spinnerType = RandomSpinnerType()
+			m.spinnerFrame = 0
+			m.streamStart = time.Now()
+			m.streamChars = 0
+			m.streaming = true
+			return m, SpinnerTickFor(m.spinnerType)
+		}
 
 	case AgentStreamDeltaMsg:
 		wasStreaming := m.streaming
 		if !wasStreaming {
 			m.spinnerType = RandomSpinnerType()
 			m.spinnerFrame = 0
+			m.streamStart = time.Now()
+			m.streamChars = 0
 		}
 		m.streaming = true
+		m.streamChars += len(msg.Delta)
 		// Append to existing agent text entry or create new one
 		if len(m.chat) > 0 {
 			last := &m.chat[len(m.chat)-1]
 			if last.Type == EntryAgentText && last.AgentName == msg.AgentName {
 				last.Content += msg.Delta
-				m.scrollToBottom()
+				m.autoScroll()
 				if !wasStreaming {
 					return m, SpinnerTickFor(m.spinnerType)
 				}
@@ -362,13 +449,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			AgentName: msg.AgentName,
 			Content:   msg.Delta,
 		})
-		m.scrollToBottom()
+		m.autoScroll()
 		if !wasStreaming {
 			return m, SpinnerTickFor(m.spinnerType)
 		}
 
 	case AgentStreamDoneMsg:
+		m.tokenCount += EstimateTokens(m.streamChars)
+		elapsed := time.Since(m.streamStart)
 		m.streaming = false
+		// Add completion indicator with blank lines around it
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: "\n" + RenderCompletionIndicator(elapsed) + "\n",
+			Status:  AgentDone,
+		})
+		m.autoScroll()
 
 	case AgentStreamErrorMsg:
 		m.streaming = false
@@ -378,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Status:    AgentError,
 			Content:   msg.Error.Error(),
 		})
-		m.scrollToBottom()
+		m.autoScroll()
 
 	case AgentOutputMsg:
 		m.chat = append(m.chat, ChatEntry{
@@ -386,7 +482,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			AgentName: msg.AgentName,
 			Content:   msg.Output,
 		})
-		m.scrollToBottom()
+		m.autoScroll()
 
 	case AgentStatusMsg:
 		m.chat = append(m.chat, ChatEntry{
@@ -395,10 +491,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content:   msg.StatusMsg,
 			Status:    msg.Status,
 		})
-		m.scrollToBottom()
+		m.autoScroll()
+
+	case BashResultMsg:
+		content := msg.Output
+		status := AgentActive
+		if msg.Error != nil {
+			content += "\n" + msg.Error.Error()
+			status = AgentError
+		}
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: "$ " + msg.Command + "\n" + content,
+			Status:  status,
+		})
+		m.autoScroll()
 
 	case ModelsLoadedMsg:
-		m.bootstrapping = false
 		if len(msg.Tiers) > 0 {
 			m.modelTiers = msg.Tiers
 		}
@@ -414,7 +523,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			AgentName: msg.AgentName,
 			ToolCall:  &msg.ToolCall,
 		})
-		m.scrollToBottom()
+		m.autoScroll()
 	}
 
 	return m, nil
@@ -438,13 +547,52 @@ func (m *Model) selectModel(modelID string, label string) tea.Cmd {
 }
 
 func (m *Model) scrollToBottom() {
-	m.scrollOffset = len(m.chat)
+	m.scrollOffset = 0
+}
+
+// scrollUp increases scroll offset (moves view up) by delta lines.
+func (m *Model) scrollUp(delta int) {
+	m.scrollOffset += delta
+	// Clamping happens at render time since we don't track total lines here.
+}
+
+// scrollDown decreases scroll offset (moves view down) by delta lines.
+func (m *Model) scrollDown(delta int) {
+	m.scrollOffset -= delta
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+}
+
+// visibleHeight returns the number of content lines visible in the chat area.
+func (m Model) visibleHeight() int {
+	header := RenderHeader(m.projectPath, m.modelName, m.width)
+	headerLines := strings.Count(header, "\n") + 1
+	reservedLines := headerLines + 4 // prompt + status bar + padding
+	h := m.height - reservedLines
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// isAtBottom returns true when the view is scrolled to the bottom.
+func (m Model) isAtBottom() bool {
+	return m.scrollOffset == 0
+}
+
+// autoScroll scrolls to bottom only if the user hasn't scrolled up.
+func (m *Model) autoScroll() {
+	if m.isAtBottom() {
+		m.scrollToBottom()
+	}
 }
 
 func (m *Model) updatePalette() {
-	if strings.HasPrefix(m.input, "/") {
+	input := m.inputBuf.String()
+	if strings.HasPrefix(input, "/") {
 		m.paletteVisible = true
-		m.paletteFiltered = FilterCommands(SlashCommands(), m.input)
+		m.paletteFiltered = FilterCommands(SlashCommands(), input)
 		if m.paletteSelected >= len(m.paletteFiltered) {
 			m.paletteSelected = 0
 		}
@@ -462,7 +610,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		return "", nil
 	case "/clear":
 		m.chat = nil
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "cleared", nil
 	case "/help":
@@ -476,7 +624,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			Content: strings.Join(lines, "\n"),
 			Status:  AgentActive,
 		})
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "help", nil
 	case "/agents":
@@ -486,7 +634,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			Content: "Active agents: " + names,
 			Status:  AgentActive,
 		})
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "agents", nil
 	case "/status":
@@ -496,7 +644,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			Content: status,
 			Status:  AgentActive,
 		})
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "status", nil
 	case "/model":
@@ -511,15 +659,25 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 				break
 			}
 		}
-		m.input = ""
+		m.inputBuf.Clear()
 		return "model", nil
+	case "/cost":
+		usage := fmt.Sprintf("Token usage: %s (%s)", FormatTokenCount(m.tokenCount), FormatTokenCountShort(m.tokenCount))
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: usage,
+			Status:  AgentActive,
+		})
+		m.inputBuf.Clear()
+		m.scrollToBottom()
+		return "cost", nil
 	case "/compact":
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
 			Content: "Context compaction is not yet implemented",
 			Status:  AgentWaiting,
 		})
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "compact", nil
 	case "/spinner":
@@ -538,7 +696,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			Content: "Spinner: " + def.Name + " " + def.Frames[0],
 			Status:  AgentActive,
 		})
-		m.input = ""
+		m.inputBuf.Clear()
 		m.scrollToBottom()
 		return "spinner", nil
 	}
@@ -554,53 +712,67 @@ func (m Model) View() string {
 	b.WriteString(header)
 	b.WriteString("\n\n")
 
-	// Bootstrapping indicator
-	if m.bootstrapping {
-		elapsed := time.Since(m.bootstrapStart).Truncate(time.Second)
-		label := fmt.Sprintf("Bootstrapping... (%s)", elapsed)
-		b.WriteString(RenderSpinner(m.bootstrapFrame, label))
-		b.WriteString("\n\n")
-	}
-
 	// Render all chat entries
 	var chatLines []string
 	for _, entry := range m.chat {
 		chatLines = append(chatLines, RenderChatEntry(entry, m.width))
 	}
 
-	// Calculate visible area (header ~4 lines, prompt ~2 lines, status bar ~1 line)
-	headerLines := strings.Count(header, "\n") + 1
-	reservedLines := headerLines + 4 // prompt + status bar + padding
-	visibleHeight := m.height - reservedLines
+	// Calculate visible area
+	vh := m.visibleHeight()
 
 	chatContent := strings.Join(chatLines, "\n")
 	contentLines := strings.Split(chatContent, "\n")
 
-	// Show bottom of chat (auto-scroll)
-	start := 0
-	if len(contentLines) > visibleHeight {
-		start = len(contentLines) - visibleHeight
+	// Clamp scrollOffset to valid range
+	maxOffset := len(contentLines) - vh
+	if maxOffset < 0 {
+		maxOffset = 0
 	}
+	offset := m.scrollOffset
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+
+	// Slice the visible window: end is from-bottom, start is end-vh
+	end := len(contentLines) - offset
+	start := end - vh
 	if start < 0 {
 		start = 0
 	}
+	if end < 0 {
+		end = 0
+	}
 
-	visible := contentLines[start:]
+	visible := contentLines[start:end]
 	b.WriteString(strings.Join(visible, "\n"))
 
 	// Pad to push prompt to bottom
-	padding := visibleHeight - len(visible)
+	padding := vh - len(visible)
 	for i := 0; i < padding; i++ {
 		b.WriteString("\n")
 	}
 
+	// Scroll indicator when not at bottom
+	if offset > 0 {
+		indicator := fmt.Sprintf(" ↑ %d more lines below ", offset)
+		b.WriteString("\n")
+		b.WriteString(DimStyle.Render(indicator))
+	}
+
+	// Streaming indicator (above prompt, like Claude Code)
+	if m.streaming {
+		status := StreamStatus{
+			Elapsed: time.Since(m.streamStart).Truncate(time.Second),
+			Tokens:  EstimateTokens(m.streamChars),
+		}
+		b.WriteString("\n")
+		b.WriteString(RenderStreamingIndicator(m.spinnerFrame, m.agentName(), status, m.spinnerType))
+	}
+
 	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
-	if m.streaming {
-		b.WriteString(RenderPromptAreaStreaming(m.spinnerFrame, m.agentName(), m.projectPath, m.width, m.spinnerType))
-	} else {
-		b.WriteString(RenderPromptArea(m.input, m.projectPath, m.width))
-	}
+	b.WriteString(RenderPromptArea(m.inputBuf.RenderWithCursor(), m.projectPath, m.width))
 
 	// Command palette (below prompt, like Claude Code)
 	if m.paletteVisible && len(m.paletteFiltered) > 0 {
@@ -668,7 +840,13 @@ func (m Model) Chat() []ChatEntry {
 
 // Input returns the current input text (for testing).
 func (m Model) Input() string {
-	return m.input
+	return m.inputBuf.String()
+}
+
+// ScrollOffset returns how many lines the view is scrolled up from the bottom (for testing).
+// 0 means at the bottom.
+func (m Model) ScrollOffset() int {
+	return m.scrollOffset
 }
 
 // IsStreaming returns whether the model is currently streaming (for testing).

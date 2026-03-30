@@ -25,7 +25,9 @@ func TestRenderPromptCursorPrefix(t *testing.T) {
 }
 
 func TestRenderPromptEmpty(t *testing.T) {
-	result := tui.RenderPrompt("", 60)
+	// RenderPrompt no longer adds cursor — caller provides it via InputBuffer.RenderWithCursor()
+	buf := tui.NewInputBuffer()
+	result := tui.RenderPrompt(buf.RenderWithCursor(), 60)
 	assert.Contains(t, result, "█")
 }
 

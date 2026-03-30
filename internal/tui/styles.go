@@ -120,6 +120,11 @@ var (
 				Foreground(brandColor).
 				Bold(true)
 
+	// Accent (for streaming indicator ✦)
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(brandColor).
+			Bold(true)
+
 	// Spinner
 	SpinnerStyle = lipgloss.NewStyle().
 			Foreground(brandColor)

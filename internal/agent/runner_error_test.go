@@ -16,12 +16,11 @@ import (
 )
 
 // TestRunner_SendsCorrectModelID verifies that the agent sends the configured
-// model ID in the API request. This prevents regressions where garbage values
-// (like "/exit") get persisted and sent as model IDs.
+// model ID in the API request.
 func TestRunner_SendsCorrectModelID(t *testing.T) {
 	var capturedModel string
 
-	fixture, err := os.ReadFile("testdata/stream_hello.sse")
+	fixture, err := os.ReadFile("testdata/message_hello.json")
 	require.NoError(t, err)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +30,7 @@ func TestRunner_SendsCorrectModelID(t *testing.T) {
 		if m, ok := req["model"].(string); ok {
 			capturedModel = m
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(fixture)
 	}))
@@ -107,7 +106,6 @@ func TestRunner_InvalidModelID(t *testing.T) {
 
 	for _, model := range invalidModels {
 		t.Run(model, func(t *testing.T) {
-			// These should never be valid model IDs
 			resolved := string(agent.ResolveModel(model))
 			assert.NotContains(t, resolved, "/",
 				"resolved model ID must not contain slash commands")
@@ -116,10 +114,9 @@ func TestRunner_InvalidModelID(t *testing.T) {
 }
 
 // TestRunner_OAuthTokenSentAsAPIKey verifies that OAuth tokens (sk-ant-oat01-*)
-// are sent as x-api-key header, not as Authorization: Bearer. The token endpoint
-// returns an API key, not a Bearer token.
+// are sent as x-api-key header, not as Authorization: Bearer.
 func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
-	fixture, err := os.ReadFile("testdata/stream_hello.sse")
+	fixture, err := os.ReadFile("testdata/message_hello.json")
 	require.NoError(t, err)
 
 	var capturedAPIKey string
@@ -129,7 +126,7 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 		capturedAPIKey = r.Header.Get("X-Api-Key")
 		capturedAuthHeader = r.Header.Get("Authorization")
 
-		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(fixture)
 	}))
@@ -159,7 +156,7 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 }
 
 // TestRunner_API400Error verifies the agent surfaces a meaningful error
-// when the API returns 400 Bad Request (e.g., model not accessible).
+// when the API returns 400 Bad Request.
 func TestRunner_API400Error(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/error_400.json")
 	require.NoError(t, err)

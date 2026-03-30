@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -107,6 +108,10 @@ func run() error {
 	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
 			ctx := context.Background()
+
+			// Show spinner immediately before the API call
+			program.Send(tui.AgentStreamStartMsg{AgentName: "coder"})
+
 			ch := coder.Run(ctx, input)
 
 			go func() {
@@ -124,10 +129,38 @@ func run() error {
 						})
 						return
 					}
-					program.Send(tui.AgentStreamDeltaMsg{
-						AgentName: evt.AgentName,
-						Delta:     evt.Text,
-					})
+					if evt.ToolCall != nil {
+						program.Send(tui.AgentToolCallMsg{
+							AgentName: evt.AgentName,
+							ToolCall: tui.ToolCall{
+								Name:    evt.ToolCall.ToolName,
+								Content: evt.ToolCall.Input,
+								Status:  tui.ToolRunning,
+							},
+						})
+						continue
+					}
+					if evt.ToolDone != nil {
+						status := tui.ToolDone
+						if evt.ToolDone.IsError {
+							status = tui.ToolError
+						}
+						program.Send(tui.AgentToolCallMsg{
+							AgentName: evt.AgentName,
+							ToolCall: tui.ToolCall{
+								Name:    evt.ToolDone.ToolName,
+								Content: evt.ToolDone.Output,
+								Status:  status,
+							},
+						})
+						continue
+					}
+					if evt.Text != "" {
+						program.Send(tui.AgentStreamDeltaMsg{
+							AgentName: evt.AgentName,
+							Delta:     evt.Text,
+						})
+					}
 				}
 			}()
 
@@ -135,9 +168,23 @@ func run() error {
 		}
 	}
 
+	onBash := func(command string) tea.Cmd {
+		return func() tea.Msg {
+			cmd := exec.Command("sh", "-c", command)
+			cmd.Dir = workDir
+			out, err := cmd.CombinedOutput()
+			return tui.BashResultMsg{
+				Command: command,
+				Output:  string(out),
+				Error:   err,
+			}
+		}
+	}
+
 	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
 	model.SetProjectPath(workDir)
 	model.SetModelName(savedModel)
+	model.SetOnBash(onBash)
 
 	// Use cached models for instant startup
 	if len(cachedModels) > 0 {
@@ -167,7 +214,7 @@ func run() error {
 	})
 
 	model.SetBootstrapping(true)
-	program = tea.NewProgram(model, tea.WithAltScreen())
+	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Probe models in background — updates TUI and cache when done
 	go func() {

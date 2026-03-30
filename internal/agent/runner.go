@@ -17,10 +17,29 @@ type StreamEvent struct {
 	Text      string
 	Done      bool
 	Error     error
+	ToolCall  *ToolCallEvent // non-nil when agent invokes a tool
+	ToolDone  *ToolDoneEvent // non-nil when a tool finishes
+}
+
+// ToolCallEvent is emitted when the agent starts a tool call.
+type ToolCallEvent struct {
+	ToolName string
+	ToolID   string
+	Input    string
+}
+
+// ToolDoneEvent is emitted when a tool call completes.
+type ToolDoneEvent struct {
+	ToolName string
+	ToolID   string
+	Output   string
+	IsError  bool
 }
 
 // Run sends a user message to Claude and streams responses back on the
-// returned channel. This is the imperative shell — it handles I/O only.
+// returned channel. Implements a tool use loop: if Claude responds with
+// tool_use blocks, the tools are executed and results sent back until
+// Claude produces a final text response.
 func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent {
 	ch := make(chan StreamEvent, 64)
 
@@ -35,65 +54,113 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		))
 
 		model := ResolveModel(a.config.Model)
-		slog.Debug("starting API stream", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history), "oauth", a.isOAuth)
+		slog.Debug("starting API call", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history), "oauth", a.isOAuth)
 
-		params, reqOpts := a.buildMessageParams(model)
-		stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
+		// Tool use loop: keep calling the API until we get end_turn
+		for iteration := 0; iteration < 25; iteration++ {
+			params, reqOpts := a.buildMessageParams(model)
 
-		var fullResponse string
-		chunks := 0
-		for stream.Next() {
-			evt := stream.Current()
-			switch variant := evt.AsAny().(type) {
-			case anthropic.ContentBlockDeltaEvent:
-				switch delta := variant.Delta.AsAny().(type) {
-				case anthropic.TextDelta:
-					fullResponse += delta.Text
-					chunks++
-					ch <- StreamEvent{
-						AgentName: a.config.Name,
-						Text:      delta.Text,
+			resp, err := a.client.Messages.New(ctx, params, reqOpts...)
+			if err != nil {
+				slog.Error("API error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "iteration", iteration)
+				ch <- StreamEvent{
+					AgentName: a.config.Name,
+					Error:     enrichAPIError(err, string(model)),
+				}
+				return
+			}
+
+			// Process response content blocks
+			var assistantBlocks []anthropic.ContentBlockParamUnion
+			var toolUses []anthropic.ToolUseBlock
+
+			for _, block := range resp.Content {
+				switch v := block.AsAny().(type) {
+				case anthropic.TextBlock:
+					if v.Text != "" {
+						ch <- StreamEvent{AgentName: a.config.Name, Text: v.Text}
+						assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(v.Text))
 					}
+				case anthropic.ToolUseBlock:
+					toolUses = append(toolUses, v)
+					assistantBlocks = append(assistantBlocks, anthropic.ContentBlockParamUnion{
+						OfToolUse: &anthropic.ToolUseBlockParam{
+							ID:    v.ID,
+							Name:  v.Name,
+							Input: v.Input,
+						},
+					})
 				}
 			}
-		}
 
-		if err := stream.Err(); err != nil {
-			slog.Error("API stream error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "chunksReceived", chunks)
-			ch <- StreamEvent{
-				AgentName: a.config.Name,
-				Error:     enrichAPIError(err, string(model)),
+			a.history = append(a.history, anthropic.NewAssistantMessage(assistantBlocks...))
+
+			// If no tool uses or stop reason is end_turn, we're done
+			if len(toolUses) == 0 || resp.StopReason == anthropic.StopReasonEndTurn {
+				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", resp.StopReason)
+				ch <- StreamEvent{AgentName: a.config.Name, Done: true}
+				return
 			}
-			return
+
+			// Execute tools and collect results
+			var toolResultBlocks []anthropic.ContentBlockParamUnion
+			for _, tu := range toolUses {
+				ch <- StreamEvent{
+					AgentName: a.config.Name,
+					ToolCall: &ToolCallEvent{
+						ToolName: tu.Name,
+						ToolID:   tu.ID,
+						Input:    string(tu.Input),
+					},
+				}
+
+				slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
+				result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.Name, tu.Input)
+
+				isError := execErr != nil
+				if execErr != nil {
+					result = execErr.Error()
+				}
+
+				ch <- StreamEvent{
+					AgentName: a.config.Name,
+					ToolDone: &ToolDoneEvent{
+						ToolName: tu.Name,
+						ToolID:   tu.ID,
+						Output:   result,
+						IsError:  isError,
+					},
+				}
+
+				toolResultBlocks = append(toolResultBlocks, anthropic.ContentBlockParamUnion{
+					OfToolResult: &anthropic.ToolResultBlockParam{
+						ToolUseID: tu.ID,
+						Content: []anthropic.ToolResultBlockParamContentUnion{
+							{OfText: &anthropic.TextBlockParam{Text: result}},
+						},
+					},
+				})
+			}
+
+			a.history = append(a.history, anthropic.NewUserMessage(toolResultBlocks...))
+			slog.Debug("tool results sent, continuing loop", "agent", a.config.Name, "toolCount", len(toolUses), "iteration", iteration)
 		}
 
-		// Add assistant response to history
-		a.history = append(a.history, anthropic.NewAssistantMessage(
-			anthropic.NewTextBlock(fullResponse),
-		))
-
-		slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "responseLength", len(fullResponse), "chunks", chunks)
-
-		ch <- StreamEvent{
-			AgentName: a.config.Name,
-			Done:      true,
-		}
+		slog.Warn("agent hit tool use iteration limit", "agent", a.config.Name)
+		ch <- StreamEvent{AgentName: a.config.Name, Done: true}
 	}()
 
 	return ch
 }
 
 // billingHeader is the Claude Code billing header that enables access to
-// Opus/Sonnet models via OAuth Console login. Discovered via mitmproxy
-// reverse-engineering of Claude Code's API calls.
+// Opus/Sonnet models via OAuth Console login.
 const billingHeader = "x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;"
 
 // claudeCodeBetas are the beta feature flags required for Claude Code billing.
 const claudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
 
-// buildMessageParams constructs the API request params. When the agent uses
-// OAuth authentication, it injects the billing header, adaptive thinking,
-// and output_config required for Opus/Sonnet access.
+// buildMessageParams constructs the API request params with tools.
 func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewParams, []option.RequestOption) {
 	system := []anthropic.TextBlockParam{
 		{Text: a.systemPrompt},
@@ -104,31 +171,23 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 		MaxTokens: 4096,
 		System:    system,
 		Messages:  a.history,
+		Tools:     ToAPITools(ToolDefinitions()),
 	}
 
 	var reqOpts []option.RequestOption
 
 	if a.isOAuth {
-		// Prepend billing header as first system block (required for Opus access)
 		params.System = append(
 			[]anthropic.TextBlockParam{{Text: billingHeader}},
 			params.System...,
 		)
-
-		// Adaptive thinking (required)
 		params.Thinking = anthropic.ThinkingConfigParamUnion{
 			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
 		}
-
-		// Output config with medium effort (required)
 		params.OutputConfig = anthropic.OutputConfigParam{
 			Effort: anthropic.OutputConfigEffortMedium,
 		}
-
-		// MaxTokens must be higher when thinking is enabled
 		params.MaxTokens = 16384
-
-		// Beta headers for Claude Code billing
 		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", claudeCodeBetas))
 
 		slog.Debug("injected Claude Code billing header for OAuth",
@@ -136,6 +195,14 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 	}
 
 	return params, reqOpts
+}
+
+// WorkDir returns the agent's working directory.
+func (a *Agent) WorkDir() string {
+	if a.dir != "" {
+		return a.dir
+	}
+	return "."
 }
 
 // enrichAPIError adds actionable context to common API errors.

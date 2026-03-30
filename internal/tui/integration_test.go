@@ -81,15 +81,19 @@ func TestIntegration_FullConversation(t *testing.T) {
 	m = applyMsg(m, tui.AgentStreamDoneMsg{AgentName: "coder"})
 	assert.False(t, m.IsStreaming())
 
-	// 5. Second agent chimes in
-	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "reviewer", Output: "LGTM, good coverage"})
+	// 5. Completion indicator added
 	require.Len(t, m.Chat(), 4)
-	assert.Equal(t, "reviewer", m.Chat()[3].AgentName)
+	assert.Equal(t, tui.EntryAgentStatus, m.Chat()[3].Type)
 
-	// 6. User sends follow-up
+	// 6. Second agent chimes in
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "reviewer", Output: "LGTM, good coverage"})
+	require.Len(t, m.Chat(), 5)
+	assert.Equal(t, "reviewer", m.Chat()[4].AgentName)
+
+	// 7. User sends follow-up
 	m = typeString(m, "add edge cases")
 	m = applyKey(m, "enter")
-	require.Len(t, m.Chat(), 5)
+	require.Len(t, m.Chat(), 6)
 	assert.Equal(t, []string{"write auth tests", "add edge cases"}, submitted)
 
 	// 7. Verify view renders without panic
@@ -667,7 +671,8 @@ func TestIntegration_StreamingPromptShowsAgent(t *testing.T) {
 	view := m.View()
 	plain := strip(view)
 	assert.Contains(t, plain, "coder")
-	assert.Contains(t, plain, "responding")
+	assert.Contains(t, plain, "Composing")
+	assert.Contains(t, plain, "tokens")
 }
 
 // --- Scenario: Long conversation scrolls ---
@@ -722,4 +727,155 @@ func TestIntegration_ClearThenContinue(t *testing.T) {
 	require.Len(t, m.Chat(), 1)
 	assert.Equal(t, "new topic", m.Chat()[0].Content)
 	assert.Equal(t, []string{"hello", "new topic"}, submitted)
+}
+
+// --- Paste test helpers ---
+
+// applyPaste simulates a bracketed paste event from the terminal.
+func applyPaste(m tui.Model, text string) tui.Model {
+	msg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(text),
+		Paste: true,
+	}
+	updated, _ := m.Update(msg)
+	return updated.(tui.Model)
+}
+
+// --- Scenario: Basic paste inserts text into input ---
+
+func TestIntegration_PasteSingleLine(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyPaste(m, "hello world")
+	assert.Equal(t, "hello world", m.Input(), "single-line paste should insert into input buffer")
+}
+
+// --- Scenario: Paste multi-line text inserts into input ---
+
+func TestIntegration_PasteMultiLine(t *testing.T) {
+	m := testModel(nil)
+
+	pasted := "line one\nline two\nline three"
+	m = applyPaste(m, pasted)
+	assert.Contains(t, m.Input(), "line one", "multi-line paste should be present in input")
+	assert.Contains(t, m.Input(), "line three", "all pasted lines should be present")
+}
+
+// --- Scenario: Pasted text can be submitted ---
+
+func TestIntegration_PasteAndSubmit(t *testing.T) {
+	var submitted string
+	onSubmit := func(input string) tea.Cmd {
+		submitted = input
+		return nil
+	}
+
+	m := testModel(onSubmit)
+
+	m = applyPaste(m, "pasted content")
+	m = applyKey(m, "enter")
+
+	assert.Equal(t, "pasted content", submitted, "pasted text should be submitted")
+}
+
+// --- Scenario: Paste multi-line and submit preserves newlines ---
+
+func TestIntegration_PasteMultiLineSubmit(t *testing.T) {
+	var submitted string
+	onSubmit := func(input string) tea.Cmd {
+		submitted = input
+		return nil
+	}
+
+	m := testModel(onSubmit)
+
+	pasted := "func main() {\n\tfmt.Println(\"hello\")\n}"
+	m = applyPaste(m, pasted)
+	m = applyKey(m, "enter")
+
+	assert.Equal(t, pasted, submitted, "multi-line paste should preserve newlines on submit")
+}
+
+// --- Scenario: Paste appended to existing typed text ---
+
+func TestIntegration_TypeThenPaste(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "review: ")
+	m = applyPaste(m, "pasted code")
+
+	assert.Equal(t, "review: pasted code", m.Input(), "paste should append to existing input")
+}
+
+// --- Scenario: Paste inserted at cursor position ---
+
+func TestIntegration_PasteAtCursorMiddle(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "hd")
+	m = applyKey(m, "left") // cursor between 'h' and 'd'
+	m = applyPaste(m, "ello worl")
+
+	assert.Equal(t, "hello world", m.Input(), "paste should insert at cursor position")
+}
+
+// --- Scenario: Empty paste is a no-op ---
+
+func TestIntegration_PasteEmpty(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "existing")
+	m = applyPaste(m, "")
+
+	assert.Equal(t, "existing", m.Input(), "empty paste should not change input")
+}
+
+// --- Scenario: Sequential pastes accumulate ---
+
+func TestIntegration_SequentialPastes(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyPaste(m, "first ")
+	m = applyPaste(m, "second")
+
+	assert.Equal(t, "first second", m.Input(), "sequential pastes should accumulate")
+}
+
+// --- Scenario: Paste during streaming is buffered ---
+
+func TestIntegration_PasteDuringStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	assert.True(t, m.IsStreaming())
+
+	// Paste while streaming — should go into input buffer
+	m = applyPaste(m, "buffered paste")
+	assert.Equal(t, "buffered paste", m.Input(), "paste during streaming should enter input buffer")
+
+	// Submit blocked while streaming
+	m = applyKey(m, "enter")
+	assert.Len(t, m.Chat(), 1, "submit should be blocked during streaming")
+}
+
+// --- Scenario: Paste with special characters ---
+
+func TestIntegration_PasteSpecialChars(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyPaste(m, "path/to/file.go:42 — error: `unexpected EOF`")
+	assert.Equal(t, "path/to/file.go:42 — error: `unexpected EOF`", m.Input())
+}
+
+// --- Scenario: Paste renders in view ---
+
+func TestIntegration_PasteVisibleInView(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyPaste(m, "visible text")
+	view := m.View()
+	plain := strip(view)
+	assert.Contains(t, plain, "visible text", "pasted text should be visible in the view")
 }

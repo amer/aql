@@ -20,6 +20,7 @@
 
 ## Rules
 
+- When unsure how to implement a TUI feature, check the Claude Code codebase (github.com/anthropics/claude-code) for inspiration — it's TypeScript, not Go, but the UX patterns and behaviors are the reference implementation
 - Always use TDD: write failing tests first, then implement code to make them pass, then refactor
 - Follow Functional Core, Imperative Shell: pure functions for logic, thin I/O shell at edges
 - Test logic with high-value unit tests on pure functions — avoid brittle tests that break on refactors
@@ -59,19 +60,19 @@ All commit messages MUST follow the Conventional Commits specification.
 
 ### Types
 
-| Type       | Purpose                                                   |
-|------------|-----------------------------------------------------------|
-| `feat`     | A new feature (MINOR in SemVer)                           |
-| `fix`      | A bug fix (PATCH in SemVer)                               |
-| `docs`     | Documentation only changes                                |
-| `style`    | Formatting, whitespace — no code logic changes            |
-| `refactor` | Code change that neither fixes a bug nor adds a feature   |
-| `perf`     | Performance improvement                                   |
-| `test`     | Adding or correcting tests                                |
-| `build`    | Build system or dependency changes                        |
-| `ci`       | CI configuration changes                                  |
-| `chore`    | Other changes that don't modify src or test files         |
-| `revert`   | Reverts a previous commit                                 |
+| Type       | Purpose                                                 |
+| ---------- | ------------------------------------------------------- |
+| `feat`     | A new feature (MINOR in SemVer)                         |
+| `fix`      | A bug fix (PATCH in SemVer)                             |
+| `docs`     | Documentation only changes                              |
+| `style`    | Formatting, whitespace — no code logic changes          |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `perf`     | Performance improvement                                 |
+| `test`     | Adding or correcting tests                              |
+| `build`    | Build system or dependency changes                      |
+| `ci`       | CI configuration changes                                |
+| `chore`    | Other changes that don't modify src or test files       |
+| `revert`   | Reverts a previous commit                               |
 
 ### Rules
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -108,25 +109,69 @@ func ProbeUsableModelsWithOAuthKey(ctx context.Context, apiKey string) ([]ModelI
 	return probeUsableModelsWithClient(ctx, client, true)
 }
 
+// relevantModelPrefixes filters the model list to only models we care about probing.
+// This avoids wasting time probing legacy or irrelevant models.
+var relevantModelPrefixes = []string{
+	"claude-opus",
+	"claude-sonnet",
+	"claude-haiku",
+}
+
+func isRelevantModel(id string) bool {
+	for _, prefix := range relevantModelPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, withBilling bool) ([]ModelInfo, error) {
 	models, err := fetchModelsWithClient(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("probing model access", "totalModels", len(models), "billing", withBilling)
-
-	var usable []ModelInfo
+	// Filter to relevant models before probing
+	var candidates []ModelInfo
 	for _, m := range models {
-		if probeModel(ctx, client, m.ID, withBilling) {
-			slog.Debug("model accessible", "model", m.ID)
-			usable = append(usable, m)
-		} else {
-			slog.Debug("model not accessible", "model", m.ID)
+		if isRelevantModel(m.ID) {
+			candidates = append(candidates, m)
 		}
 	}
 
-	slog.Info("model probe complete", "total", len(models), "usable", len(usable))
+	slog.Debug("probing model access", "totalModels", len(models), "candidates", len(candidates), "billing", withBilling)
+
+	// Probe in parallel
+	type result struct {
+		model ModelInfo
+		ok    bool
+	}
+	results := make([]result, len(candidates))
+	var wg sync.WaitGroup
+	for i, m := range candidates {
+		wg.Add(1)
+		go func(idx int, model ModelInfo) {
+			defer wg.Done()
+			ok := probeModel(ctx, client, model.ID, withBilling)
+			results[idx] = result{model: model, ok: ok}
+			if ok {
+				slog.Debug("model accessible", "model", model.ID)
+			} else {
+				slog.Debug("model not accessible", "model", model.ID)
+			}
+		}(i, m)
+	}
+	wg.Wait()
+
+	var usable []ModelInfo
+	for _, r := range results {
+		if r.ok {
+			usable = append(usable, r.model)
+		}
+	}
+
+	slog.Info("model probe complete", "total", len(models), "candidates", len(candidates), "usable", len(usable))
 	return usable, nil
 }
 

@@ -21,7 +21,7 @@ import (
 // medium effort, and the required beta headers. These are required for
 // accessing Opus/Sonnet via OAuth Console login.
 func TestRunner_BillingHeader(t *testing.T) {
-	fixture, err := os.ReadFile("testdata/stream_hello.sse")
+	fixture, err := os.ReadFile("testdata/message_hello.json")
 	require.NoError(t, err)
 
 	var capturedBody map[string]any
@@ -33,7 +33,7 @@ func TestRunner_BillingHeader(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &capturedBody)
 
-		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(fixture)
 	}))

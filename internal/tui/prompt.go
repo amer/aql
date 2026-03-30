@@ -7,9 +7,10 @@ import (
 )
 
 // RenderPrompt renders the input prompt with ❯ prefix.
+// The input parameter should already include cursor rendering.
 func RenderPrompt(input string, width int) string {
 	cursor := PromptCursor.Render("❯ ")
-	return cursor + input + "█"
+	return cursor + input
 }
 
 // RenderPromptStreaming renders the prompt area while an agent is responding.
@@ -50,9 +51,10 @@ func renderPromptFrame(content string, projectName string, width int) string {
 }
 
 // RenderPromptArea renders the full prompt area matching Claude Code's layout.
+// The input parameter should already include cursor rendering (from InputBuffer.RenderWithCursor).
 func RenderPromptArea(input string, projectName string, width int) string {
 	cursor := PromptCursor.Render("❯ ")
-	return renderPromptFrame(cursor+input+"█", projectName, width)
+	return renderPromptFrame(cursor+input, projectName, width)
 }
 
 // RenderPromptAreaStreaming renders the prompt area during streaming.
