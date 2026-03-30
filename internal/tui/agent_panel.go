@@ -6,7 +6,17 @@ import "fmt"
 type ToolCall struct {
 	Name    string
 	Content string
+	Status  ToolStatus
 }
+
+// ToolStatus represents the execution state of a tool call.
+type ToolStatus int
+
+const (
+	ToolRunning ToolStatus = iota
+	ToolDone
+	ToolError
+)
 
 // AgentPanelData holds the data needed to render an agent panel.
 type AgentPanelData struct {
@@ -40,24 +50,41 @@ func RenderAgentHeader(name string, status AgentStatus) string {
 	return style.Render(indicator + name)
 }
 
-// RenderToolBlock renders a tool call as a bordered block.
+// RenderToolBlock renders a tool call as a Claude Code-style bordered block.
 func RenderToolBlock(tc ToolCall) string {
-	label := ToolLabelStyle.Render(fmt.Sprintf("tool: %s", tc.Name))
+	// Status indicator
+	var statusIndicator string
+	switch tc.Status {
+	case ToolRunning:
+		statusIndicator = ToolStatusRunning.Render("⟳ ")
+	case ToolDone:
+		statusIndicator = ToolStatusDone.Render("✓ ")
+	case ToolError:
+		statusIndicator = ToolStatusError.Render("✗ ")
+	default:
+		statusIndicator = ToolStatusDone.Render("✓ ")
+	}
+
+	header := statusIndicator + ToolHeaderStyle.Render(tc.Name)
+
 	content := tc.Content
 	if content == "" {
-		content = "(no output)"
+		content = DimStyle.Render("(no output)")
+	} else {
+		content = ToolContentStyle.Render(content)
 	}
-	return ToolBlockStyle.Render(label + "\n" + content)
+
+	return ToolBlockBorder.Render(header + "\n" + content)
 }
 
-// RenderAgentPanel renders a complete agent panel with header, output, and tool blocks.
+// RenderAgentPanel renders a complete agent panel.
 func RenderAgentPanel(data AgentPanelData) string {
 	var result string
 
 	result += RenderAgentHeader(data.Name, data.Status) + "\n"
 
 	if data.Output != "" {
-		result += AgentBody.Render("> "+data.Output) + "\n"
+		result += AgentBody.Render(data.Output) + "\n"
 	}
 
 	for _, tc := range data.ToolCalls {
@@ -69,4 +96,11 @@ func RenderAgentPanel(data AgentPanelData) string {
 	}
 
 	return result
+}
+
+// RenderUserMessage renders a user input message in Claude Code style.
+func RenderUserMessage(content string) string {
+	prefix := UserPrefixStyle.Render("> ")
+	text := UserInputStyle.Render(content)
+	return fmt.Sprintf("\n%s%s\n", prefix, text)
 }

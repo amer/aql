@@ -67,6 +67,8 @@ func run() error {
 	}
 
 	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
+	model.SetProjectPath(workDir)
+	model.SetModelName("claude-sonnet-4")
 
 	program = tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()

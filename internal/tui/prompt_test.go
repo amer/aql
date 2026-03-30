@@ -16,3 +16,9 @@ func TestRenderPromptEmpty(t *testing.T) {
 	result := tui.RenderPrompt("", 60)
 	assert.Contains(t, result, "█")
 }
+
+func TestRenderPromptStreaming(t *testing.T) {
+	result := tui.RenderPromptStreaming(0, "coder", 60)
+	assert.Contains(t, result, "coder")
+	assert.Contains(t, result, "responding")
+}

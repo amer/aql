@@ -33,38 +33,9 @@ func run() error {
 		return err
 	}
 
-	onSubmit := func(input string) tea.Cmd {
-		return func() tea.Msg {
-			ctx := context.Background()
-			ch := coder.Run(ctx, input)
-
-			// Collect first delta to kick off streaming
-			for evt := range ch {
-				if evt.Error != nil {
-					return tui.AgentStreamErrorMsg{
-						AgentName: evt.AgentName,
-						Error:     evt.Error,
-					}
-				}
-				if evt.Done {
-					return tui.AgentStreamDoneMsg{
-						AgentName: evt.AgentName,
-					}
-				}
-				return tui.AgentStreamDeltaMsg{
-					AgentName: evt.AgentName,
-					Delta:     evt.Text,
-				}
-			}
-			return nil
-		}
-	}
-
-	// We need a way to keep reading from the channel after the first delta.
-	// Use a different approach: send all events as messages via the program.
 	var program *tea.Program
 
-	onSubmitWithProgram := func(input string) tea.Cmd {
+	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
 			ctx := context.Background()
 			ch := coder.Run(ctx, input)
@@ -94,9 +65,10 @@ func run() error {
 			return nil
 		}
 	}
-	_ = onSubmit // unused, using onSubmitWithProgram instead
 
-	model := tui.NewModel("aql", []string{"coder"}, onSubmitWithProgram)
+	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
+	model.SetProjectPath(workDir)
+	model.SetModelName("claude-sonnet-4")
 
 	program = tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()

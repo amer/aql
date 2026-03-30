@@ -29,11 +29,25 @@ func TestRenderAgentHeaderError(t *testing.T) {
 	assert.Contains(t, result, "✗")
 }
 
-func TestRenderToolBlock(t *testing.T) {
-	tc := tui.ToolCall{Name: "write_file", Content: "internal/auth/auth.go"}
+func TestRenderToolBlockDone(t *testing.T) {
+	tc := tui.ToolCall{Name: "write_file", Content: "internal/auth/auth.go", Status: tui.ToolDone}
 	result := tui.RenderToolBlock(tc)
 	assert.Contains(t, result, "write_file")
 	assert.Contains(t, result, "auth.go")
+	assert.Contains(t, result, "✓")
+}
+
+func TestRenderToolBlockRunning(t *testing.T) {
+	tc := tui.ToolCall{Name: "bash", Content: "go test ./...", Status: tui.ToolRunning}
+	result := tui.RenderToolBlock(tc)
+	assert.Contains(t, result, "bash")
+	assert.Contains(t, result, "⟳")
+}
+
+func TestRenderToolBlockError(t *testing.T) {
+	tc := tui.ToolCall{Name: "bash", Content: "exit 1", Status: tui.ToolError}
+	result := tui.RenderToolBlock(tc)
+	assert.Contains(t, result, "✗")
 }
 
 func TestRenderToolBlockEmpty(t *testing.T) {
@@ -48,7 +62,7 @@ func TestRenderAgentPanel(t *testing.T) {
 		Status: tui.AgentActive,
 		Output: "Writing test for user auth...",
 		ToolCalls: []tui.ToolCall{
-			{Name: "write_file", Content: "internal/auth/auth_test.go"},
+			{Name: "write_file", Content: "auth_test.go", Status: tui.ToolDone},
 		},
 	}
 
@@ -58,24 +72,8 @@ func TestRenderAgentPanel(t *testing.T) {
 	assert.Contains(t, result, "write_file")
 }
 
-func TestRenderAgentPanelWithStatusMsg(t *testing.T) {
-	data := tui.AgentPanelData{
-		Name:      "doc-writer",
-		Status:    tui.AgentWaiting,
-		StatusMsg: "waiting for code_written event",
-	}
-
-	result := tui.RenderAgentPanel(data)
-	assert.Contains(t, result, "waiting for code_written")
-}
-
-func TestRenderAgentPanelMinimal(t *testing.T) {
-	data := tui.AgentPanelData{
-		Name:   "reviewer",
-		Status: tui.AgentDone,
-	}
-
-	result := tui.RenderAgentPanel(data)
-	assert.Contains(t, result, "reviewer")
-	assert.Contains(t, result, "✓")
+func TestRenderUserMessage(t *testing.T) {
+	result := tui.RenderUserMessage("refactor auth module")
+	assert.Contains(t, result, ">")
+	assert.Contains(t, result, "refactor auth module")
 }

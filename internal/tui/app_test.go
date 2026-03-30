@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestNewModel(t *testing.T) {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, nil)
@@ -227,8 +230,9 @@ func TestRenderChatEntryUserInput(t *testing.T) {
 func TestRenderChatEntryAgentText(t *testing.T) {
 	entry := tui.ChatEntry{Type: tui.EntryAgentText, AgentName: "coder", Content: "Writing code..."}
 	result := tui.RenderChatEntry(entry, 80)
-	assert.Contains(t, result, "coder")
-	assert.Contains(t, result, "Writing code")
+	plain := ansiRe.ReplaceAllString(result, "")
+	assert.Contains(t, plain, "coder")
+	assert.Contains(t, plain, "Writing code")
 }
 
 func TestRenderChatEntryTool(t *testing.T) {
@@ -254,6 +258,99 @@ func TestRenderChatEntryStatus(t *testing.T) {
 	assert.Contains(t, result, "waiting for code")
 }
 
+func TestPaletteShowsOnSlash(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	assert.True(t, m.IsPaletteVisible(), "palette should show when / is typed")
+}
+
+func TestPaletteHidesOnBackspaceRemovingSlash(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	assert.True(t, m.IsPaletteVisible())
+	m = applyKey(m, "backspace")
+	assert.False(t, m.IsPaletteVisible(), "palette should hide when / is removed")
+}
+
+func TestPaletteFiltersAsYouType(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	m = applyKey(m, "e")
+	// Palette should be visible and filtered
+	assert.True(t, m.IsPaletteVisible())
+	filtered := m.PaletteCommands()
+	for _, cmd := range filtered {
+		assert.Contains(t, cmd.Name, "e")
+	}
+}
+
+func TestPaletteNavigateUpDown(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	assert.Equal(t, 0, m.PaletteSelected())
+
+	m = applyKey(m, "down")
+	assert.Equal(t, 1, m.PaletteSelected())
+
+	m = applyKey(m, "up")
+	assert.Equal(t, 0, m.PaletteSelected())
+}
+
+func TestPaletteSelectWithTab(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	// Tab should autocomplete the selected command into input
+	cmds := m.PaletteCommands()
+	if len(cmds) > 0 {
+		m = applyKey(m, "tab")
+		assert.Equal(t, cmds[0].Name, m.Input())
+		assert.False(t, m.IsPaletteVisible(), "palette should close after tab completion")
+	}
+}
+
+func TestPaletteHidesOnEscape(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyKey(m, "/")
+	assert.True(t, m.IsPaletteVisible())
+	m = applyKey(m, "esc")
+	assert.False(t, m.IsPaletteVisible())
+	assert.Equal(t, "", m.Input(), "escape should clear input")
+}
+
+func TestPaletteClearCommand(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	// Add some chat
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+	require.Len(t, m.Chat(), 1)
+
+	// Type /clear and submit
+	for _, c := range "/clear" {
+		m = applyKey(m, string(c))
+	}
+	m = applyKey(m, "enter")
+	assert.Len(t, m.Chat(), 0, "/clear should empty the chat")
+}
+
+func TestPaletteHelpCommand(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	for _, c := range "/help" {
+		m = applyKey(m, string(c))
+	}
+	m = applyKey(m, "enter")
+	require.Len(t, m.Chat(), 1)
+	assert.Equal(t, tui.EntryAgentStatus, m.Chat()[0].Type)
+	assert.Contains(t, m.Chat()[0].Content, "/exit")
+}
+
+func TestPaletteViewShowsPalette(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = applyKey(m, "/")
+	view := m.View()
+	assert.Contains(t, view, "/help")
+	assert.Contains(t, view, "/exit")
+}
+
 func applyKey(m tui.Model, key string) tui.Model {
 	var msg tea.Msg
 	switch key {
@@ -261,6 +358,14 @@ func applyKey(m tui.Model, key string) tui.Model {
 		msg = tea.KeyMsg{Type: tea.KeyEnter}
 	case "backspace":
 		msg = tea.KeyMsg{Type: tea.KeyBackspace}
+	case "tab":
+		msg = tea.KeyMsg{Type: tea.KeyTab}
+	case "up":
+		msg = tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		msg = tea.KeyMsg{Type: tea.KeyDown}
+	case "esc":
+		msg = tea.KeyMsg{Type: tea.KeyEscape}
 	default:
 		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	}

@@ -8,13 +8,17 @@ import (
 )
 
 func TestRenderStatusBar(t *testing.T) {
-	result := tui.RenderStatusBar("pair-programming", 3, 60)
-	assert.Contains(t, result, "AQL")
-	assert.Contains(t, result, "pair-programming")
-	assert.Contains(t, result, "3 agents")
+	result := tui.RenderStatusBar("claude-sonnet-4", 1500, 60)
+	assert.Contains(t, result, "claude-sonnet-4")
+	assert.Contains(t, result, "1.5k")
 }
 
-func TestRenderStatusBarNarrow(t *testing.T) {
-	result := tui.RenderStatusBar("test", 1, 20)
-	assert.Contains(t, result, "AQL")
+func TestRenderStatusBarMillions(t *testing.T) {
+	result := tui.RenderStatusBar("claude-sonnet-4", 1500000, 60)
+	assert.Contains(t, result, "1.5m")
+}
+
+func TestRenderStatusBarSmall(t *testing.T) {
+	result := tui.RenderStatusBar("claude-sonnet-4", 42, 60)
+	assert.Contains(t, result, "42")
 }

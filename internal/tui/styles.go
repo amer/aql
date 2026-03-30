@@ -3,25 +3,49 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors
-	primaryColor   = lipgloss.Color("#7C3AED") // purple
-	secondaryColor = lipgloss.Color("#6B7280") // gray
-	successColor   = lipgloss.Color("#10B981") // green
-	warningColor   = lipgloss.Color("#F59E0B") // amber
-	errorColor     = lipgloss.Color("#EF4444") // red
-	dimColor       = lipgloss.Color("#4B5563") // dim gray
-	textColor      = lipgloss.Color("#E5E7EB") // light gray
+	// Claude Code color palette
+	brandColor   = lipgloss.Color("#DA7756") // claude orange
+	accentColor  = lipgloss.Color("#5C94F0") // blue accent
+	successColor = lipgloss.Color("#5CB85C") // green
+	warningColor = lipgloss.Color("#D4A843") // amber
+	errorColor   = lipgloss.Color("#D9534F") // red
+	dimColor     = lipgloss.Color("#555555") // dim gray
+	mutedColor   = lipgloss.Color("#888888") // muted
+	textColor    = lipgloss.Color("#D4D4D4") // light text
+	brightColor  = lipgloss.Color("#FFFFFF") // bright white
+	codeColor    = lipgloss.Color("#7EC8E3") // cyan for code
 
-	// Status bar
-	StatusBarStyle = lipgloss.NewStyle().
-			Background(primaryColor).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Padding(0, 1).
+	// Header / welcome
+	HeaderStyle = lipgloss.NewStyle().
+			Foreground(brandColor).
 			Bold(true)
 
-	// Agent panel
+	HeaderDimStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
+
+	// Status bar (bottom)
+	StatusBarStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
+
+	StatusBarModelStyle = lipgloss.NewStyle().
+				Foreground(accentColor).
+				Bold(true)
+
+	StatusBarTokenStyle = lipgloss.NewStyle().
+				Foreground(dimColor)
+
+	// User message
+	UserInputStyle = lipgloss.NewStyle().
+			Foreground(brightColor).
+			Bold(true)
+
+	UserPrefixStyle = lipgloss.NewStyle().
+			Foreground(brandColor).
+			Bold(true)
+
+	// Agent response
 	AgentHeaderActive = lipgloss.NewStyle().
-				Foreground(successColor).
+				Foreground(accentColor).
 				Bold(true)
 
 	AgentHeaderWaiting = lipgloss.NewStyle().
@@ -29,7 +53,7 @@ var (
 				Bold(true)
 
 	AgentHeaderDone = lipgloss.NewStyle().
-			Foreground(dimColor).
+			Foreground(successColor).
 			Bold(true)
 
 	AgentHeaderError = lipgloss.NewStyle().
@@ -40,34 +64,73 @@ var (
 			Foreground(textColor).
 			PaddingLeft(2)
 
-	// Tool call block
-	ToolBlockStyle = lipgloss.NewStyle().
+	// Tool call block — Claude Code style
+	ToolBlockBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(secondaryColor).
+			BorderForeground(dimColor).
+			MarginLeft(2).
 			PaddingLeft(1).
-			PaddingRight(1).
-			MarginLeft(2)
+			PaddingRight(1)
+
+	ToolHeaderStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Bold(true)
+
+	ToolContentStyle = lipgloss.NewStyle().
+				Foreground(textColor)
 
 	ToolLabelStyle = lipgloss.NewStyle().
-			Foreground(secondaryColor).
+			Foreground(mutedColor).
 			Italic(true)
 
-	// Prompt
+	ToolStatusRunning = lipgloss.NewStyle().
+				Foreground(warningColor)
+
+	ToolStatusDone = lipgloss.NewStyle().
+			Foreground(successColor)
+
+	ToolStatusError = lipgloss.NewStyle().
+			Foreground(errorColor)
+
+	// Prompt input
 	PromptStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true, false, false, false).
-			BorderForeground(dimColor).
-			PaddingLeft(1)
+			BorderForeground(dimColor)
 
 	PromptCursor = lipgloss.NewStyle().
-			Foreground(primaryColor).
+			Foreground(brandColor).
 			Bold(true)
 
-	// User input
-	UserInputStyle = lipgloss.NewStyle().
-			Foreground(primaryColor).
-			Bold(true)
+	// Code
+	CodeBlockStyle = lipgloss.NewStyle().
+			Foreground(codeColor)
 
-	// Dim text
+	CodeInlineStyle = lipgloss.NewStyle().
+			Foreground(codeColor)
+
+	// General
 	DimStyle = lipgloss.NewStyle().
 			Foreground(dimColor)
+
+	MutedStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
+
+	BoldStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(textColor)
+
+	// Command palette
+	PaletteBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(dimColor).
+				PaddingLeft(1).
+				PaddingRight(1)
+
+	PaletteSelectedStyle = lipgloss.NewStyle().
+				Foreground(brandColor).
+				Bold(true)
+
+	// Spinner
+	SpinnerStyle = lipgloss.NewStyle().
+			Foreground(brandColor)
 )

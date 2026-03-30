@@ -12,22 +12,22 @@ const (
 	AgentError   AgentStatus = "error"
 )
 
-// RenderStatusBar renders the top status bar with workflow name and agent count.
-func RenderStatusBar(workflowName string, agentCount int, width int) string {
-	left := fmt.Sprintf(" AQL — %s", workflowName)
-	right := fmt.Sprintf("[%d agents] ", agentCount)
-	spaces := width - len(left) - len(right)
-	if spaces < 1 {
-		spaces = 1
-	}
-	content := left + repeatChar(' ', spaces) + right
-	return StatusBarStyle.Width(width).Render(content)
+// RenderStatusBar renders the bottom status bar with model and token info.
+func RenderStatusBar(modelName string, tokenCount int, width int) string {
+	model := StatusBarModelStyle.Render(modelName)
+	tokens := StatusBarTokenStyle.Render(fmt.Sprintf(" · %s tokens", formatTokens(tokenCount)))
+	sep := DimStyle.Render(" │ ")
+	hint := DimStyle.Render("/exit to quit · ctrl+c to cancel")
+
+	return StatusBarStyle.Render(model + tokens + sep + hint)
 }
 
-func repeatChar(c byte, n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = c
+func formatTokens(n int) string {
+	if n >= 1000000 {
+		return fmt.Sprintf("%.1fm", float64(n)/1000000)
 	}
-	return string(b)
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }
