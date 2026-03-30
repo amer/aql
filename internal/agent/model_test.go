@@ -91,9 +91,9 @@ func TestFetchModelsLive(t *testing.T) {
 	models, err := agent.FetchModels(ctx)
 	require.NoError(t, err)
 	assert.True(t, len(models) > 0, "should return at least one model from API")
-	t.Logf("fetched %d models from API", len(models))
+	t.Logf("fetched %d models from API:", len(models))
 	for _, m := range models {
-		t.Logf("  %s — %s", m.ID, m.DisplayName)
+		t.Logf("  %s — %s — %dk ctx — %s", m.ID, m.DisplayName, m.MaxInputTokens/1000, m.CreatedAt.Format("2006-01-02"))
 	}
 }
 
