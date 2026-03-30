@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,6 +139,60 @@ func TestModelPickerUsesDynamicTiers(t *testing.T) {
 	assert.Contains(t, plain, "Custom Model A")
 	assert.Contains(t, plain, "Custom Model B")
 	assert.NotContains(t, plain, "Haiku", "should not show hardcoded tiers")
+}
+
+func TestModelsLoadedMsgUpdatesTiers(t *testing.T) {
+	m := tui.NewModel("test", []string{"agent"}, nil)
+
+	// Initially uses defaults
+	assert.Equal(t, tui.DefaultModelTiers(), m.GetModelTiers())
+
+	// Simulate background probe completing
+	newTiers := []tui.ModelTier{
+		{Label: "Opus 4.6", ModelID: "claude-opus-4-6", Description: "1000k ctx"},
+		{Label: "Sonnet 4.6", ModelID: "claude-sonnet-4-6", Description: "200k ctx"},
+	}
+	updated, _ := m.Update(tui.ModelsLoadedMsg{Tiers: newTiers})
+	m = updated.(tui.Model)
+
+	assert.Equal(t, newTiers, m.GetModelTiers())
+}
+
+func TestBootstrappingState(t *testing.T) {
+	m := tui.NewModel("test", []string{"agent"}, nil)
+
+	// Not bootstrapping by default
+	assert.False(t, m.IsBootstrapping())
+
+	// Start bootstrapping
+	m.SetBootstrapping(true)
+	assert.True(t, m.IsBootstrapping())
+
+	// View should contain "Bootstrapping"
+	updated2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m = updated2.(tui.Model)
+	view := m.View()
+	plain := stripAnsiCmds(view)
+	assert.Contains(t, plain, "Bootstrapping")
+
+	// ModelsLoadedMsg should clear bootstrapping
+	updated, _ := m.Update(tui.ModelsLoadedMsg{Tiers: tui.DefaultModelTiers()})
+	m = updated.(tui.Model)
+	assert.False(t, m.IsBootstrapping())
+}
+
+func TestBootstrappingSpinnerTicks(t *testing.T) {
+	m := tui.NewModel("test", []string{"agent"}, nil)
+	m.SetBootstrapping(true)
+
+	// Init should return a spinner tick cmd when bootstrapping
+	cmd := m.Init()
+	assert.NotNil(t, cmd, "Init should return spinner tick when bootstrapping")
+
+	// SpinnerTickMsg should advance frame and keep ticking while bootstrapping
+	updated, cmd := m.Update(tui.SpinnerTickMsg{})
+	m = updated.(tui.Model)
+	assert.NotNil(t, cmd, "should keep ticking while bootstrapping")
 }
 
 func TestRenderModelPicker(t *testing.T) {

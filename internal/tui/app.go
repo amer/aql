@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -67,6 +69,11 @@ type ModelSelectedMsg struct {
 	Model string
 }
 
+// ModelsLoadedMsg is sent when background model probing completes.
+type ModelsLoadedMsg struct {
+	Tiers []ModelTier
+}
+
 // SubmitFunc is called when the user submits input. It should return a tea.Cmd
 // that kicks off agent processing.
 type SubmitFunc func(input string) tea.Cmd
@@ -95,6 +102,9 @@ type Model struct {
 	modelPickerInput   string
 	spinnerType        SpinnerType
 	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
+	bootstrapping      bool        // true while background model probe is running
+	bootstrapStart     time.Time   // when bootstrapping started
+	bootstrapFrame     int         // spinner frame for bootstrapping
 }
 
 // NewModel creates the initial TUI model.
@@ -143,6 +153,20 @@ func (m Model) GetModelTiers() []ModelTier {
 	return DefaultModelTiers()
 }
 
+// SetBootstrapping sets whether the app is bootstrapping (loading models in background).
+func (m *Model) SetBootstrapping(b bool) {
+	m.bootstrapping = b
+	if b {
+		m.bootstrapStart = time.Now()
+		m.bootstrapFrame = 0
+	}
+}
+
+// IsBootstrapping returns whether the app is currently bootstrapping.
+func (m Model) IsBootstrapping() bool {
+	return m.bootstrapping
+}
+
 // SetSpinnerType sets the active spinner animation style.
 func (m *Model) SetSpinnerType(st SpinnerType) {
 	m.spinnerType = st
@@ -160,6 +184,9 @@ type TokenCountMsg struct {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
+	if m.bootstrapping {
+		return SpinnerTickFor(SpinnerBraille)
+	}
 	return nil
 }
 
@@ -294,9 +321,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case SpinnerTickMsg:
+		if m.bootstrapping {
+			m.bootstrapFrame++
+			if !m.streaming {
+				return m, SpinnerTickFor(SpinnerBraille)
+			}
+		}
 		if m.streaming {
 			m.spinnerFrame++
 			return m, SpinnerTickFor(m.spinnerType)
+		}
+		if m.bootstrapping {
+			return m, SpinnerTickFor(SpinnerBraille)
 		}
 
 	case TokenCountMsg:
@@ -360,6 +396,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Status:    msg.Status,
 		})
 		m.scrollToBottom()
+
+	case ModelsLoadedMsg:
+		m.bootstrapping = false
+		if len(msg.Tiers) > 0 {
+			m.modelTiers = msg.Tiers
+		}
 
 	case ModelSelectedMsg:
 		if m.onModelSelected != nil {
@@ -511,6 +553,14 @@ func (m Model) View() string {
 	header := RenderHeader(m.projectPath, m.modelName, m.width)
 	b.WriteString(header)
 	b.WriteString("\n\n")
+
+	// Bootstrapping indicator
+	if m.bootstrapping {
+		elapsed := time.Since(m.bootstrapStart).Truncate(time.Second)
+		label := fmt.Sprintf("Bootstrapping... (%s)", elapsed)
+		b.WriteString(RenderSpinner(m.bootstrapFrame, label))
+		b.WriteString("\n\n")
+	}
 
 	// Render all chat entries
 	var chatLines []string

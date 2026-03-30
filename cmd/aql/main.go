@@ -65,40 +65,21 @@ func run() error {
 		}
 	}
 
-	// Probe which models the API key can actually use
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if useOAuth {
 		apiKey = tokens.APIKey
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	var usableModels []agent.ModelInfo
-	var probeErr error
-	if useOAuth {
-		usableModels, probeErr = agent.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
-	} else {
-		usableModels, probeErr = agent.ProbeUsableModelsWithAPIKey(ctx, apiKey)
-	}
-	cancel()
-	if probeErr != nil {
-		slog.Warn("failed to probe models", "error", probeErr)
-	}
-
-	// Load saved model, validate against usable models
+	// Load saved model + cached model list for instant startup
 	savedModel, err := agent.LoadModel(workDir)
 	if err != nil {
 		slog.Warn("failed to load saved model", "error", err)
 	}
 
-	// If saved model isn't usable, pick the best usable one
-	if savedModel != "" && !isModelUsable(savedModel, usableModels) {
-		slog.Warn("saved model not accessible, switching to best available",
-			"saved", savedModel, "usable", len(usableModels))
-		savedModel = ""
-	}
-	if savedModel == "" && len(usableModels) > 0 {
-		savedModel = usableModels[0].ID // Already sorted newest first
-		slog.Info("auto-selected model", "model", savedModel)
+	cachedModels, _ := agent.LoadModelCache(workDir)
+	if savedModel == "" && len(cachedModels) > 0 {
+		savedModel = cachedModels[0].ID
+		slog.Info("auto-selected model from cache", "model", savedModel)
 	}
 	if savedModel == "" {
 		savedModel = string(agent.ResolveModel(""))
@@ -158,9 +139,9 @@ func run() error {
 	model.SetProjectPath(workDir)
 	model.SetModelName(savedModel)
 
-	// Set dynamic model tiers from probed usable models
-	if len(usableModels) > 0 {
-		model.SetModelTiers(modelsToTiers(usableModels))
+	// Use cached models for instant startup
+	if len(cachedModels) > 0 {
+		model.SetModelTiers(modelsToTiers(cachedModels))
 	}
 	model.SetOnModelSelected(func(modelID string) {
 		if err := agent.SaveModel(workDir, modelID); err != nil {
@@ -185,7 +166,44 @@ func run() error {
 		slog.Info("agent recreated with new model", "model", modelID)
 	})
 
+	model.SetBootstrapping(true)
 	program = tea.NewProgram(model, tea.WithAltScreen())
+
+	// Probe models in background — updates TUI and cache when done
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var usableModels []agent.ModelInfo
+		var probeErr error
+		if useOAuth {
+			usableModels, probeErr = agent.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
+		} else {
+			usableModels, probeErr = agent.ProbeUsableModelsWithAPIKey(ctx, apiKey)
+		}
+		if probeErr != nil {
+			slog.Warn("background model probe failed", "error", probeErr)
+			return
+		}
+		if len(usableModels) == 0 {
+			return
+		}
+
+		// Update cache
+		if err := agent.SaveModelCache(workDir, usableModels); err != nil {
+			slog.Warn("failed to save model cache", "error", err)
+		}
+
+		// Update TUI model list
+		program.Send(tui.ModelsLoadedMsg{Tiers: modelsToTiers(usableModels)})
+
+		// If saved model isn't in the usable list, auto-select best
+		if savedModel != "" && !isModelUsable(savedModel, usableModels) {
+			slog.Warn("saved model not accessible, switching to best available",
+				"saved", savedModel, "usable", len(usableModels))
+		}
+	}()
+
 	_, err = program.Run()
 	return err
 }
