@@ -21,9 +21,9 @@ func strip(s string) string {
 func testModel(onSubmit tui.SubmitFunc) tui.Model {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, onSubmit)
 	m.SetAvailableModels([]tui.ModelOption{
-		{ID: "claude-haiku-4-5-20251001", DisplayName: "Claude Haiku 4.5"},
-		{ID: "claude-sonnet-4-20250514", DisplayName: "Claude Sonnet 4"},
-		{ID: "claude-opus-4-20250415", DisplayName: "Claude Opus 4"},
+		{ID: "claude-haiku-4-5-20251001", DisplayName: "Claude Haiku 4.5", MaxInputTokens: 200000},
+		{ID: "claude-sonnet-4-20250514", DisplayName: "Claude Sonnet 4", MaxInputTokens: 200000},
+		{ID: "claude-opus-4-20250415", DisplayName: "Claude Opus 4", MaxInputTokens: 200000},
 	})
 	m, _ = applyMsgCmd(m, tea.WindowSizeMsg{Width: 100, Height: 40})
 	return m
@@ -211,12 +211,13 @@ func TestIntegration_SlashModelOpensPicker(t *testing.T) {
 
 	assert.True(t, m.IsModelPickerVisible(), "picker should be visible after /model")
 
-	// View should show all model options
+	// View should show all model options with context window sizes
 	view := m.View()
 	plain := strip(view)
 	assert.Contains(t, plain, "Claude Haiku 4.5")
 	assert.Contains(t, plain, "Claude Sonnet 4")
 	assert.Contains(t, plain, "Claude Opus 4")
+	assert.Contains(t, plain, "200k ctx")
 }
 
 func TestIntegration_ModelPickerNavigateAndSelect(t *testing.T) {

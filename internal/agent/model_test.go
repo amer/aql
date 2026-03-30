@@ -56,10 +56,11 @@ func TestFetchModelsFromFixture(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, len(models) > 0, "should return at least one model")
 
-	// Check that each model has an ID and display name
+	// Check that each model has an ID, display name, and context window
 	for _, m := range models {
 		assert.NotEmpty(t, m.ID)
 		assert.NotEmpty(t, m.DisplayName)
+		assert.True(t, m.MaxInputTokens > 0, "model %s should have context window size", m.ID)
 	}
 }
 

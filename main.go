@@ -58,8 +58,9 @@ func run() error {
 	var modelOptions []tui.ModelOption
 	for _, m := range apiModels {
 		modelOptions = append(modelOptions, tui.ModelOption{
-			ID:          m.ID,
-			DisplayName: m.DisplayName,
+			ID:             m.ID,
+			DisplayName:    m.DisplayName,
+			MaxInputTokens: m.MaxInputTokens,
 		})
 	}
 

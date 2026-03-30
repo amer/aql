@@ -15,8 +15,9 @@ import (
 
 // ModelInfo holds information about an available model from the API.
 type ModelInfo struct {
-	ID          string
-	DisplayName string
+	ID             string
+	DisplayName    string
+	MaxInputTokens int64
 }
 
 // FetchModels lists available models from the Anthropic API.
@@ -47,8 +48,9 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 	var models []ModelInfo
 	for _, m := range page.Data {
 		models = append(models, ModelInfo{
-			ID:          m.ID,
-			DisplayName: m.DisplayName,
+			ID:             m.ID,
+			DisplayName:    m.DisplayName,
+			MaxInputTokens: m.MaxInputTokens,
 		})
 	}
 

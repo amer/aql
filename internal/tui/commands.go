@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -49,19 +50,31 @@ func RenderModelPicker(models []ModelOption, selected int, currentID string, wid
 	var lines []string
 	lines = append(lines, BoldStyle.Render("Select model:")+" "+DimStyle.Render("(↑↓ navigate, enter select, esc cancel)"))
 	for i, m := range models {
+		ctx := formatContextWindow(m.MaxInputTokens)
 		current := ""
 		if m.ID == currentID {
 			current = DimStyle.Render(" (current)")
 		}
-		line := "  " + m.DisplayName + DimStyle.Render("  "+m.ID) + current
+		detail := DimStyle.Render("  " + m.ID + "  " + ctx)
+		line := "  " + m.DisplayName + detail + current
 		if i == selected {
-			line = PaletteSelectedStyle.Render("▸ "+m.DisplayName) + DimStyle.Render("  "+m.ID) + current
+			line = PaletteSelectedStyle.Render("▸ "+m.DisplayName) + detail + current
 		}
 		lines = append(lines, line)
 	}
 
 	content := strings.Join(lines, "\n")
 	return PaletteBorderStyle.Width(width - 4).Render(content)
+}
+
+func formatContextWindow(tokens int64) string {
+	if tokens >= 1000000 {
+		return fmt.Sprintf("%.0fM ctx", float64(tokens)/1000000)
+	}
+	if tokens >= 1000 {
+		return fmt.Sprintf("%dk ctx", tokens/1000)
+	}
+	return fmt.Sprintf("%d ctx", tokens)
 }
 
 // RenderCommandPalette renders the command palette popup above the prompt.

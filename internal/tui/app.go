@@ -73,8 +73,9 @@ type SubmitFunc func(input string) tea.Cmd
 
 // ModelOption represents a selectable model in the TUI.
 type ModelOption struct {
-	ID          string // full model ID (e.g. "claude-sonnet-4-20250514")
-	DisplayName string // human-readable name (e.g. "Claude Sonnet 4")
+	ID             string // full model ID (e.g. "claude-sonnet-4-20250514")
+	DisplayName    string // human-readable name (e.g. "Claude Sonnet 4")
+	MaxInputTokens int64  // context window size
 }
 
 // Model is the main Bubble Tea model for AQL.
