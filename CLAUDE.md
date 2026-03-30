@@ -20,6 +20,7 @@
 
 ## Rules
 
+- Always use TDD: write failing tests first, then implement code to make them pass, then refactor
 - Do not use Makefiles
 - Do not create GitHub Actions workflows
 - Use `go` commands directly for build, test, and lint
@@ -31,3 +32,49 @@
 - Use the `run()` pattern in main to allow testable entrypoints
 - Document architecture decisions in `doc/adr/`
 - Record lessons learned in `doc/mistakes/`
+
+## Conventional Commits
+
+All commit messages MUST follow the Conventional Commits specification.
+
+### Format
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+### Types
+
+| Type       | Purpose                                                   |
+|------------|-----------------------------------------------------------|
+| `feat`     | A new feature (MINOR in SemVer)                           |
+| `fix`      | A bug fix (PATCH in SemVer)                               |
+| `docs`     | Documentation only changes                                |
+| `style`    | Formatting, whitespace — no code logic changes            |
+| `refactor` | Code change that neither fixes a bug nor adds a feature   |
+| `perf`     | Performance improvement                                   |
+| `test`     | Adding or correcting tests                                |
+| `build`    | Build system or dependency changes                        |
+| `ci`       | CI configuration changes                                  |
+| `chore`    | Other changes that don't modify src or test files         |
+| `revert`   | Reverts a previous commit                                 |
+
+### Rules
+
+- Type MUST be lowercase: `feat`, not `Feat`
+- Use imperative mood: "add feature" not "added feature"
+- No period at end of description
+- Description follows colon + space: `feat: add login`
+- Limit description to 50-72 characters
+- Scope is optional, must be a noun: `feat(auth): add OAuth`
+- Body and footers separated by blank lines
+
+### Breaking Changes
+
+- Append `!` after type/scope: `feat!:` or `feat(api)!:`
+- Or add `BREAKING CHANGE:` footer
+- Breaking changes trigger a MAJOR version bump
