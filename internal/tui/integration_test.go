@@ -262,6 +262,53 @@ func TestIntegration_ModelPickerEscDismisses(t *testing.T) {
 	assert.False(t, m.IsModelPickerVisible(), "esc should dismiss picker")
 }
 
+func TestIntegration_ModelPickerFilter(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	// Type "opus" to filter
+	m = applyKey(m, "o")
+	m = applyKey(m, "p")
+	m = applyKey(m, "u")
+	m = applyKey(m, "s")
+
+	view := m.View()
+	plain := strip(view)
+	assert.Contains(t, plain, "Claude Opus 4")
+	assert.NotContains(t, plain, "Claude Haiku 4.5")
+	assert.NotContains(t, plain, "Claude Sonnet 4")
+}
+
+func TestIntegration_ModelPickerCustomID(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	// Type a custom model ID that doesn't match any listed model
+	for _, c := range "claude-opus-4-6-20260301" {
+		m = applyKey(m, string(c))
+	}
+
+	// Navigate down to "Use custom ID" entry (should be index 1 since no matches + custom)
+	// Actually with no matches, custom is at index 0
+	m = applyKey(m, "down") // move to custom entry
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	assert.False(t, m.IsModelPickerVisible())
+	require.NotNil(t, cmd)
+	msg := cmd()
+	selected, ok := msg.(tui.ModelSelectedMsg)
+	assert.True(t, ok)
+	assert.Equal(t, "claude-opus-4-6-20260301", selected.Model)
+}
+
 // --- Scenario: Exit commands trigger quit ---
 
 func TestIntegration_ExitCommands(t *testing.T) {

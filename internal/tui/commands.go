@@ -41,14 +41,19 @@ func FilterCommands(cmds []Command, query string) []Command {
 	return result
 }
 
-// RenderModelPicker renders the interactive model selection list.
-func RenderModelPicker(models []ModelOption, selected int, currentID string, width int) string {
-	if len(models) == 0 {
-		return ""
-	}
-
+// RenderModelPicker renders the interactive model selection list with search and custom ID input.
+func RenderModelPicker(models []ModelOption, selected int, currentID string, input string, width int) string {
 	var lines []string
-	lines = append(lines, BoldStyle.Render("Select model:")+" "+DimStyle.Render("(↑↓ navigate, enter select, esc cancel)"))
+
+	// Header with search input
+	header := BoldStyle.Render("Select model:")
+	if input != "" {
+		header += " " + input + "█"
+	} else {
+		header += " " + DimStyle.Render("type to filter, ↑↓ navigate, enter select, esc cancel")
+	}
+	lines = append(lines, header)
+
 	for i, m := range models {
 		ctx := formatContextWindow(m.MaxInputTokens)
 		current := ""
@@ -62,6 +67,20 @@ func RenderModelPicker(models []ModelOption, selected int, currentID string, wid
 		}
 		lines = append(lines, line)
 	}
+
+	// "Use custom ID" entry at the bottom
+	customLine := "  " + DimStyle.Render("Use custom model ID")
+	if input != "" {
+		customLine = "  " + DimStyle.Render("Use: "+input)
+	}
+	if selected == len(models) {
+		if input != "" {
+			customLine = PaletteSelectedStyle.Render("▸ Use: " + input)
+		} else {
+			customLine = PaletteSelectedStyle.Render("▸ Use custom model ID")
+		}
+	}
+	lines = append(lines, customLine)
 
 	content := strings.Join(lines, "\n")
 	return PaletteBorderStyle.Width(width - 4).Render(content)

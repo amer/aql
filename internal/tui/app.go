@@ -100,6 +100,7 @@ type Model struct {
 	onModelSelected    func(modelID string)
 	modelPickerVisible bool
 	modelPickerIdx     int
+	modelPickerInput   string
 }
 
 // NewModel creates the initial TUI model.
@@ -156,12 +157,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Model picker intercepts keys when visible
 		if m.modelPickerVisible {
+			filtered := m.filteredModels()
+			maxIdx := len(filtered) // includes "Use custom ID" entry
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "esc":
 				m.modelPickerVisible = false
 				m.modelPickerIdx = 0
+				m.modelPickerInput = ""
 				return m, nil
 			case "up":
 				if m.modelPickerIdx > 0 {
@@ -169,30 +173,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "down":
-				if m.modelPickerIdx < len(m.availableModels)-1 {
+				if m.modelPickerIdx < maxIdx {
 					m.modelPickerIdx++
 				}
 				return m, nil
-			case "enter":
-				if len(m.availableModels) > 0 {
-					selected := m.availableModels[m.modelPickerIdx]
-					m.modelName = selected.ID
-					m.modelPickerVisible = false
+			case "backspace":
+				if len(m.modelPickerInput) > 0 {
+					m.modelPickerInput = m.modelPickerInput[:len(m.modelPickerInput)-1]
 					m.modelPickerIdx = 0
-					m.chat = append(m.chat, ChatEntry{
-						Type:    EntryAgentStatus,
-						Content: "Switched to: " + selected.DisplayName + " (" + selected.ID + ")",
-						Status:  AgentActive,
-					})
-					m.scrollToBottom()
-					selectedID := selected.ID
-					return m, func() tea.Msg {
-						return ModelSelectedMsg{Model: selectedID}
-					}
+				}
+				return m, nil
+			case "enter":
+				if m.modelPickerIdx < len(filtered) {
+					// Selected a model from the list
+					selected := filtered[m.modelPickerIdx]
+					return m, m.selectModel(selected.ID, selected.DisplayName+" ("+selected.ID+")")
+				}
+				// "Use custom ID" entry — use the typed input as model ID
+				if m.modelPickerInput != "" {
+					return m, m.selectModel(m.modelPickerInput, m.modelPickerInput)
+				}
+				return m, nil
+			default:
+				if len(msg.String()) == 1 {
+					m.modelPickerInput += msg.String()
+					m.modelPickerIdx = 0
 				}
 				return m, nil
 			}
-			return m, nil
 		}
 
 		switch msg.String() {
@@ -351,6 +359,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// selectModel handles model selection from the picker or custom input.
+func (m *Model) selectModel(modelID string, label string) tea.Cmd {
+	m.modelName = modelID
+	m.modelPickerVisible = false
+	m.modelPickerIdx = 0
+	m.modelPickerInput = ""
+	m.chat = append(m.chat, ChatEntry{
+		Type:    EntryAgentStatus,
+		Content: "Switched to: " + label,
+		Status:  AgentActive,
+	})
+	m.scrollToBottom()
+	return func() tea.Msg {
+		return ModelSelectedMsg{Model: modelID}
+	}
+}
+
+// filteredModels returns available models filtered by the picker input.
+func (m *Model) filteredModels() []ModelOption {
+	if m.modelPickerInput == "" {
+		return m.availableModels
+	}
+	q := strings.ToLower(m.modelPickerInput)
+	var result []ModelOption
+	for _, opt := range m.availableModels {
+		if strings.Contains(strings.ToLower(opt.ID), q) ||
+			strings.Contains(strings.ToLower(opt.DisplayName), q) {
+			result = append(result, opt)
+		}
+	}
+	return result
+}
+
 func (m *Model) scrollToBottom() {
 	m.scrollOffset = len(m.chat)
 }
@@ -453,6 +494,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		// Open interactive model picker
 		m.modelPickerVisible = true
 		m.modelPickerIdx = 0
+		m.modelPickerInput = ""
 		// Pre-select current model
 		for i, opt := range m.availableModels {
 			if opt.ID == m.modelName {
@@ -531,9 +573,9 @@ func (m Model) View() string {
 	}
 
 	// Model picker (below prompt)
-	if m.modelPickerVisible && len(m.availableModels) > 0 {
+	if m.modelPickerVisible {
 		b.WriteString("\n")
-		b.WriteString(RenderModelPicker(m.availableModels, m.modelPickerIdx, m.modelName, m.width))
+		b.WriteString(RenderModelPicker(m.filteredModels(), m.modelPickerIdx, m.modelName, m.modelPickerInput, m.width))
 	}
 
 	// Status bar
