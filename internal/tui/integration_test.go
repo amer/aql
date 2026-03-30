@@ -979,8 +979,8 @@ func TestIntegration_SelectionHighlightInView(t *testing.T) {
 	})
 
 	view := m.View()
-	// During active selection, View() should contain reverse-video ANSI escape
-	assert.Contains(t, view, "\x1b[7m", "active selection should render reverse-video highlight")
+	// During active selection, View() should contain selection background color
+	assert.Contains(t, view, "\x1b[48;2;", "active selection should render background highlight")
 }
 
 func TestIntegration_NoHighlightWithoutSelection(t *testing.T) {
@@ -988,8 +988,8 @@ func TestIntegration_NoHighlightWithoutSelection(t *testing.T) {
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
 
 	view := m.View()
-	// No selection active — no reverse video
-	assert.NotContains(t, view, "\x1b[7m", "no selection means no reverse-video highlight")
+	// No selection active — no selection background
+	assert.NotContains(t, view, "\x1b[48;2;46;60;100m", "no selection means no highlight background")
 }
 
 func TestIntegration_SelectionReleaseCopiesText(t *testing.T) {

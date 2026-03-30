@@ -8,27 +8,40 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+// ansiRegexp matches all common ANSI escape sequences:
+// - CSI sequences: ESC [ ... letter  (colors, cursor, SGR, etc.)
+// - Intermediate sequences: ESC <intermediate>+ <final>  (e.g. ESC(B charset reset)
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b[-(][ -/]*[0-9A-Za-z]`)
 
 // stripAnsiString removes ANSI escape sequences from a string.
 func stripAnsiString(s string) string {
 	return ansiRegexp.ReplaceAllString(s, "")
 }
 
-// highlightLineRange applies ANSI reverse-video (\x1b[7m) to characters at
+// Selection highlight escape codes — fixed background color for consistent
+// appearance regardless of the text's foreground color.
+// Uses Tokyo Night selection blue (#2e3c64 = RGB 46,60,100).
+const (
+	selHighlightOn  = "\x1b[48;2;46;60;100m"
+	selHighlightOff = "\x1b[49m"
+)
+
+// highlightLineRange applies a fixed background color to characters at
 // visible columns [fromCol, toCol) in a line that may contain ANSI escapes.
 // If toCol < 0, highlights to end of line.
 // Columns are counted per rune (not byte) so multi-byte characters like ● or ╭
 // each count as one column.
 func highlightLineRange(line string, fromCol, toCol int) string {
 	var result strings.Builder
-	result.Grow(len(line) + 20)
+	result.Grow(len(line) + 40)
 	col := 0
 	inHighlight := false
 	i := 0
 
 	for i < len(line) {
 		// Skip all ANSI escape sequences without counting them as columns.
+		// If inside highlight, re-apply the background after any SGR/reset
+		// sequence that might have cleared it.
 		if line[i] == '\x1b' && i+1 < len(line) {
 			next := line[i+1]
 			switch {
@@ -42,6 +55,9 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 					j++ // include terminating letter
 				}
 				result.WriteString(line[i:j])
+				if inHighlight {
+					result.WriteString(selHighlightOn)
+				}
 				i = j
 				continue
 			case next >= 0x20 && next <= 0x2F:
@@ -55,6 +71,9 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 					j++ // include final byte
 				}
 				result.WriteString(line[i:j])
+				if inHighlight {
+					result.WriteString(selHighlightOn)
+				}
 				i = j
 				continue
 			case next == ']':
@@ -83,11 +102,11 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 
 		// Check highlight boundaries before writing the rune.
 		if col == fromCol && !inHighlight {
-			result.WriteString("\x1b[7m")
+			result.WriteString(selHighlightOn)
 			inHighlight = true
 		}
 		if toCol >= 0 && col == toCol && inHighlight {
-			result.WriteString("\x1b[27m")
+			result.WriteString(selHighlightOff)
 			inHighlight = false
 		}
 
@@ -99,7 +118,7 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 	}
 
 	if inHighlight {
-		result.WriteString("\x1b[27m")
+		result.WriteString(selHighlightOff)
 	}
 	return result.String()
 }
