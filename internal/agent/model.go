@@ -70,7 +70,8 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 
 // ResolveModel maps a model string to an anthropic.Model.
 // Supports shortcuts ("haiku", "sonnet", "opus") and full model IDs.
-// Defaults to Sonnet if empty.
+// Defaults to Sonnet if empty. Rejects obviously invalid values
+// (slash commands) by falling back to the default.
 func ResolveModel(model string) anthropic.Model {
 	switch model {
 	case "", "sonnet":
@@ -80,14 +81,34 @@ func ResolveModel(model string) anthropic.Model {
 	case "haiku":
 		return anthropic.ModelClaudeHaiku4_5
 	default:
+		if err := ValidateModelID(model); err != nil {
+			slog.Warn("invalid model ID, using default", "model", model, "error", err)
+			return anthropic.ModelClaudeSonnet4_6
+		}
 		return anthropic.Model(model)
 	}
 }
 
 const modelFileName = ".aql_model"
 
+// ValidateModelID checks that a model ID looks valid (not empty, not a slash command).
+func ValidateModelID(id string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return fmt.Errorf("model ID must not be empty")
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return fmt.Errorf("model ID %q looks like a slash command, not a model", id)
+	}
+	return nil
+}
+
 // SaveModel persists the selected model ID to a file in the given directory.
+// Returns an error if the model ID is invalid (e.g., a slash command).
 func SaveModel(dir string, model string) error {
+	if err := ValidateModelID(model); err != nil {
+		return err
+	}
 	return os.WriteFile(filepath.Join(dir, modelFileName), []byte(model), 0644)
 }
 

@@ -125,3 +125,36 @@ func TestSaveModelOverwrites(t *testing.T) {
 	loaded, _ := agent.LoadModel(dir)
 	assert.Equal(t, "claude-opus-4-20250415", loaded)
 }
+
+func TestSaveModelRejectsSlashCommands(t *testing.T) {
+	dir := t.TempDir()
+
+	invalidValues := []string{"/exit", "/quit", "/model", "/clear", "/help", ""}
+	for _, val := range invalidValues {
+		err := agent.SaveModel(dir, val)
+		assert.Error(t, err, "should reject %q as model ID", val)
+	}
+}
+
+func TestSaveModelRejectsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	err := agent.SaveModel(dir, "")
+	assert.Error(t, err, "should reject empty model ID")
+}
+
+func TestValidateModelID(t *testing.T) {
+	// Valid IDs
+	assert.NoError(t, agent.ValidateModelID("claude-sonnet-4-6"))
+	assert.NoError(t, agent.ValidateModelID("claude-opus-4-6"))
+	assert.NoError(t, agent.ValidateModelID("claude-haiku-4-5-20251001"))
+	assert.NoError(t, agent.ValidateModelID("claude-opus-4-6-20260301"))
+
+	// Invalid IDs — slash commands
+	assert.Error(t, agent.ValidateModelID("/exit"))
+	assert.Error(t, agent.ValidateModelID("/quit"))
+	assert.Error(t, agent.ValidateModelID("/model"))
+
+	// Invalid IDs — empty or whitespace
+	assert.Error(t, agent.ValidateModelID(""))
+	assert.Error(t, agent.ValidateModelID("   "))
+}

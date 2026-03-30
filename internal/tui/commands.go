@@ -71,7 +71,7 @@ func ModelTiers() []ModelTier {
 		},
 		{
 			Label:       "Haiku",
-			ModelID:     "claude-haiku-4-5-20251001",
+			ModelID:     "claude-haiku-4-5",
 			Description: "Fastest for quick answers",
 			Pricing:     "$1/$5 per Mtok",
 		},

@@ -66,3 +66,138 @@ func TestRunnerLive_StreamsFromAPI(t *testing.T) {
 	assert.Contains(t, full, "hello")
 	t.Logf("received %d chunks, full response: %q", len(chunks), full)
 }
+
+// TestRunnerLive_AllModelTiers verifies that each model tier from the
+// TUI model picker actually works with the current API key.
+// This catches issues where a tier shows in the picker but returns 400/404.
+func TestRunnerLive_AllModelTiers(t *testing.T) {
+	if os.Getenv("AQL_LIVE_TEST") != "1" {
+		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("ANTHROPIC_API_KEY not set")
+	}
+
+	tiers := []struct {
+		name    string
+		modelID string
+	}{
+		{"default-sonnet", "claude-sonnet-4-6"},
+		{"opus", "claude-opus-4-6"},
+		{"haiku", "claude-haiku-4-5"},
+	}
+
+	for _, tier := range tiers {
+		t.Run(tier.name, func(t *testing.T) {
+			workDir := t.TempDir()
+
+			a, err := agent.New(agent.Config{
+				Name:         "test-" + tier.name,
+				Role:         "test",
+				SystemPrompt: "Reply with exactly one word: pong",
+				Model:        tier.modelID,
+			}, workDir)
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			ch := a.Run(ctx, "ping")
+
+			var gotDone bool
+			var gotError error
+			var response string
+
+			for evt := range ch {
+				if evt.Error != nil {
+					gotError = evt.Error
+					break
+				}
+				if evt.Done {
+					gotDone = true
+					break
+				}
+				response += evt.Text
+			}
+
+			if gotError != nil {
+				t.Errorf("model %s returned error: %v\n"+
+					"  → Your API key may not have access to this model tier.\n"+
+					"  → Check your account at console.anthropic.com",
+					tier.modelID, gotError)
+				return
+			}
+
+			assert.True(t, gotDone, "should complete without error")
+			assert.NotEmpty(t, response, "should produce a response")
+			t.Logf("model %s responded: %q", tier.modelID, response)
+		})
+	}
+}
+
+// TestRunnerLive_SavedModelWorks verifies that the currently saved model
+// in .aql_model actually works with the API. This catches the scenario where
+// an invalid value (like "/exit") gets persisted and breaks all future sessions.
+func TestRunnerLive_SavedModelWorks(t *testing.T) {
+	if os.Getenv("AQL_LIVE_TEST") != "1" {
+		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("ANTHROPIC_API_KEY not set")
+	}
+
+	// Load saved model from project root (if any)
+	workDir, err := os.Getwd()
+	require.NoError(t, err)
+
+	// Walk up to find project root (where .aql_model lives)
+	for workDir != "/" {
+		if _, err := os.Stat(workDir + "/.aql_model"); err == nil {
+			break
+		}
+		workDir = workDir[:len(workDir)-len("/"+workDir[len(workDir)-1:])]
+	}
+
+	savedModel, err := agent.LoadModel(workDir)
+	if err != nil || savedModel == "" {
+		t.Skip("no .aql_model file found")
+	}
+
+	t.Logf("testing saved model: %q", savedModel)
+
+	// Validate it doesn't look like a slash command
+	assert.NotContains(t, savedModel, "/",
+		"saved model ID must not be a slash command — file is corrupted")
+
+	// Actually try to use it
+	a, err := agent.New(agent.Config{
+		Name:         "test-saved",
+		Role:         "test",
+		SystemPrompt: "Reply: ok",
+		Model:        savedModel,
+	}, t.TempDir())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := a.Run(ctx, "test")
+
+	var gotError error
+	for evt := range ch {
+		if evt.Error != nil {
+			gotError = evt.Error
+			break
+		}
+		if evt.Done {
+			break
+		}
+	}
+
+	if gotError != nil {
+		t.Errorf("saved model %q returned error: %v\n"+
+			"  → This model may not be accessible with your API key.\n"+
+			"  → Try: echo 'claude-haiku-4-5-20251001' > .aql_model",
+			savedModel, gotError)
+	}
+}
