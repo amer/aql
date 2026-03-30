@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -e
+
+echo "Running pre-commit checks..."
+
+# Format check
+UNFORMATTED=$(gofmt -l . 2>&1)
+if [ -n "$UNFORMATTED" ]; then
+    echo "ERROR: unformatted files:"
+    echo "$UNFORMATTED"
+    echo ""
+    echo "Run: gofmt -w ."
+    exit 1
+fi
+
+# Vet
+echo "Running go vet..."
+go vet ./...
+
+# Tests
+echo "Running tests..."
+go test -race -count=1 ./...
+
+echo "All checks passed."
