@@ -518,7 +518,8 @@ func TestScrollOffset_ViewShowsIndicatorWhenScrolledUp(t *testing.T) {
 	m = applyKey(m, "pgup")
 	view := m.View()
 	plain := stripAnsi(view)
-	assert.Contains(t, plain, "↑", "should show scroll-up indicator when scrolled up")
+	assert.Contains(t, plain, "↓", "should show down-arrow pointing toward hidden content below")
+	assert.Contains(t, plain, "more lines below", "should indicate lines are below the viewport")
 }
 
 func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {

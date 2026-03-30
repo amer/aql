@@ -738,7 +738,7 @@ func (m Model) View() string {
 
 	// Scroll indicator when not at bottom
 	if offset > 0 {
-		indicator := fmt.Sprintf(" ↑ %d more lines below ", offset)
+		indicator := fmt.Sprintf(" ↓ %d more lines below ", offset)
 		b.WriteString("\n")
 		b.WriteString(DimStyle.Render(indicator))
 	}
