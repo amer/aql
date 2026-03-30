@@ -91,12 +91,6 @@ var (
 			Foreground(brandColor).
 			Bold(true)
 
-	PromptBadgeStyle = lipgloss.NewStyle().
-				Foreground(textColor).
-				Background(lipgloss.Color("#3A3A3A")).
-				PaddingLeft(1).
-				PaddingRight(1)
-
 	// Code
 	CodeBlockStyle = lipgloss.NewStyle().
 			Foreground(codeColor)

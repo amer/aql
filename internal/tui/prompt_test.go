@@ -21,7 +21,7 @@ func TestRenderPrompt(t *testing.T) {
 func TestRenderPromptCursorPrefix(t *testing.T) {
 	result := tui.RenderPrompt("test", 60)
 	plain := stripANSIPrompt(result)
-	assert.Contains(t, plain, ") test")
+	assert.Contains(t, plain, "❯ test")
 }
 
 func TestRenderPromptEmpty(t *testing.T) {
@@ -41,7 +41,7 @@ func TestRenderPromptSeparatorAbove(t *testing.T) {
 	// Should contain the project badge
 	assert.Contains(t, plain, "aql-project")
 	// Should contain the cursor prefix
-	assert.Contains(t, plain, ") test input")
+	assert.Contains(t, plain, "❯ test input")
 }
 
 func TestRenderPromptSeparatorBelow(t *testing.T) {

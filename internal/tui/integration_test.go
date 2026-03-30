@@ -20,6 +20,11 @@ func strip(s string) string {
 // testModel creates a Model with a standard window size and optional onSubmit.
 func testModel(onSubmit tui.SubmitFunc) tui.Model {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, onSubmit)
+	m.SetAvailableModels([]tui.ModelOption{
+		{ID: "claude-haiku-4-5-20251001", DisplayName: "Claude Haiku 4.5"},
+		{ID: "claude-sonnet-4-20250514", DisplayName: "Claude Sonnet 4"},
+		{ID: "claude-opus-4-20250415", DisplayName: "Claude Opus 4"},
+	})
 	m, _ = applyMsgCmd(m, tea.WindowSizeMsg{Width: 100, Height: 40})
 	return m
 }
@@ -196,16 +201,39 @@ func TestIntegration_SlashStatus(t *testing.T) {
 	assert.Contains(t, m.Chat()[0].Content, "coder")
 }
 
-// --- Scenario: Slash command /model shows model ---
+// --- Scenario: Slash command /model lists available models ---
 
-func TestIntegration_SlashModel(t *testing.T) {
+func TestIntegration_SlashModelShowsList(t *testing.T) {
 	m := testModel(nil)
 
 	m = typeString(m, "/model")
 	m = applyKey(m, "enter")
 
 	require.Len(t, m.Chat(), 1)
-	assert.Contains(t, m.Chat()[0].Content, "claude-sonnet-4")
+	content := m.Chat()[0].Content
+	assert.Contains(t, content, "Claude Haiku 4.5")
+	assert.Contains(t, content, "Claude Sonnet 4")
+	assert.Contains(t, content, "Claude Opus 4")
+}
+
+func TestIntegration_SlashModelSelect(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "/model sonnet")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	// Should emit a ModelSelectedMsg with the full model ID
+	require.NotNil(t, cmd)
+	msg := cmd()
+	selected, ok := msg.(tui.ModelSelectedMsg)
+	assert.True(t, ok, "should return ModelSelectedMsg")
+	assert.Equal(t, "claude-sonnet-4-20250514", selected.Model)
+
+	// Chat should confirm the selection
+	require.True(t, len(m.Chat()) >= 1)
+	last := m.Chat()[len(m.Chat())-1]
+	assert.Contains(t, last.Content, "Claude Sonnet 4")
 }
 
 // --- Scenario: Exit commands trigger quit ---
@@ -504,7 +532,7 @@ func TestIntegration_ViewLayout(t *testing.T) {
 	assert.Contains(t, plain, "auto-compact")
 
 	// Prompt cursor
-	assert.Contains(t, plain, ")")
+	assert.Contains(t, plain, "❯")
 }
 
 // --- Scenario: Streaming prompt shows spinner label ---

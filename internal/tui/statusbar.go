@@ -25,7 +25,7 @@ const maxContextTokens = 200000
 // Right: "N% until auto-compact"
 func RenderStatusBar(modelName string, tokenCount int, width int) string {
 	arrowStyle := lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	arrows := arrowStyle.Render("▸▸")
+	arrows := arrowStyle.Render("⏵⏵")
 
 	left := arrows + " " + DimStyle.Render("agents on") + " " + MutedStyle.Render("(shift+tab to cycle)")
 

@@ -6,11 +6,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// RenderPrompt renders the Claude Code-style input prompt with `) ` prefix.
+// RenderPrompt renders the input prompt with ❯ prefix.
 func RenderPrompt(input string, width int) string {
-	cursor := PromptCursor.Render(") ")
-	content := cursor + input + "█"
-	return content
+	cursor := PromptCursor.Render("❯ ")
+	return cursor + input + "█"
 }
 
 // RenderPromptStreaming renders the prompt area while an agent is responding.
@@ -18,26 +17,32 @@ func RenderPromptStreaming(spinnerFrame int, agentName string, width int) string
 	return RenderSpinner(spinnerFrame, agentName+" is responding...")
 }
 
-// RenderPromptArea renders the full prompt area with teal separator lines
-// and a right-aligned project badge, matching Claude Code's layout.
+// RenderPromptArea renders the full prompt area matching Claude Code's layout:
+// ─────────────────────────────────── project-name ──
+// ❯ input
+// ───────────────────────────────────────────────────
 func RenderPromptArea(input string, projectName string, width int) string {
 	var b strings.Builder
 
-	lineStyle := lipgloss.NewStyle().Foreground(accentColor)
+	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
+	badgeStyle := lipgloss.NewStyle().Foreground(mutedColor)
 
-	// Top separator with right-aligned project badge
-	badge := PromptBadgeStyle.Render(projectName)
+	// Top separator: ────────── project-name ──
+	badge := badgeStyle.Render(projectName)
 	badgeWidth := lipgloss.Width(badge)
-	lineWidth := width - badgeWidth - 1
-	if lineWidth < 1 {
-		lineWidth = 1
+	trailWidth := 2
+	leadWidth := width - badgeWidth - trailWidth - 2 // 2 spaces around badge
+	if leadWidth < 1 {
+		leadWidth = 1
 	}
-	topLine := lineStyle.Render(strings.Repeat("─", lineWidth)) + " " + badge
+	topLine := lineStyle.Render(strings.Repeat("─", leadWidth)) +
+		" " + badge + " " +
+		lineStyle.Render(strings.Repeat("─", trailWidth))
 	b.WriteString(topLine)
 	b.WriteString("\n")
 
 	// Prompt line
-	cursor := PromptCursor.Render(") ")
+	cursor := PromptCursor.Render("❯ ")
 	b.WriteString(cursor + input + "█")
 	b.WriteString("\n")
 
@@ -51,16 +56,20 @@ func RenderPromptArea(input string, projectName string, width int) string {
 func RenderPromptAreaStreaming(spinnerFrame int, agentName string, projectName string, width int) string {
 	var b strings.Builder
 
-	lineStyle := lipgloss.NewStyle().Foreground(accentColor)
+	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
+	badgeStyle := lipgloss.NewStyle().Foreground(mutedColor)
 
-	// Top separator with right-aligned project badge
-	badge := PromptBadgeStyle.Render(projectName)
+	// Top separator with project badge
+	badge := badgeStyle.Render(projectName)
 	badgeWidth := lipgloss.Width(badge)
-	lineWidth := width - badgeWidth - 1
-	if lineWidth < 1 {
-		lineWidth = 1
+	trailWidth := 2
+	leadWidth := width - badgeWidth - trailWidth - 2
+	if leadWidth < 1 {
+		leadWidth = 1
 	}
-	topLine := lineStyle.Render(strings.Repeat("─", lineWidth)) + " " + badge
+	topLine := lineStyle.Render(strings.Repeat("─", leadWidth)) +
+		" " + badge + " " +
+		lineStyle.Render(strings.Repeat("─", trailWidth))
 	b.WriteString(topLine)
 	b.WriteString("\n")
 
