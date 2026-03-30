@@ -70,15 +70,15 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 
 // ResolveModel maps a model string to an anthropic.Model.
 // Supports shortcuts ("haiku", "sonnet", "opus") and full model IDs.
-// Defaults to Haiku if empty.
+// Defaults to Sonnet if empty.
 func ResolveModel(model string) anthropic.Model {
 	switch model {
-	case "", "haiku":
-		return anthropic.ModelClaudeHaiku4_5
-	case "sonnet":
-		return anthropic.ModelClaudeSonnet4_5
+	case "", "sonnet":
+		return anthropic.ModelClaudeSonnet4_6
 	case "opus":
-		return anthropic.ModelClaudeOpus4_5
+		return anthropic.ModelClaudeOpus4_6
+	case "haiku":
+		return anthropic.ModelClaudeHaiku4_5
 	default:
 		return anthropic.Model(model)
 	}

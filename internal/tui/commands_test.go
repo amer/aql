@@ -1,10 +1,12 @@
 package tui_test
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSlashCommands(t *testing.T) {
@@ -95,3 +97,60 @@ func TestCommandAction(t *testing.T) {
 		assert.NotEmpty(t, cmd.Action, "command %s must have an action", cmd.Name)
 	}
 }
+
+func TestModelTiers(t *testing.T) {
+	tiers := tui.ModelTiers()
+	require.Len(t, tiers, 3, "should have Default, Opus, Haiku")
+
+	assert.Equal(t, "Default (recommended)", tiers[0].Label)
+	assert.Equal(t, "Opus", tiers[1].Label)
+	assert.Equal(t, "Haiku", tiers[2].Label)
+
+	for _, tier := range tiers {
+		assert.NotEmpty(t, tier.ModelID, "tier must have a model ID")
+		assert.NotEmpty(t, tier.Description, "tier must have a description")
+		assert.NotEmpty(t, tier.Pricing, "tier must have pricing")
+	}
+}
+
+func TestRenderModelPicker(t *testing.T) {
+	tiers := tui.ModelTiers()
+	result := tui.RenderModelPicker(tiers, 0, "claude-sonnet-4-6", 80)
+	plain := stripAnsiCmds(result)
+
+	assert.Contains(t, plain, "Select model")
+	assert.Contains(t, plain, "Default (recommended)")
+	assert.Contains(t, plain, "Opus")
+	assert.Contains(t, plain, "Haiku")
+	assert.Contains(t, plain, "per Mtok")
+	assert.Contains(t, plain, "Enter to confirm")
+	assert.Contains(t, plain, "Esc to exit")
+}
+
+func TestRenderModelPickerHighlightsCurrent(t *testing.T) {
+	tiers := tui.ModelTiers()
+	result := tui.RenderModelPicker(tiers, 1, "claude-opus-4-6", 80)
+	plain := stripAnsiCmds(result)
+	// Opus is selected (idx 1) and is current model
+	assert.Contains(t, plain, "✓")
+}
+
+func TestRenderModelPickerDifferentSelection(t *testing.T) {
+	tiers := tui.ModelTiers()
+	r0 := tui.RenderModelPicker(tiers, 0, "", 80)
+	r1 := tui.RenderModelPicker(tiers, 1, "", 80)
+	assert.NotEqual(t, r0, r1, "different selection should render differently")
+}
+
+func TestRenderModelPickerCustomEntry(t *testing.T) {
+	tiers := tui.ModelTiers()
+	// selected=3 means "Use custom model ID" entry
+	result := tui.RenderModelPicker(tiers, 3, "", 80)
+	plain := stripAnsiCmds(result)
+	assert.Contains(t, plain, "custom model ID")
+}
+
+var stripAnsiCmds = func() func(string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return func(s string) string { return re.ReplaceAllString(s, "") }
+}()

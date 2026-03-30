@@ -16,7 +16,7 @@ import (
 
 func TestResolveModelDefault(t *testing.T) {
 	model := agent.ResolveModel("")
-	assert.Equal(t, anthropic.ModelClaudeHaiku4_5, model)
+	assert.Equal(t, anthropic.ModelClaudeSonnet4_6, model)
 }
 
 func TestResolveModelExplicit(t *testing.T) {
@@ -26,8 +26,8 @@ func TestResolveModelExplicit(t *testing.T) {
 
 func TestResolveModelShortcuts(t *testing.T) {
 	assert.Equal(t, anthropic.ModelClaudeHaiku4_5, agent.ResolveModel("haiku"))
-	assert.Equal(t, anthropic.ModelClaudeSonnet4_5, agent.ResolveModel("sonnet"))
-	assert.Equal(t, anthropic.ModelClaudeOpus4_5, agent.ResolveModel("opus"))
+	assert.Equal(t, anthropic.ModelClaudeSonnet4_6, agent.ResolveModel("sonnet"))
+	assert.Equal(t, anthropic.ModelClaudeOpus4_6, agent.ResolveModel("opus"))
 }
 
 func TestConfigModel(t *testing.T) {

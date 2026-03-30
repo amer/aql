@@ -20,11 +20,6 @@ func strip(s string) string {
 // testModel creates a Model with a standard window size and optional onSubmit.
 func testModel(onSubmit tui.SubmitFunc) tui.Model {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, onSubmit)
-	m.SetAvailableModels([]tui.ModelOption{
-		{ID: "claude-haiku-4-5-20251001", DisplayName: "Claude Haiku 4.5", MaxInputTokens: 200000},
-		{ID: "claude-sonnet-4-20250514", DisplayName: "Claude Sonnet 4", MaxInputTokens: 200000},
-		{ID: "claude-opus-4-20250415", DisplayName: "Claude Opus 4", MaxInputTokens: 200000},
-	})
 	m, _ = applyMsgCmd(m, tea.WindowSizeMsg{Width: 100, Height: 40})
 	return m
 }
@@ -211,13 +206,13 @@ func TestIntegration_SlashModelOpensPicker(t *testing.T) {
 
 	assert.True(t, m.IsModelPickerVisible(), "picker should be visible after /model")
 
-	// View should show all model options with context window sizes
+	// View should show the 3 model tiers
 	view := m.View()
 	plain := strip(view)
-	assert.Contains(t, plain, "Claude Haiku 4.5")
-	assert.Contains(t, plain, "Claude Sonnet 4")
-	assert.Contains(t, plain, "Claude Opus 4")
-	assert.Contains(t, plain, "200k ctx")
+	assert.Contains(t, plain, "Default (recommended)")
+	assert.Contains(t, plain, "Opus")
+	assert.Contains(t, plain, "Haiku")
+	assert.Contains(t, plain, "per Mtok")
 }
 
 func TestIntegration_ModelPickerNavigateAndSelect(t *testing.T) {
@@ -228,27 +223,27 @@ func TestIntegration_ModelPickerNavigateAndSelect(t *testing.T) {
 	m = applyKey(m, "enter")
 	require.True(t, m.IsModelPickerVisible())
 
-	// First item selected by default (haiku) — move down to sonnet
+	// First item selected by default — move down to Opus
 	m = applyKey(m, "down")
 	assert.Equal(t, 1, m.ModelPickerSelected())
 
-	// Press enter to select
+	// Press enter to select Opus
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(tui.Model)
 
 	assert.False(t, m.IsModelPickerVisible(), "picker should close after selection")
 
-	// Should emit ModelSelectedMsg
+	// Should emit ModelSelectedMsg with Opus model ID
 	require.NotNil(t, cmd)
 	msg := cmd()
 	selected, ok := msg.(tui.ModelSelectedMsg)
 	assert.True(t, ok, "should return ModelSelectedMsg")
-	assert.Equal(t, "claude-sonnet-4-20250514", selected.Model)
+	assert.Contains(t, selected.Model, "opus")
 
 	// Chat should confirm
 	require.True(t, len(m.Chat()) >= 1)
 	last := m.Chat()[len(m.Chat())-1]
-	assert.Contains(t, last.Content, "Claude Sonnet 4")
+	assert.Contains(t, last.Content, "Opus")
 }
 
 func TestIntegration_ModelPickerEscDismisses(t *testing.T) {
@@ -262,41 +257,18 @@ func TestIntegration_ModelPickerEscDismisses(t *testing.T) {
 	assert.False(t, m.IsModelPickerVisible(), "esc should dismiss picker")
 }
 
-func TestIntegration_ModelPickerFilter(t *testing.T) {
+func TestIntegration_ModelPickerPreSelectsCurrent(t *testing.T) {
 	m := testModel(nil)
+	// Set current model to Opus tier
+	tiers := tui.ModelTiers()
+	m.SetModelName(tiers[1].ModelID) // Opus
 
 	m = typeString(m, "/model")
 	m = applyKey(m, "enter")
 	require.True(t, m.IsModelPickerVisible())
 
-	// Type "opus" to filter
-	m = applyKey(m, "o")
-	m = applyKey(m, "p")
-	m = applyKey(m, "u")
-	m = applyKey(m, "s")
-
-	view := m.View()
-	plain := strip(view)
-	assert.Contains(t, plain, "Claude Opus 4")
-	assert.NotContains(t, plain, "Claude Haiku 4.5")
-	assert.NotContains(t, plain, "Claude Sonnet 4")
-}
-
-func TestIntegration_ModelPickerFuzzyMatch(t *testing.T) {
-	m := testModel(nil)
-
-	m = typeString(m, "/model")
-	m = applyKey(m, "enter")
-	require.True(t, m.IsModelPickerVisible())
-
-	// "op46" should fuzzy-match "Claude Opus 4" (skipping characters)
-	for _, c := range "op4" {
-		m = applyKey(m, string(c))
-	}
-
-	view := m.View()
-	plain := strip(view)
-	assert.Contains(t, plain, "Claude Opus 4")
+	// Should pre-select Opus (index 1)
+	assert.Equal(t, 1, m.ModelPickerSelected())
 }
 
 func TestIntegration_CommandPaletteFuzzyMatch(t *testing.T) {
@@ -361,50 +333,18 @@ func TestIntegration_ModelPickerCustomID(t *testing.T) {
 	m = applyKey(m, "enter")
 	require.True(t, m.IsModelPickerVisible())
 
-	// Type a custom model ID — no exact match in the list
+	// Arrow down past the 3 tiers to "Use custom model ID"
+	m = applyKey(m, "down") // Opus
+	m = applyKey(m, "down") // Haiku
+	m = applyKey(m, "down") // Custom
+	assert.Equal(t, 3, m.ModelPickerSelected(), "should be on custom entry")
+
+	// Type a custom model ID
 	for _, c := range "claude-opus-4-6-20260301" {
 		m = applyKey(m, string(c))
 	}
 
-	// idx=0, filtered is empty (input is longer than any listed ID)
-	// Enter should use custom input
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(tui.Model)
-
-	assert.False(t, m.IsModelPickerVisible())
-	require.NotNil(t, cmd)
-	msg := cmd()
-	selected, ok := msg.(tui.ModelSelectedMsg)
-	assert.True(t, ok)
-	assert.Equal(t, "claude-opus-4-6-20260301", selected.Model)
-}
-
-func TestIntegration_ModelPickerArrowDownToCustom(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"}, nil)
-	m.SetAvailableModels([]tui.ModelOption{
-		{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", MaxInputTokens: 1000000},
-	})
-	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-	m = u.(tui.Model)
-
-	// Open picker
-	m = typeString(m, "/model")
-	m = applyKey(m, "enter")
-	require.True(t, m.IsModelPickerVisible())
-
-	// Arrow down past the listed model to "Use custom ID"
-	m = applyKey(m, "down")
-	assert.Equal(t, 1, m.ModelPickerSelected(), "should be on custom entry")
-
-	// Type a dated model ID while on custom entry
-	for _, c := range "claude-opus-4-6-20260301" {
-		m = applyKey(m, string(c))
-	}
-
-	// Should stay on custom entry even after typing
-	filtered := 0 // "claude-opus-4-6-20260301" is longer than "claude-opus-4-6", so no match
-	_ = filtered
-	// idx should be at the custom entry position
+	// Enter should use typed input
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(tui.Model)
 

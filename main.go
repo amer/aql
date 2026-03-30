@@ -58,22 +58,6 @@ func run() error {
 		return err
 	}
 
-	// Fetch available models from API
-	ctx := context.Background()
-	apiModels, err := agent.FetchModels(ctx)
-	if err != nil {
-		slog.Warn("failed to fetch models from API", "error", err)
-	}
-
-	var modelOptions []tui.ModelOption
-	for _, m := range apiModels {
-		modelOptions = append(modelOptions, tui.ModelOption{
-			ID:             m.ID,
-			DisplayName:    m.DisplayName,
-			MaxInputTokens: m.MaxInputTokens,
-		})
-	}
-
 	var program *tea.Program
 
 	onSubmit := func(input string) tea.Cmd {
@@ -110,8 +94,6 @@ func run() error {
 	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
 	model.SetProjectPath(workDir)
 	model.SetModelName(savedModel)
-	model.SetAvailableModels(modelOptions)
-
 	// Handle model selection persistence
 	model.SetOnModelSelected(func(modelID string) {
 		if err := agent.SaveModel(workDir, modelID); err != nil {

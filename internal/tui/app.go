@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sahilm/fuzzy"
 )
 
 // ChatEntry represents a single item in the scrolling chat log.
@@ -72,13 +71,6 @@ type ModelSelectedMsg struct {
 // that kicks off agent processing.
 type SubmitFunc func(input string) tea.Cmd
 
-// ModelOption represents a selectable model in the TUI.
-type ModelOption struct {
-	ID             string // full model ID (e.g. "claude-sonnet-4-20250514")
-	DisplayName    string // human-readable name (e.g. "Claude Sonnet 4")
-	MaxInputTokens int64  // context window size
-}
-
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
 	workflowName       string
@@ -97,7 +89,6 @@ type Model struct {
 	paletteVisible     bool
 	paletteSelected    int
 	paletteFiltered    []Command
-	availableModels    []ModelOption
 	onModelSelected    func(modelID string)
 	modelPickerVisible bool
 	modelPickerIdx     int
@@ -112,7 +103,7 @@ func NewModel(workflowName string, agentNames []string, onSubmit SubmitFunc) Mod
 		width:        80,
 		height:       24,
 		onSubmit:     onSubmit,
-		modelName:    "claude-sonnet-4",
+		modelName:    "claude-sonnet-4-6",
 		projectPath:  ".",
 	}
 }
@@ -125,11 +116,6 @@ func (m *Model) SetModelName(name string) {
 // SetProjectPath sets the project path shown in the header.
 func (m *Model) SetProjectPath(path string) {
 	m.projectPath = path
-}
-
-// SetAvailableModels sets the list of models shown by /model.
-func (m *Model) SetAvailableModels(models []ModelOption) {
-	m.availableModels = models
 }
 
 // SetOnModelSelected sets a callback invoked when the user switches models.
@@ -158,8 +144,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Model picker intercepts keys when visible
 		if m.modelPickerVisible {
-			filtered := m.filteredModels()
-			maxIdx := len(filtered) // includes "Use custom ID" entry
+			tiers := ModelTiers()
+			maxIdx := len(tiers) // includes "Use custom ID" entry
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -181,14 +167,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "backspace":
 				if len(m.modelPickerInput) > 0 {
 					m.modelPickerInput = m.modelPickerInput[:len(m.modelPickerInput)-1]
-					m.modelPickerIdx = 0
 				}
 				return m, nil
 			case "enter":
-				if m.modelPickerIdx < len(filtered) {
-					// Selected a model from the list
-					selected := filtered[m.modelPickerIdx]
-					return m, m.selectModel(selected.ID, selected.DisplayName+" ("+selected.ID+")")
+				if m.modelPickerIdx < len(tiers) {
+					// Selected a tier from the list
+					tier := tiers[m.modelPickerIdx]
+					return m, m.selectModel(tier.ModelID, tier.Label+" ("+tier.ModelID+")")
 				}
 				// "Use custom ID" entry — use the typed input as model ID
 				if m.modelPickerInput != "" {
@@ -196,16 +181,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			default:
-				if len(msg.String()) == 1 {
-					wasOnCustom := m.modelPickerIdx >= len(filtered)
+				// Typing only applies when on the custom ID entry
+				if m.modelPickerIdx == len(tiers) && len(msg.String()) == 1 {
 					m.modelPickerInput += msg.String()
-					newFiltered := m.filteredModels()
-					if wasOnCustom {
-						// Keep selection on "Use custom" entry
-						m.modelPickerIdx = len(newFiltered)
-					} else {
-						m.modelPickerIdx = 0
-					}
 				}
 				return m, nil
 			}
@@ -388,24 +366,6 @@ func (m *Model) selectModel(modelID string, label string) tea.Cmd {
 	}
 }
 
-// filteredModels returns available models filtered by fuzzy match on the picker input.
-func (m *Model) filteredModels() []ModelOption {
-	if m.modelPickerInput == "" {
-		return m.availableModels
-	}
-	// Build searchable strings: "DisplayName ID"
-	strs := make([]string, len(m.availableModels))
-	for i, opt := range m.availableModels {
-		strs[i] = opt.DisplayName + " " + opt.ID
-	}
-	matches := fuzzy.Find(m.modelPickerInput, strs)
-	result := make([]ModelOption, len(matches))
-	for i, match := range matches {
-		result[i] = m.availableModels[match.Index]
-	}
-	return result
-}
-
 func (m *Model) scrollToBottom() {
 	m.scrollOffset = len(m.chat)
 }
@@ -426,42 +386,6 @@ func (m *Model) updatePalette() {
 // executeCommand handles built-in slash commands. Returns non-empty string if handled,
 // and optionally a tea.Cmd to execute.
 func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
-	// Handle /model <query> — match by ID substring or display name
-	if strings.HasPrefix(cmd, "/model ") {
-		query := strings.TrimSpace(strings.TrimPrefix(cmd, "/model"))
-		queryLower := strings.ToLower(query)
-		var match *ModelOption
-		for i, opt := range m.availableModels {
-			if strings.Contains(strings.ToLower(opt.ID), queryLower) ||
-				strings.Contains(strings.ToLower(opt.DisplayName), queryLower) {
-				match = &m.availableModels[i]
-				break
-			}
-		}
-		if match == nil {
-			m.chat = append(m.chat, ChatEntry{
-				Type:    EntryAgentStatus,
-				Content: "No model matching: " + query + ". Use /model to see available options.",
-				Status:  AgentError,
-			})
-			m.input = ""
-			m.scrollToBottom()
-			return "model", nil
-		}
-		m.modelName = match.ID
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: "Switched to: " + match.DisplayName + " (" + match.ID + ")",
-			Status:  AgentActive,
-		})
-		m.input = ""
-		m.scrollToBottom()
-		selectedID := match.ID
-		return "model", func() tea.Msg {
-			return ModelSelectedMsg{Model: selectedID}
-		}
-	}
-
 	switch cmd {
 	case "/exit", "/quit", "/q":
 		return "", nil
@@ -509,9 +433,9 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.modelPickerVisible = true
 		m.modelPickerIdx = 0
 		m.modelPickerInput = ""
-		// Pre-select current model
-		for i, opt := range m.availableModels {
-			if opt.ID == m.modelName {
+		// Pre-select current model's tier
+		for i, tier := range ModelTiers() {
+			if tier.ModelID == m.modelName {
 				m.modelPickerIdx = i
 				break
 			}
@@ -589,7 +513,7 @@ func (m Model) View() string {
 	// Model picker (below prompt)
 	if m.modelPickerVisible {
 		b.WriteString("\n")
-		b.WriteString(RenderModelPicker(m.filteredModels(), m.modelPickerIdx, m.modelName, m.modelPickerInput, m.width))
+		b.WriteString(RenderModelPicker(ModelTiers(), m.modelPickerIdx, m.modelName, m.width))
 	}
 
 	// Status bar

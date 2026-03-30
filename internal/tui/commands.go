@@ -46,59 +46,75 @@ func FilterCommands(cmds []Command, query string) []Command {
 	return result
 }
 
-// RenderModelPicker renders the interactive model selection list with search and custom ID input.
-func RenderModelPicker(models []ModelOption, selected int, currentID string, input string, width int) string {
+// ModelTier represents a hardcoded model tier (like Claude Code's model picker).
+type ModelTier struct {
+	Label       string // e.g. "Default (recommended)", "Opus", "Haiku"
+	ModelID     string // full model ID sent to the API
+	Description string // e.g. "Most capable for complex work"
+	Pricing     string // e.g. "$5/$25 per Mtok"
+}
+
+// ModelTiers returns the available model tiers, matching Claude Code's picker.
+func ModelTiers() []ModelTier {
+	return []ModelTier{
+		{
+			Label:       "Default (recommended)",
+			ModelID:     "claude-sonnet-4-6",
+			Description: "Use the default model (currently Sonnet 4.6)",
+			Pricing:     "$3/$15 per Mtok",
+		},
+		{
+			Label:       "Opus",
+			ModelID:     "claude-opus-4-6",
+			Description: "Most capable for complex work",
+			Pricing:     "$5/$25 per Mtok",
+		},
+		{
+			Label:       "Haiku",
+			ModelID:     "claude-haiku-4-5-20251001",
+			Description: "Fastest for quick answers",
+			Pricing:     "$1/$5 per Mtok",
+		},
+	}
+}
+
+// RenderModelPicker renders the model selection list matching Claude Code's style.
+func RenderModelPicker(tiers []ModelTier, selected int, currentID string, width int) string {
 	var lines []string
 
-	// Header with search input
-	header := BoldStyle.Render("Select model:")
-	if input != "" {
-		header += " " + input + "█"
-	} else {
-		header += " " + DimStyle.Render("type to filter, ↑↓ navigate, enter select, esc cancel")
-	}
-	lines = append(lines, header)
+	// Header
+	lines = append(lines, BoldStyle.Render("Select model"))
+	lines = append(lines, DimStyle.Render("Switch between Claude models. For other/preview models, specify with --model."))
+	lines = append(lines, "")
 
-	for i, m := range models {
-		ctx := formatContextWindow(m.MaxInputTokens)
+	for i, tier := range tiers {
+		num := fmt.Sprintf("%d. ", i+1)
 		current := ""
-		if m.ID == currentID {
-			current = DimStyle.Render(" (current)")
+		if tier.ModelID == currentID {
+			current = " ✓"
 		}
-		detail := DimStyle.Render("  " + m.ID + "  " + ctx)
-		line := "  " + m.DisplayName + detail + current
+		detail := DimStyle.Render(tier.Description + " · " + tier.Pricing)
 		if i == selected {
-			line = PaletteSelectedStyle.Render("▸ "+m.DisplayName) + detail + current
+			line := PaletteSelectedStyle.Render("❯ "+num+tier.Label+current) + "  " + detail
+			lines = append(lines, line)
+		} else {
+			line := "  " + num + tier.Label + current + "  " + detail
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
 	}
 
-	// "Use custom ID" entry at the bottom
-	customLine := "  " + DimStyle.Render("Use custom model ID")
-	if input != "" {
-		customLine = "  " + DimStyle.Render("Use: "+input)
-	}
-	if selected == len(models) {
-		if input != "" {
-			customLine = PaletteSelectedStyle.Render("▸ Use: " + input)
-		} else {
-			customLine = PaletteSelectedStyle.Render("▸ Use custom model ID")
-		}
+	// "Use custom model ID" entry
+	customLine := "  " + fmt.Sprintf("%d. ", len(tiers)+1) + DimStyle.Render("Use custom model ID")
+	if selected == len(tiers) {
+		customLine = PaletteSelectedStyle.Render("❯ "+fmt.Sprintf("%d. ", len(tiers)+1)+"Use custom model ID") + "  " + DimStyle.Render("specify with --model")
 	}
 	lines = append(lines, customLine)
 
+	lines = append(lines, "")
+	lines = append(lines, DimStyle.Render("Enter to confirm · Esc to exit"))
+
 	content := strings.Join(lines, "\n")
 	return PaletteBorderStyle.Width(width - 4).Render(content)
-}
-
-func formatContextWindow(tokens int64) string {
-	if tokens >= 1000000 {
-		return fmt.Sprintf("%.0fM ctx", float64(tokens)/1000000)
-	}
-	if tokens >= 1000 {
-		return fmt.Sprintf("%dk ctx", tokens/1000)
-	}
-	return fmt.Sprintf("%d ctx", tokens)
 }
 
 // RenderCommandPalette renders the command palette popup above the prompt.
