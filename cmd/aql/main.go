@@ -19,6 +19,10 @@ func main() {
 }
 
 func run() error {
+	if err := agent.CheckEnv(os.Getenv("ANTHROPIC_API_KEY")); err != nil {
+		return err
+	}
+
 	workDir, err := os.Getwd()
 	if err != nil {
 		return err
