@@ -105,9 +105,12 @@ func run() error {
 
 	var program *tea.Program
 
+	var streamCancel context.CancelFunc
+
 	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			streamCancel = cancel
 
 			// Show spinner immediately before the API call
 			program.Send(tui.AgentStreamStartMsg{AgentName: "coder"})
@@ -192,6 +195,11 @@ func run() error {
 	if len(cachedModels) > 0 {
 		model.SetModelTiers(modelsToTiers(cachedModels))
 	}
+	model.SetCancelStream(func() {
+		if streamCancel != nil {
+			streamCancel()
+		}
+	})
 	model.SetOnModelSelected(func(modelID string) {
 		if err := agent.SaveModel(workDir, modelID); err != nil {
 			slog.Error("failed to save model selection", "error", err)
@@ -215,10 +223,9 @@ func run() error {
 		slog.Info("agent recreated with new model", "model", modelID)
 	})
 
-	// Note: mouse tracking (WithMouseCellMotion/WithMouseAllMotion) is intentionally
-	// omitted so users can select and copy text from the terminal natively.
-	// Scrolling is handled via keyboard: up/down arrows and pgup/pgdown.
-	program = tea.NewProgram(model, tea.WithAltScreen())
+	// Mouse tracking enabled for scroll wheel chat scrolling.
+	// Hold Shift to select and copy text (standard terminal behavior).
+	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Cancel background work when the TUI exits
 	bgCtx, bgCancel := context.WithCancel(context.Background())

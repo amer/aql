@@ -122,6 +122,7 @@ type Model struct {
 	modelPickerInput   string
 	spinnerType        SpinnerType
 	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
+	cancelStream       func()      // cancels the in-flight API call context
 }
 
 // NewModel creates the initial TUI model.
@@ -152,6 +153,12 @@ func (m *Model) SetProjectPath(path string) {
 // SetOnBash sets the callback for executing ! bash commands.
 func (m *Model) SetOnBash(fn BashFunc) {
 	m.onBash = fn
+}
+
+// SetCancelStream sets the function called to cancel an in-flight API call
+// when the user exits during streaming (Ctrl+C / Ctrl+D).
+func (m *Model) SetCancelStream(fn func()) {
+	m.cancelStream = fn
 }
 
 // SetOnModelSelected sets a callback invoked when the user switches models.
@@ -213,6 +220,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleKey(msg)
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollUp(5)
+		case tea.MouseButtonWheelDown:
+			m.scrollDown(5)
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -265,6 +281,9 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "ctrl+d":
+		if m.streaming && m.cancelStream != nil {
+			m.cancelStream()
+		}
 		return m, tea.Quit
 	case "esc":
 		if m.paletteVisible {
@@ -302,9 +321,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+p":
 		m.openModelPicker()
 	case "shift+up":
-		m.scrollUp(1)
+		m.scrollUp(3)
 	case "shift+down":
-		m.scrollDown(1)
+		m.scrollDown(3)
 	case "pgup":
 		m.scrollUp(m.visibleHeight() / 2)
 	case "pgdown":

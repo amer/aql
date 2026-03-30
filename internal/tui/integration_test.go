@@ -830,6 +830,70 @@ func TestIntegration_PasteSpecialChars(t *testing.T) {
 	assert.Equal(t, "path/to/file.go:42 — error: `unexpected EOF`", m.Input())
 }
 
+// --- Scenario: Ctrl+C quits during streaming ---
+
+func TestIntegration_CtrlCQuitsDuringStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	// Start streaming — model is in streaming state
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	assert.True(t, m.IsStreaming(), "should be streaming")
+
+	// Ctrl+C should still produce a quit command
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	assert.NotNil(t, cmd, "ctrl+c during streaming should trigger quit")
+}
+
+func TestIntegration_CtrlDQuitsDuringStreaming(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	assert.True(t, m.IsStreaming())
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	assert.NotNil(t, cmd, "ctrl+d during streaming should trigger quit")
+}
+
+func TestIntegration_EscDuringStreamingDoesNotQuit(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	assert.True(t, m.IsStreaming())
+
+	// Esc should NOT quit during streaming — it's for dismissing palette/picker
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	assert.Nil(t, cmd, "esc during streaming should not trigger quit")
+}
+
+func TestIntegration_CtrlCCancelsStreamContext(t *testing.T) {
+	m := testModel(nil)
+
+	// Wire up a cancel function to track if it was called
+	cancelled := false
+	m.SetCancelStream(func() { cancelled = true })
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	assert.True(t, m.IsStreaming())
+
+	// Ctrl+C should cancel the stream context before quitting
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	assert.True(t, cancelled, "ctrl+c should call cancelStream to abort the API call")
+	assert.NotNil(t, cmd, "ctrl+c should still trigger quit")
+}
+
+func TestIntegration_CtrlCWithoutStreamingDoesNotCancel(t *testing.T) {
+	m := testModel(nil)
+
+	cancelled := false
+	m.SetCancelStream(func() { cancelled = true })
+
+	// Not streaming — ctrl+c should quit but not call cancel
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	assert.False(t, cancelled, "ctrl+c when not streaming should not call cancelStream")
+	assert.NotNil(t, cmd, "ctrl+c should trigger quit")
+}
+
 // --- Scenario: Paste renders in view ---
 
 func TestIntegration_PasteVisibleInView(t *testing.T) {
@@ -839,4 +903,182 @@ func TestIntegration_PasteVisibleInView(t *testing.T) {
 	view := m.View()
 	plain := stripAnsi(view)
 	assert.Contains(t, plain, "visible text", "pasted text should be visible in the view")
+}
+
+// --- Scenario: Mouse wheel scrolls chat history, not prompt history ---
+
+func TestIntegration_MouseWheelScrollsChatHistory(t *testing.T) {
+	m := testModel(nil)
+
+	// Fill chat with many entries so there's content to scroll
+	for i := 0; i < 50; i++ {
+		m = applyMsg(m, tui.AgentOutputMsg{
+			AgentName: "coder",
+			Output:    fmt.Sprintf("Message %d", i),
+		})
+	}
+	assert.Equal(t, 0, m.ScrollOffset(), "should start at bottom")
+
+	// Mouse wheel up should scroll chat history up
+	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	assert.Greater(t, m.ScrollOffset(), 0, "mouse wheel up should scroll chat up")
+
+	offsetAfterUp := m.ScrollOffset()
+
+	// Mouse wheel down should scroll chat history back down
+	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	assert.Less(t, m.ScrollOffset(), offsetAfterUp, "mouse wheel down should scroll chat down")
+}
+
+func TestIntegration_MouseWheelDoesNotAffectPromptInput(t *testing.T) {
+	var submitted []string
+	onSubmit := func(input string) tea.Cmd {
+		submitted = append(submitted, input)
+		return nil
+	}
+
+	m := testModel(onSubmit)
+
+	// Submit several prompts to build prompt history
+	m = typeString(m, "first command")
+	m = applyKey(m, "enter")
+	m = typeString(m, "second command")
+	m = applyKey(m, "enter")
+	m = typeString(m, "third command")
+	m = applyKey(m, "enter")
+
+	// Input should be empty now
+	assert.Equal(t, "", m.Input())
+
+	// Mouse wheel should NOT recall prompt history — it scrolls chat only
+	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	assert.Equal(t, "", m.Input(), "mouse wheel up should not change prompt input")
+
+	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	assert.Equal(t, "", m.Input(), "mouse wheel down should not change prompt input")
+}
+
+func TestIntegration_MouseScrollClampedAtBounds(t *testing.T) {
+	m := testModel(nil)
+
+	// Fill chat
+	for i := 0; i < 50; i++ {
+		m = applyMsg(m, tui.AgentOutputMsg{
+			AgentName: "coder",
+			Output:    fmt.Sprintf("Entry %d", i),
+		})
+	}
+
+	// Scroll down at bottom should stay at 0
+	m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	assert.Equal(t, 0, m.ScrollOffset(), "wheel down at bottom should clamp at 0")
+
+	// Scroll up many times — should not panic
+	for range 200 {
+		m = applyMsg(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	}
+
+	view := m.View()
+	assert.NotEmpty(t, view, "should render without panic when over-scrolled")
+}
+
+// --- Scenario: Keyboard also scrolls chat ---
+
+func TestIntegration_ShiftArrowsScrollChat(t *testing.T) {
+	m := testModel(nil)
+
+	for i := 0; i < 50; i++ {
+		m = applyMsg(m, tui.AgentOutputMsg{
+			AgentName: "coder",
+			Output:    fmt.Sprintf("Message %d", i),
+		})
+	}
+	assert.Equal(t, 0, m.ScrollOffset(), "should start at bottom")
+
+	m = applyKey(m, "shift+up")
+	assert.Greater(t, m.ScrollOffset(), 0, "shift+up should scroll chat up")
+
+	offsetAfterUp := m.ScrollOffset()
+
+	m = applyKey(m, "shift+down")
+	assert.Less(t, m.ScrollOffset(), offsetAfterUp, "shift+down should scroll chat down")
+}
+
+func TestIntegration_PageUpDownScrollsChat(t *testing.T) {
+	m := testModel(nil)
+
+	for i := 0; i < 50; i++ {
+		m = applyMsg(m, tui.AgentOutputMsg{
+			AgentName: "coder",
+			Output:    fmt.Sprintf("Message %d", i),
+		})
+	}
+
+	m = applyKey(m, "pgup")
+	assert.Greater(t, m.ScrollOffset(), 1, "pgup should scroll chat by multiple lines")
+
+	offsetAfterPgUp := m.ScrollOffset()
+
+	m = applyKey(m, "pgdown")
+	assert.Less(t, m.ScrollOffset(), offsetAfterPgUp, "pgdown should scroll chat down")
+}
+
+func TestIntegration_ArrowsControlPromptHistory(t *testing.T) {
+	var submitted []string
+	onSubmit := func(input string) tea.Cmd {
+		submitted = append(submitted, input)
+		return nil
+	}
+
+	m := testModel(onSubmit)
+
+	// Submit prompts to build history
+	m = typeString(m, "alpha")
+	m = applyKey(m, "enter")
+	m = typeString(m, "beta")
+	m = applyKey(m, "enter")
+	m = typeString(m, "gamma")
+	m = applyKey(m, "enter")
+
+	assert.Equal(t, "", m.Input())
+
+	// Up arrow should recall previous prompt, not scroll chat
+	scrollBefore := m.ScrollOffset()
+	m = applyKey(m, "up")
+	assert.Equal(t, "gamma", m.Input(), "up arrow should recall last prompt")
+	assert.Equal(t, scrollBefore, m.ScrollOffset(), "up arrow should not change scroll offset")
+
+	m = applyKey(m, "up")
+	assert.Equal(t, "beta", m.Input(), "up arrow should recall earlier prompt")
+
+	m = applyKey(m, "up")
+	assert.Equal(t, "alpha", m.Input(), "up arrow should recall earliest prompt")
+
+	// Down arrow should navigate forward through prompt history
+	m = applyKey(m, "down")
+	assert.Equal(t, "beta", m.Input(), "down arrow should go forward in history")
+
+	m = applyKey(m, "down")
+	assert.Equal(t, "gamma", m.Input(), "down arrow should go forward in history")
+}
+
+func TestIntegration_ArrowsDoNotScrollChat(t *testing.T) {
+	m := testModel(nil)
+
+	// Fill chat
+	for i := 0; i < 50; i++ {
+		m = applyMsg(m, tui.AgentOutputMsg{
+			AgentName: "coder",
+			Output:    fmt.Sprintf("Line %d", i),
+		})
+	}
+
+	scrollBefore := m.ScrollOffset()
+
+	// Up/down arrows should not change scroll offset
+	m = applyKey(m, "up")
+	assert.Equal(t, scrollBefore, m.ScrollOffset(), "up arrow should not scroll chat")
+
+	m = applyKey(m, "down")
+	assert.Equal(t, scrollBefore, m.ScrollOffset(), "down arrow should not scroll chat")
 }
