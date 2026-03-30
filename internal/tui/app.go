@@ -79,24 +79,26 @@ type ModelOption struct {
 
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
-	workflowName    string
-	agentNames      []string
-	chat            []ChatEntry
-	input           string
-	width           int
-	height          int
-	scrollOffset    int
-	onSubmit        SubmitFunc
-	streaming       bool
-	spinnerFrame    int
-	tokenCount      int
-	modelName       string
-	projectPath     string
-	paletteVisible  bool
-	paletteSelected int
-	paletteFiltered []Command
-	availableModels []ModelOption
-	onModelSelected func(modelID string)
+	workflowName       string
+	agentNames         []string
+	chat               []ChatEntry
+	input              string
+	width              int
+	height             int
+	scrollOffset       int
+	onSubmit           SubmitFunc
+	streaming          bool
+	spinnerFrame       int
+	tokenCount         int
+	modelName          string
+	projectPath        string
+	paletteVisible     bool
+	paletteSelected    int
+	paletteFiltered    []Command
+	availableModels    []ModelOption
+	onModelSelected    func(modelID string)
+	modelPickerVisible bool
+	modelPickerIdx     int
 }
 
 // NewModel creates the initial TUI model.
@@ -151,6 +153,47 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Model picker intercepts keys when visible
+		if m.modelPickerVisible {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.modelPickerVisible = false
+				m.modelPickerIdx = 0
+				return m, nil
+			case "up":
+				if m.modelPickerIdx > 0 {
+					m.modelPickerIdx--
+				}
+				return m, nil
+			case "down":
+				if m.modelPickerIdx < len(m.availableModels)-1 {
+					m.modelPickerIdx++
+				}
+				return m, nil
+			case "enter":
+				if len(m.availableModels) > 0 {
+					selected := m.availableModels[m.modelPickerIdx]
+					m.modelName = selected.ID
+					m.modelPickerVisible = false
+					m.modelPickerIdx = 0
+					m.chat = append(m.chat, ChatEntry{
+						Type:    EntryAgentStatus,
+						Content: "Switched to: " + selected.DisplayName + " (" + selected.ID + ")",
+						Status:  AgentActive,
+					})
+					m.scrollToBottom()
+					selectedID := selected.ID
+					return m, func() tea.Msg {
+						return ModelSelectedMsg{Model: selectedID}
+					}
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -406,23 +449,17 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.scrollToBottom()
 		return "status", nil
 	case "/model":
-		var lines []string
-		lines = append(lines, "Available models:")
-		for _, opt := range m.availableModels {
-			marker := "  "
+		// Open interactive model picker
+		m.modelPickerVisible = true
+		m.modelPickerIdx = 0
+		// Pre-select current model
+		for i, opt := range m.availableModels {
 			if opt.ID == m.modelName {
-				marker = "▸ "
+				m.modelPickerIdx = i
+				break
 			}
-			lines = append(lines, marker+opt.DisplayName+" ("+opt.ID+")")
 		}
-		lines = append(lines, "\nUse /model <name> to switch (e.g. /model sonnet)")
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: strings.Join(lines, "\n"),
-			Status:  AgentActive,
-		})
 		m.input = ""
-		m.scrollToBottom()
 		return "model", nil
 	case "/compact":
 		m.chat = append(m.chat, ChatEntry{
@@ -490,6 +527,12 @@ func (m Model) View() string {
 	if m.paletteVisible && len(m.paletteFiltered) > 0 {
 		b.WriteString("\n")
 		b.WriteString(RenderCommandPalette(m.paletteFiltered, m.paletteSelected, m.width))
+	}
+
+	// Model picker (below prompt)
+	if m.modelPickerVisible && len(m.availableModels) > 0 {
+		b.WriteString("\n")
+		b.WriteString(RenderModelPicker(m.availableModels, m.modelPickerIdx, m.modelName, m.width))
 	}
 
 	// Status bar
@@ -567,4 +610,14 @@ func (m Model) PaletteSelected() int {
 // PaletteCommands returns the currently filtered palette commands (for testing).
 func (m Model) PaletteCommands() []Command {
 	return m.paletteFiltered
+}
+
+// IsModelPickerVisible returns whether the model picker is visible (for testing).
+func (m Model) IsModelPickerVisible() bool {
+	return m.modelPickerVisible
+}
+
+// ModelPickerSelected returns the currently selected picker index (for testing).
+func (m Model) ModelPickerSelected() int {
+	return m.modelPickerIdx
 }

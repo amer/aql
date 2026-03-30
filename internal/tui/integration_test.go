@@ -201,39 +201,64 @@ func TestIntegration_SlashStatus(t *testing.T) {
 	assert.Contains(t, m.Chat()[0].Content, "coder")
 }
 
-// --- Scenario: Slash command /model lists available models ---
+// --- Scenario: /model opens interactive picker ---
 
-func TestIntegration_SlashModelShowsList(t *testing.T) {
+func TestIntegration_SlashModelOpensPicker(t *testing.T) {
 	m := testModel(nil)
 
 	m = typeString(m, "/model")
 	m = applyKey(m, "enter")
 
-	require.Len(t, m.Chat(), 1)
-	content := m.Chat()[0].Content
-	assert.Contains(t, content, "Claude Haiku 4.5")
-	assert.Contains(t, content, "Claude Sonnet 4")
-	assert.Contains(t, content, "Claude Opus 4")
+	assert.True(t, m.IsModelPickerVisible(), "picker should be visible after /model")
+
+	// View should show all model options
+	view := m.View()
+	plain := strip(view)
+	assert.Contains(t, plain, "Claude Haiku 4.5")
+	assert.Contains(t, plain, "Claude Sonnet 4")
+	assert.Contains(t, plain, "Claude Opus 4")
 }
 
-func TestIntegration_SlashModelSelect(t *testing.T) {
+func TestIntegration_ModelPickerNavigateAndSelect(t *testing.T) {
 	m := testModel(nil)
 
-	m = typeString(m, "/model sonnet")
+	// Open picker
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	// First item selected by default (haiku) — move down to sonnet
+	m = applyKey(m, "down")
+	assert.Equal(t, 1, m.ModelPickerSelected())
+
+	// Press enter to select
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(tui.Model)
 
-	// Should emit a ModelSelectedMsg with the full model ID
+	assert.False(t, m.IsModelPickerVisible(), "picker should close after selection")
+
+	// Should emit ModelSelectedMsg
 	require.NotNil(t, cmd)
 	msg := cmd()
 	selected, ok := msg.(tui.ModelSelectedMsg)
 	assert.True(t, ok, "should return ModelSelectedMsg")
 	assert.Equal(t, "claude-sonnet-4-20250514", selected.Model)
 
-	// Chat should confirm the selection
+	// Chat should confirm
 	require.True(t, len(m.Chat()) >= 1)
 	last := m.Chat()[len(m.Chat())-1]
 	assert.Contains(t, last.Content, "Claude Sonnet 4")
+}
+
+func TestIntegration_ModelPickerEscDismisses(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	m = applyKey(m, "esc")
+	assert.False(t, m.IsModelPickerVisible(), "esc should dismiss picker")
 }
 
 // --- Scenario: Exit commands trigger quit ---
