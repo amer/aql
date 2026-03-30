@@ -24,15 +24,9 @@ var (
 			Foreground(mutedColor)
 
 	// Status bar (bottom)
-	StatusBarStyle = lipgloss.NewStyle().
-			Foreground(mutedColor)
-
 	StatusBarModelStyle = lipgloss.NewStyle().
 				Foreground(accentColor).
 				Bold(true)
-
-	StatusBarTokenStyle = lipgloss.NewStyle().
-				Foreground(dimColor)
 
 	// User message
 	UserInputStyle = lipgloss.NewStyle().
@@ -93,13 +87,15 @@ var (
 			Foreground(errorColor)
 
 	// Prompt input
-	PromptStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), true, false, false, false).
-			BorderForeground(dimColor)
-
 	PromptCursor = lipgloss.NewStyle().
 			Foreground(brandColor).
 			Bold(true)
+
+	PromptBadgeStyle = lipgloss.NewStyle().
+				Foreground(textColor).
+				Background(lipgloss.Color("#3A3A3A")).
+				PaddingLeft(1).
+				PaddingRight(1)
 
 	// Code
 	CodeBlockStyle = lipgloss.NewStyle().

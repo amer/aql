@@ -1,6 +1,11 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // AgentStatus represents the state of an agent for display.
 type AgentStatus string
@@ -12,14 +17,33 @@ const (
 	AgentError   AgentStatus = "error"
 )
 
-// RenderStatusBar renders the bottom status bar with model and token info.
-func RenderStatusBar(modelName string, tokenCount int, width int) string {
-	model := StatusBarModelStyle.Render(modelName)
-	tokens := StatusBarTokenStyle.Render(fmt.Sprintf(" · %s tokens", formatTokens(tokenCount)))
-	sep := DimStyle.Render(" │ ")
-	hint := DimStyle.Render("/exit to quit · ctrl+c to cancel")
+// maxContextTokens is the assumed context window size for auto-compact percentage.
+const maxContextTokens = 200000
 
-	return StatusBarStyle.Render(model + tokens + sep + hint)
+// RenderStatusBar renders the Claude Code-style bottom status bar.
+// Left: "▸▸ agents on (shift+tab to cycle)"
+// Right: "N% until auto-compact"
+func RenderStatusBar(modelName string, tokenCount int, width int) string {
+	arrowStyle := lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	arrows := arrowStyle.Render("▸▸")
+
+	left := arrows + " " + DimStyle.Render("agents on") + " " + MutedStyle.Render("(shift+tab to cycle)")
+
+	pct := tokenCount * 100 / maxContextTokens
+	remaining := 100 - pct
+	if remaining < 0 {
+		remaining = 0
+	}
+	right := DimStyle.Render(fmt.Sprintf("%d%% until auto-compact", remaining))
+
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	gap := width - leftWidth - rightWidth
+	if gap < 1 {
+		gap = 1
+	}
+
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func formatTokens(n int) string {

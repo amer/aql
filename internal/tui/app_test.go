@@ -191,7 +191,7 @@ func TestModelExitCommand(t *testing.T) {
 func TestModelViewContainsPrompt(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	view := m.View()
-	assert.Contains(t, view, ">")
+	assert.Contains(t, view, ")")
 }
 
 func TestModelChatFlow(t *testing.T) {
@@ -358,7 +358,7 @@ func TestPaletteRenderedBelowPrompt(t *testing.T) {
 	m = applyKey(m, "/")
 	view := m.View()
 	plain := ansiRe.ReplaceAllString(view, "")
-	promptIdx := strings.Index(plain, "> /")
+	promptIdx := strings.Index(plain, ") /")
 	paletteIdx := strings.Index(plain, "/help")
 	require.True(t, promptIdx >= 0, "prompt should be in view")
 	require.True(t, paletteIdx >= 0, "palette should be in view")

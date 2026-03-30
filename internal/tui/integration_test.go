@@ -500,11 +500,11 @@ func TestIntegration_ViewLayout(t *testing.T) {
 	assert.Contains(t, plain, "AQL")
 
 	// Status bar elements
-	assert.Contains(t, plain, "claude-sonnet-4")
-	assert.Contains(t, plain, "/exit")
+	assert.Contains(t, plain, "agents on")
+	assert.Contains(t, plain, "auto-compact")
 
 	// Prompt cursor
-	assert.Contains(t, plain, ">")
+	assert.Contains(t, plain, ")")
 }
 
 // --- Scenario: Streaming prompt shows spinner label ---

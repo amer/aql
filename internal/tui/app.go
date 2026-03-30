@@ -404,12 +404,12 @@ func (m Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Prompt
+	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
 	if m.streaming {
-		b.WriteString(RenderPromptStreaming(m.spinnerFrame, m.agentName(), m.width))
+		b.WriteString(RenderPromptAreaStreaming(m.spinnerFrame, m.agentName(), m.projectPath, m.width))
 	} else {
-		b.WriteString(RenderPrompt(m.input, m.width))
+		b.WriteString(RenderPromptArea(m.input, m.projectPath, m.width))
 	}
 
 	// Command palette (below prompt, like Claude Code)
