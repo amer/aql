@@ -75,7 +75,7 @@ func TestIntegration_FullConversation(t *testing.T) {
 	// 7. Verify view renders without panic
 	view := m.View()
 	plain := stripAnsi(view)
-	assert.Contains(t, plain, "AQL")
+	assert.Contains(t, plain, "Welcome back")
 	assert.Contains(t, plain, "write auth tests")
 	assert.Contains(t, plain, "add edge cases")
 }
@@ -130,6 +130,22 @@ func TestIntegration_SlashClear(t *testing.T) {
 
 	assert.Len(t, m.Chat(), 0, "chat should be cleared")
 	assert.Equal(t, "", m.Input())
+}
+
+func TestIntegration_SlashClearResetsAgentContext(t *testing.T) {
+	cleared := false
+	m := testModel(nil)
+	m.SetOnClear(func() { cleared = true })
+
+	// Simulate some chat history
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+
+	// /clear should call onClear callback
+	m = typeString(m, "/clear")
+	m = applyKey(m, "enter")
+
+	assert.True(t, cleared, "/clear should call onClear to reset agent context")
+	assert.Len(t, m.Chat(), 0)
 }
 
 // --- Scenario: Slash command /help lists commands ---
@@ -664,12 +680,12 @@ func TestIntegration_ViewLayout(t *testing.T) {
 	view := m.View()
 	plain := stripAnsi(view)
 
-	// Header elements
-	assert.Contains(t, plain, "AQL")
+	// Welcome banner
+	assert.Contains(t, plain, "Welcome back")
 
 	// Status bar elements
-	assert.Contains(t, plain, "agents on")
-	assert.Contains(t, plain, "auto-compact")
+	assert.Contains(t, plain, "claude-sonnet-4-6")
+	assert.Contains(t, plain, "tokens")
 
 	// Prompt cursor
 	assert.Contains(t, plain, "❯")

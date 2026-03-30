@@ -77,3 +77,14 @@ func TestRenderUserMessage(t *testing.T) {
 	assert.Contains(t, result, ">")
 	assert.Contains(t, result, "refactor auth module")
 }
+
+func TestToolCall_ToolIDField(t *testing.T) {
+	tc := tui.ToolCall{
+		Name:    "read_file",
+		Content: `{"path":"foo.go"}`,
+		Status:  tui.ToolRunning,
+		ToolID:  "toolu_abc123",
+	}
+	assert.Equal(t, "toolu_abc123", tc.ToolID)
+	assert.Equal(t, "read_file", tc.Name)
+}

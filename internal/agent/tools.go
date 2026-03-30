@@ -20,6 +20,18 @@ type ToolDef struct {
 	InputSchema map[string]any
 }
 
+// UserQuestion is sent from the agent to the TUI when ask_user is invoked.
+type UserQuestion struct {
+	Question string      `json:"question"`
+	ToolID   string      `json:"-"`
+	Response chan string `json:"-"`
+}
+
+// AskUserFunc is called when the agent needs to ask the user a question.
+// It blocks until the user responds. Set by the main app to bridge
+// between the runner goroutine and the TUI.
+var AskUserFunc func(ctx context.Context, q UserQuestion) (string, error)
+
 // ToolDefinitions returns the set of tools available to agents.
 func ToolDefinitions() []ToolDef {
 	return []ToolDef{
@@ -56,6 +68,32 @@ func ToolDefinitions() []ToolDef {
 			},
 		},
 		{
+			Name:        "edit",
+			Description: "Apply a targeted find/replace edit to a file. More efficient than rewriting the entire file with write_file.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file_path": map[string]any{
+						"type":        "string",
+						"description": "Absolute or relative path to the file to edit",
+					},
+					"old_string": map[string]any{
+						"type":        "string",
+						"description": "The exact text to find and replace. Must match the file content exactly.",
+					},
+					"new_string": map[string]any{
+						"type":        "string",
+						"description": "The text to replace old_string with. Must be different from old_string.",
+					},
+					"replace_all": map[string]any{
+						"type":        "boolean",
+						"description": "If true, replace all occurrences. If false (default), old_string must be unique in the file.",
+					},
+				},
+				"required": []string{"file_path", "old_string", "new_string"},
+			},
+		},
+		{
 			Name:        "list_directory",
 			Description: "List the files and directories at the given path. Returns one entry per line.",
 			InputSchema: map[string]any{
@@ -81,6 +119,66 @@ func ToolDefinitions() []ToolDef {
 					},
 				},
 				"required": []string{"command"},
+			},
+		},
+		{
+			Name:        "glob",
+			Description: "Find files matching a glob pattern. Returns matching file paths sorted by modification time (newest first).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching.",
+					},
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Base directory to search in. Defaults to working directory.",
+					},
+				},
+				"required": []string{"pattern"},
+			},
+		},
+		{
+			Name:        "web_fetch",
+			Description: "Fetch the contents of a URL. Returns the page content as text. For HTML pages, extracts readable text content.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{
+						"type":        "string",
+						"description": "The URL to fetch",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "web_search",
+			Description: "Search the web for a query. Returns a list of search results with titles, URLs, and snippets.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The search query",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			Name:        "ask_user",
+			Description: "Ask the user a clarifying question when you need more information to proceed. Pauses execution until the user responds.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{
+						"type":        "string",
+						"description": "The question to ask the user",
+					},
+				},
+				"required": []string{"question"},
 			},
 		},
 		{
@@ -148,8 +246,6 @@ func toStringSlice(v any) []string {
 var ExecuteToolFunc = executeTool
 
 // ExecuteTool runs a tool by name with the given JSON input.
-// Tool errors (file not found, command failure) are returned as content strings,
-// not Go errors — only truly unknown tools return a Go error.
 func ExecuteTool(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
 	return ExecuteToolFunc(ctx, workDir, name, input)
 }
@@ -162,19 +258,28 @@ func executeTool(ctx context.Context, workDir string, name string, input json.Ra
 		return execReadFile(workDir, input)
 	case "write_file":
 		return execWriteFile(workDir, input)
+	case "edit":
+		return execEdit(workDir, input)
 	case "list_directory":
 		return execListDirectory(workDir, input)
 	case "bash":
 		return execBash(ctx, workDir, input)
+	case "glob":
+		return execGlob(workDir, input)
 	case "grep":
 		return execGrep(ctx, workDir, input)
+	case "web_fetch":
+		return execWebFetch(ctx, input)
+	case "web_search":
+		return execWebSearch(ctx, input)
+	case "ask_user":
+		return execAskUser(ctx, input)
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 }
 
 // parseInput unmarshals JSON tool input into the given struct pointer.
-// Returns a user-facing error string if parsing fails.
 func parseInput[T any](input json.RawMessage) (T, string) {
 	var params T
 	if err := json.Unmarshal(input, &params); err != nil {
@@ -189,6 +294,8 @@ func resolvePath(workDir, path string) string {
 	}
 	return filepath.Join(workDir, path)
 }
+
+// --- File tools (read, write, edit, list_directory) ---
 
 func execReadFile(workDir string, input json.RawMessage) (string, error) {
 	params, errMsg := parseInput[struct {
@@ -213,7 +320,6 @@ func execWriteFile(workDir string, input json.RawMessage) (string, error) {
 		return errMsg, nil
 	}
 	path := resolvePath(workDir, params.Path)
-	// Create parent directories if needed
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err.Error(), nil
 	}
@@ -221,6 +327,47 @@ func execWriteFile(workDir string, input json.RawMessage) (string, error) {
 		return err.Error(), nil
 	}
 	return "Wrote " + path, nil
+}
+
+func execEdit(workDir string, input json.RawMessage) (string, error) {
+	params, errMsg := parseInput[struct {
+		FilePath   string `json:"file_path"`
+		OldString  string `json:"old_string"`
+		NewString  string `json:"new_string"`
+		ReplaceAll bool   `json:"replace_all"`
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
+	}
+	if params.OldString == params.NewString {
+		return "old_string and new_string are identical — nothing to change", nil
+	}
+	path := resolvePath(workDir, params.FilePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err.Error(), nil
+	}
+	content := string(data)
+	count := strings.Count(content, params.OldString)
+	if count == 0 {
+		return "old_string not found in file", nil
+	}
+	if !params.ReplaceAll && count > 1 {
+		return fmt.Sprintf("old_string matches %d times — provide more context to make it unique, or set replace_all to true", count), nil
+	}
+	var newContent string
+	if params.ReplaceAll {
+		newContent = strings.ReplaceAll(content, params.OldString, params.NewString)
+	} else {
+		newContent = strings.Replace(content, params.OldString, params.NewString, 1)
+	}
+	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+		return err.Error(), nil
+	}
+	if params.ReplaceAll {
+		return fmt.Sprintf("Edited %s (%d replacements)", path, count), nil
+	}
+	return "Edited " + path, nil
 }
 
 func execListDirectory(workDir string, input json.RawMessage) (string, error) {
@@ -244,6 +391,8 @@ func execListDirectory(workDir string, input json.RawMessage) (string, error) {
 	}
 	return strings.Join(lines, "\n"), nil
 }
+
+// --- Shell tools (bash, grep) ---
 
 func execBash(ctx context.Context, workDir string, input json.RawMessage) (string, error) {
 	params, errMsg := parseInput[struct {
@@ -281,11 +430,33 @@ func execGrep(ctx context.Context, workDir string, input json.RawMessage) (strin
 	}
 	cmd := exec.CommandContext(ctx, "grep", args...)
 	cmd.Dir = workDir
-	out, _ := cmd.CombinedOutput() // grep exits 1 on no match — that's fine
+	out, _ := cmd.CombinedOutput()
 	result := string(out)
-	// Truncate very long results
 	if len(result) > 10000 {
 		result = result[:10000] + "\n... (truncated)"
 	}
 	return result, nil
+}
+
+// --- Ask user tool ---
+
+func execAskUser(ctx context.Context, input json.RawMessage) (string, error) {
+	params, errMsg := parseInput[struct {
+		Question string `json:"question"`
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
+	}
+	if AskUserFunc == nil {
+		return "ask_user is not available in this context", nil
+	}
+	q := UserQuestion{
+		Question: params.Question,
+		Response: make(chan string, 1),
+	}
+	answer, err := AskUserFunc(ctx, q)
+	if err != nil {
+		return "ask_user error: " + err.Error(), nil
+	}
+	return answer, nil
 }

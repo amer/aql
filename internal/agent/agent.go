@@ -142,6 +142,34 @@ func (a *Agent) Memory() *memory.Manager {
 	return a.memManager
 }
 
+// ClearHistory resets the conversation history so the next message starts
+// a fresh conversation with the API — no prior context carried over.
+// Called by /clear to give the user a clean slate when the conversation
+// drifts off-topic or the context becomes too noisy to be useful.
+func (a *Agent) ClearHistory() {
+	a.history = nil
+	slog.Debug("conversation history cleared", "agent", a.config.Name)
+}
+
+// HistoryLen returns the number of messages in the conversation history.
+func (a *Agent) HistoryLen() int {
+	return len(a.history)
+}
+
+// AppendUserMessage adds a user message to the conversation history.
+func (a *Agent) AppendUserMessage(text string) {
+	a.history = append(a.history, anthropic.NewUserMessage(
+		anthropic.NewTextBlock(text),
+	))
+}
+
+// AppendAssistantMessage adds an assistant message to the conversation history.
+func (a *Agent) AppendAssistantMessage(text string) {
+	a.history = append(a.history, anthropic.NewAssistantMessage(
+		anthropic.NewTextBlock(text),
+	))
+}
+
 // BuildSystemPrompt constructs the system prompt from config and CLAUDE.md content.
 func BuildSystemPrompt(cfg Config, claudeMD string) string {
 	var parts []string

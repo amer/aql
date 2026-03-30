@@ -137,6 +137,7 @@ type Model struct {
 	spinnerType        SpinnerType
 	modelTiers         []ModelTier      // dynamic model tiers from API; nil = use defaults
 	cancelStream       func()           // cancels the in-flight API call context
+	onClear            func()           // called on /clear to reset agent context
 	selection          Selection        // mouse text selection state
 	viewLines          []string         // plain text lines from last render (for selection extraction)
 	pendingQuestion    *AgentAskUserMsg // non-nil when agent is waiting for user answer
@@ -175,13 +176,16 @@ func (m *Model) SetProjectPath(path string) {
 // welcomeData builds the WelcomeData struct from the current model state.
 func (m Model) welcomeData() WelcomeData {
 	username := ""
+	homeDir := ""
 	if u, err := user.Current(); err == nil {
 		username = u.Username
+		homeDir = u.HomeDir
 	}
 	return WelcomeData{
 		AppName:     "AQL",
 		Version:     Version,
 		ProjectPath: m.projectPath,
+		HomeDir:     homeDir,
 		ModelName:   m.modelName,
 		Username:    username,
 		Width:       m.width,
@@ -197,6 +201,11 @@ func (m *Model) SetOnBash(fn BashFunc) {
 // when the user exits during streaming (Ctrl+C / Ctrl+D).
 func (m *Model) SetCancelStream(fn func()) {
 	m.cancelStream = fn
+}
+
+// SetOnClear sets the function called when /clear is executed to reset agent context.
+func (m *Model) SetOnClear(fn func()) {
+	m.onClear = fn
 }
 
 // SetOnModelSelected sets a callback invoked when the user switches models.
@@ -372,6 +381,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.paletteSelected = 0
 			m.inputBuf.Clear()
 		} else if m.streaming {
+			// Esc during streaming cancels the in-flight API call and stays
+			// in the app — unlike Ctrl+C which quits entirely. This lets users
+			// stop a runaway response without losing their session.
 			if m.cancelStream != nil {
 				m.cancelStream()
 			}
@@ -703,9 +715,12 @@ func (m *Model) scrollDown(delta int) {
 
 // visibleHeight returns the number of content lines visible in the chat area.
 func (m Model) visibleHeight() int {
-	header := RenderWelcome(m.welcomeData())
-	headerLines := strings.Count(header, "\n") + 1
-	reservedLines := headerLines + 4 // prompt + status bar + padding
+	// Reserve lines for: prompt area (4: \n + top-bar + input + bottom-bar),
+	// status bar (2: \n + content), scroll indicator (1: \n + text).
+	reservedLines := 7
+	if m.streaming {
+		reservedLines++ // streaming indicator (\n + text)
+	}
 	h := m.height - reservedLines
 	if h < 1 {
 		h = 1
@@ -796,6 +811,12 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.chat = nil
 		m.inputBuf.Clear()
 		m.scrollToBottom()
+		// Reset the agent's API conversation history too — without this,
+		// /clear would only hide messages visually while the agent still
+		// carries the full prior context into the next API call.
+		if m.onClear != nil {
+			m.onClear()
+		}
 		return "cleared", nil
 	case "/help":
 		var lines []string
@@ -851,13 +872,11 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 func (m Model) View() string {
 	var b strings.Builder
 
-	// Welcome box
-	header := RenderWelcome(m.welcomeData())
-	b.WriteString(header)
-	b.WriteString("\n\n")
-
-	// Render chat as transcript blocks
+	// Render chat as transcript blocks, with welcome banner at top
 	var chatLines []string
+	welcome := RenderWelcome(m.welcomeData())
+	chatLines = append(chatLines, welcome)
+	chatLines = append(chatLines, "") // blank separator
 	blocks := BuildTranscriptBlocks(m.chat)
 	for _, block := range blocks {
 		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.transcriptMode))
@@ -918,7 +937,11 @@ func (m Model) View() string {
 
 	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
-	b.WriteString(RenderPromptArea(m.inputBuf.RenderWithCursor(), m.projectPath, m.width))
+	promptPath := m.projectPath
+	if u, err := user.Current(); err == nil {
+		promptPath = ShortenHome(promptPath, u.HomeDir)
+	}
+	b.WriteString(RenderPromptArea(m.inputBuf.RenderWithCursor(), promptPath, m.width))
 
 	// Command palette (below prompt, like Claude Code)
 	if m.paletteVisible && len(m.paletteFiltered) > 0 {

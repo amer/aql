@@ -16,6 +16,17 @@ import (
 	"github.com/amer/aql/internal/tui"
 )
 
+const (
+	// bashCommandTimeout is the timeout for user-initiated bash commands.
+	bashCommandTimeout = 5 * time.Minute
+
+	// modelProbeTimeout is the timeout for background model probing.
+	modelProbeTimeout = 30 * time.Second
+
+	// loginTimeout is the timeout for the OAuth login flow.
+	loginTimeout = 2 * time.Minute
+)
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -87,10 +98,24 @@ func run() error {
 	}
 
 	cfg := agent.Config{
-		Name:         "coder",
-		Role:         "Senior Go developer",
-		SystemPrompt: "You are a senior Go developer. Be concise and helpful.",
-		Model:        savedModel,
+		Name: "coder",
+		Role: "Senior Go developer",
+		SystemPrompt: `You are a senior Go developer working in an interactive terminal. Be concise and helpful.
+
+You have tools available to you. Use them to assist the user:
+- read_file: Read file contents
+- write_file: Write/create files
+- edit: Apply targeted find/replace edits to files (prefer this over write_file for modifications)
+- list_directory: List directory entries
+- bash: Execute shell commands
+- grep: Search for patterns in files
+- glob: Find files matching a pattern (e.g. **/*.go)
+- web_fetch: Fetch URL contents
+- web_search: Search the web
+- ask_user: Ask the user a clarifying question when you need more information
+
+Always use the most appropriate tool. Prefer edit over write_file for modifying existing files. Use glob to discover files before reading them. Use ask_user when requirements are ambiguous rather than guessing.`,
+		Model: savedModel,
 	}
 
 	var coder *agent.Agent
@@ -105,6 +130,22 @@ func run() error {
 
 	var program *tea.Program
 
+	// Wire up ask_user: bridge between agent goroutine and TUI
+	agent.AskUserFunc = func(ctx context.Context, q agent.UserQuestion) (string, error) {
+		responseCh := make(chan string, 1)
+		program.Send(tui.AgentAskUserMsg{
+			AgentName:  "coder",
+			Question:   q.Question,
+			ResponseCh: responseCh,
+		})
+		select {
+		case answer := <-responseCh:
+			return answer, nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
 	var streamCancel context.CancelFunc
 
 	onSubmit := func(input string) tea.Cmd {
@@ -118,51 +159,61 @@ func run() error {
 			ch := coder.Run(ctx, input)
 
 			go func() {
-				for evt := range ch {
-					if evt.Error != nil {
-						program.Send(tui.AgentStreamErrorMsg{
-							AgentName: evt.AgentName,
-							Error:     evt.Error,
-						})
+				for {
+					select {
+					case <-ctx.Done():
 						return
-					}
-					if evt.Done {
-						program.Send(tui.AgentStreamDoneMsg{
-							AgentName: evt.AgentName,
-						})
-						return
-					}
-					if evt.ToolCall != nil {
-						program.Send(tui.AgentToolCallMsg{
-							AgentName: evt.AgentName,
-							ToolCall: tui.ToolCall{
-								Name:    evt.ToolCall.ToolName,
-								Content: evt.ToolCall.Input,
-								Status:  tui.ToolRunning,
-							},
-						})
-						continue
-					}
-					if evt.ToolDone != nil {
-						status := tui.ToolDone
-						if evt.ToolDone.IsError {
-							status = tui.ToolError
+					case evt, ok := <-ch:
+						if !ok {
+							return
 						}
-						program.Send(tui.AgentToolCallMsg{
-							AgentName: evt.AgentName,
-							ToolCall: tui.ToolCall{
-								Name:    evt.ToolDone.ToolName,
-								Content: evt.ToolDone.Output,
-								Status:  status,
-							},
-						})
-						continue
-					}
-					if evt.Text != "" {
-						program.Send(tui.AgentStreamDeltaMsg{
-							AgentName: evt.AgentName,
-							Delta:     evt.Text,
-						})
+						if evt.Error != nil {
+							program.Send(tui.AgentStreamErrorMsg{
+								AgentName: evt.AgentName,
+								Error:     evt.Error,
+							})
+							return
+						}
+						if evt.Done {
+							program.Send(tui.AgentStreamDoneMsg{
+								AgentName: evt.AgentName,
+							})
+							return
+						}
+						if evt.ToolCall != nil {
+							program.Send(tui.AgentToolCallMsg{
+								AgentName: evt.AgentName,
+								ToolCall: tui.ToolCall{
+									Name:    evt.ToolCall.ToolName,
+									Content: evt.ToolCall.Input,
+									Status:  tui.ToolRunning,
+									ToolID:  evt.ToolCall.ToolID,
+								},
+							})
+							continue
+						}
+						if evt.ToolDone != nil {
+							status := tui.ToolDone
+							if evt.ToolDone.IsError {
+								status = tui.ToolError
+							}
+							program.Send(tui.AgentToolCallMsg{
+								AgentName: evt.AgentName,
+								ToolCall: tui.ToolCall{
+									Name:    evt.ToolDone.ToolName,
+									Content: evt.ToolDone.Output,
+									Status:  status,
+									ToolID:  evt.ToolDone.ToolID,
+								},
+							})
+							continue
+						}
+						if evt.Text != "" {
+							program.Send(tui.AgentStreamDeltaMsg{
+								AgentName: evt.AgentName,
+								Delta:     evt.Text,
+							})
+						}
 					}
 				}
 			}()
@@ -173,7 +224,7 @@ func run() error {
 
 	onBash := func(command string) tea.Cmd {
 		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), bashCommandTimeout)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, "sh", "-c", command)
 			cmd.Dir = workDir
@@ -195,6 +246,9 @@ func run() error {
 	if len(cachedModels) > 0 {
 		model.SetModelTiers(modelsToTiers(cachedModels))
 	}
+	model.SetOnClear(func() {
+		coder.ClearHistory()
+	})
 	model.SetCancelStream(func() {
 		if streamCancel != nil {
 			streamCancel()
@@ -233,7 +287,7 @@ func run() error {
 
 	// Probe models in background — updates TUI and cache when done
 	go func() {
-		ctx, cancel := context.WithTimeout(bgCtx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(bgCtx, modelProbeTimeout)
 		defer cancel()
 
 		var usableModels []agent.ModelInfo
@@ -283,7 +337,7 @@ func runLogin() error {
 		fmt.Println("Using Console (API billing) login")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), loginTimeout)
 	defer cancel()
 
 	tokens, err := auth.Login(ctx, auth.LoginOptions{Console: console})

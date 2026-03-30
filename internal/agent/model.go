@@ -16,6 +16,20 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
+const (
+	// modelListLimit is the pagination limit for the models list endpoint.
+	modelListLimit = 100
+
+	// probeTimeout is the timeout for a single model probe request.
+	probeTimeout = 5 * time.Second
+
+	// probeMaxTokens is the minimal max_tokens for a non-billing probe.
+	probeMaxTokens = 1
+
+	// probeMaxTokensBilling is the max_tokens for an OAuth billing probe.
+	probeMaxTokensBilling = 1024
+)
+
 // ModelInfo holds information about an available model from the API.
 type ModelInfo struct {
 	ID             string
@@ -43,7 +57,7 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 	slog.Debug("fetching available models from API")
 
 	pager := client.Models.ListAutoPaging(ctx, anthropic.ModelListParams{
-		Limit: param.NewOpt[int64](100),
+		Limit: param.NewOpt[int64](modelListLimit),
 	})
 
 	var models []ModelInfo
@@ -178,12 +192,12 @@ func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, w
 // probeModel sends a minimal request to check if a model is accessible.
 // When withBilling is true, includes the Claude Code billing header for OAuth access.
 func probeModel(ctx context.Context, client anthropic.Client, modelID string, withBilling bool) bool {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(modelID),
-		MaxTokens: 1,
+		MaxTokens: probeMaxTokens,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(".")),
 		},
@@ -201,7 +215,7 @@ func probeModel(ctx context.Context, client anthropic.Client, modelID string, wi
 		params.OutputConfig = anthropic.OutputConfigParam{
 			Effort: anthropic.OutputConfigEffortMedium,
 		}
-		params.MaxTokens = 1024
+		params.MaxTokens = probeMaxTokensBilling
 		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", claudeCodeBetas))
 	}
 

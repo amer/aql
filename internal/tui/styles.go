@@ -144,11 +144,6 @@ var (
 	HeaderDimStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 
-	// Status bar (bottom)
-	StatusBarModelStyle = lipgloss.NewStyle().
-				Foreground(accentColor).
-				Bold(true)
-
 	// User message
 	UserInputStyle = lipgloss.NewStyle().
 			Foreground(brightColor).
@@ -249,4 +244,24 @@ var (
 	// Spinner
 	SpinnerStyle = lipgloss.NewStyle().
 			Foreground(brandColor)
+
+	// Welcome screen
+	WelcomeGreetStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(textColor)
+
+	WelcomeDimStyle = lipgloss.NewStyle().
+			Foreground(dimColor)
+
+	// Transcript view
+	TranscriptMarkerStyle = lipgloss.NewStyle().
+				Foreground(brandColor).
+				Bold(true)
+
+	TranscriptConnectorStyle = lipgloss.NewStyle().
+					Foreground(dimColor)
+
+	TranscriptHintStyle = lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Italic(true)
 )

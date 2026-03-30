@@ -3,14 +3,30 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+)
+
+const (
+	// maxToolIterations is the maximum number of tool use loops before giving up.
+	maxToolIterations = 25
+
+	// streamEventBufSize is the buffer size for the StreamEvent channel.
+	streamEventBufSize = 64
+
+	// defaultMaxTokens is the max tokens for non-OAuth API requests.
+	defaultMaxTokens = 4096
+
+	// oauthMaxTokens is the max tokens for OAuth-authenticated API requests.
+	oauthMaxTokens = 16384
 )
 
 // StreamEvent represents a chunk of output from the agent.
@@ -43,7 +59,7 @@ type ToolDoneEvent struct {
 // tool_use blocks, the tools are executed and results sent back until
 // Claude produces a final text response.
 func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent {
-	ch := make(chan StreamEvent, 64)
+	ch := make(chan StreamEvent, streamEventBufSize)
 
 	go func() {
 		defer close(ch)
@@ -59,10 +75,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		slog.Debug("starting API call", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
-		for iteration := 0; iteration < 25; iteration++ {
+		for iteration := 0; iteration < maxToolIterations; iteration++ {
 			params, reqOpts := a.buildMessageParams(model)
 
 			stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
+			defer stream.Close()
 
 			// Accumulate content blocks from the stream
 			var assistantBlocks []anthropic.ContentBlockParamUnion
@@ -127,11 +144,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				}
 				return
 			}
-			stream.Close()
 
-			// Build assistant message from accumulated blocks
-			for _, sb := range textBlocks {
-				text := sb.String()
+			// Build assistant message from accumulated blocks (sorted by index)
+			textIndices := make([]int64, 0, len(textBlocks))
+			for idx := range textBlocks {
+				textIndices = append(textIndices, idx)
+			}
+			sort.Slice(textIndices, func(i, j int) bool { return textIndices[i] < textIndices[j] })
+			for _, idx := range textIndices {
+				text := textBlocks[idx].String()
 				if text != "" {
 					assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(text))
 				}
@@ -252,7 +273,7 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 
 	params := anthropic.MessageNewParams{
 		Model:     model,
-		MaxTokens: 4096,
+		MaxTokens: defaultMaxTokens,
 		System:    system,
 		Messages:  a.history,
 		Tools:     ToAPITools(defs),
@@ -271,7 +292,7 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 		params.OutputConfig = anthropic.OutputConfigParam{
 			Effort: anthropic.OutputConfigEffortMedium,
 		}
-		params.MaxTokens = 16384
+		params.MaxTokens = oauthMaxTokens
 		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", claudeCodeBetas))
 
 		slog.Debug("injected Claude Code billing header for OAuth",
@@ -290,15 +311,21 @@ func (a *Agent) WorkDir() string {
 }
 
 // enrichAPIError adds actionable context to common API errors.
+// Uses the SDK's typed error to inspect HTTP status codes directly
+// rather than fragile string matching.
 func enrichAPIError(err error, model string) error {
-	msg := err.Error()
-	if strings.Contains(msg, "400") {
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		return err
+	}
+	switch apiErr.StatusCode {
+	case 400, 403:
 		return fmt.Errorf("%w — your API key may not have access to %s. "+
 			"Run `aql auth login --console` for full model access, "+
 			"or /model to switch models", err, model)
-	}
-	if strings.Contains(msg, "404") {
+	case 404:
 		return fmt.Errorf("%w — model %q not found. Try /model to pick a valid model", err, model)
+	default:
+		return err
 	}
-	return err
 }

@@ -44,8 +44,6 @@ func TestRenderPromptAreaShowsBars(t *testing.T) {
 func TestRenderStatusBarClaude(t *testing.T) {
 	result := tui.RenderStatusBar("claude-haiku-4-5", 1500, 60)
 	plain := stripAnsi(result)
-	// Left side: agent info
-	assert.Contains(t, plain, "agents on")
-	// Right side: token usage percentage
-	assert.Contains(t, plain, "auto-compact")
+	assert.Contains(t, plain, "claude-haiku-4-5")
+	assert.Contains(t, plain, "1.5k tokens")
 }

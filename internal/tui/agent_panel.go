@@ -7,6 +7,7 @@ type ToolCall struct {
 	Name    string
 	Content string
 	Status  ToolStatus
+	ToolID  string
 }
 
 // ToolStatus represents the execution state of a tool call.
