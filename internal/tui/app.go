@@ -61,9 +61,21 @@ type AgentToolCallMsg struct {
 	ToolCall  ToolCall
 }
 
+// ModelSelectedMsg is emitted when the user selects a model via /model <name>.
+// The main app should persist this selection and reconfigure agents.
+type ModelSelectedMsg struct {
+	Model string
+}
+
 // SubmitFunc is called when the user submits input. It should return a tea.Cmd
 // that kicks off agent processing.
 type SubmitFunc func(input string) tea.Cmd
+
+// ModelOption represents a selectable model in the TUI.
+type ModelOption struct {
+	ID          string // full model ID (e.g. "claude-sonnet-4-20250514")
+	DisplayName string // human-readable name (e.g. "Claude Sonnet 4")
+}
 
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
@@ -83,6 +95,7 @@ type Model struct {
 	paletteVisible  bool
 	paletteSelected int
 	paletteFiltered []Command
+	availableModels []ModelOption
 }
 
 // NewModel creates the initial TUI model.
@@ -106,6 +119,11 @@ func (m *Model) SetModelName(name string) {
 // SetProjectPath sets the project path shown in the header.
 func (m *Model) SetProjectPath(path string) {
 	m.projectPath = path
+}
+
+// SetAvailableModels sets the list of models shown by /model.
+func (m *Model) SetAvailableModels(models []ModelOption) {
+	m.availableModels = models
 }
 
 // SetTokenCount sets the token count shown in the status bar.
@@ -154,8 +172,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				}
 
-				if result := m.executeCommand(cmd); result != "" {
-					return m, nil
+				if result, resultCmd := m.executeCommand(cmd); result != "" {
+					return m, resultCmd
 				}
 
 				m.chat = append(m.chat, ChatEntry{
@@ -295,18 +313,53 @@ func (m *Model) updatePalette() {
 	}
 }
 
-// executeCommand handles built-in slash commands. Returns non-empty if handled.
-func (m *Model) executeCommand(cmd string) string {
+// executeCommand handles built-in slash commands. Returns non-empty string if handled,
+// and optionally a tea.Cmd to execute.
+func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
+	// Handle /model <query> — match by ID substring or display name
+	if strings.HasPrefix(cmd, "/model ") {
+		query := strings.TrimSpace(strings.TrimPrefix(cmd, "/model"))
+		queryLower := strings.ToLower(query)
+		var match *ModelOption
+		for i, opt := range m.availableModels {
+			if strings.Contains(strings.ToLower(opt.ID), queryLower) ||
+				strings.Contains(strings.ToLower(opt.DisplayName), queryLower) {
+				match = &m.availableModels[i]
+				break
+			}
+		}
+		if match == nil {
+			m.chat = append(m.chat, ChatEntry{
+				Type:    EntryAgentStatus,
+				Content: "No model matching: " + query + ". Use /model to see available options.",
+				Status:  AgentError,
+			})
+			m.input = ""
+			m.scrollToBottom()
+			return "model", nil
+		}
+		m.modelName = match.ID
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: "Switched to: " + match.DisplayName + " (" + match.ID + ")",
+			Status:  AgentActive,
+		})
+		m.input = ""
+		m.scrollToBottom()
+		selectedID := match.ID
+		return "model", func() tea.Msg {
+			return ModelSelectedMsg{Model: selectedID}
+		}
+	}
+
 	switch cmd {
 	case "/exit", "/quit", "/q":
-		// Handled separately — this shouldn't be reached since we check earlier,
-		// but keep for safety.
-		return ""
+		return "", nil
 	case "/clear":
 		m.chat = nil
 		m.input = ""
 		m.scrollToBottom()
-		return "cleared"
+		return "cleared", nil
 	case "/help":
 		var lines []string
 		lines = append(lines, "Available commands:")
@@ -320,7 +373,7 @@ func (m *Model) executeCommand(cmd string) string {
 		})
 		m.input = ""
 		m.scrollToBottom()
-		return "help"
+		return "help", nil
 	case "/agents":
 		names := strings.Join(m.agentNames, ", ")
 		m.chat = append(m.chat, ChatEntry{
@@ -330,7 +383,7 @@ func (m *Model) executeCommand(cmd string) string {
 		})
 		m.input = ""
 		m.scrollToBottom()
-		return "agents"
+		return "agents", nil
 	case "/status":
 		status := "Workflow: " + m.workflowName + " · Agents: " + strings.Join(m.agentNames, ", ")
 		m.chat = append(m.chat, ChatEntry{
@@ -340,16 +393,26 @@ func (m *Model) executeCommand(cmd string) string {
 		})
 		m.input = ""
 		m.scrollToBottom()
-		return "status"
+		return "status", nil
 	case "/model":
+		var lines []string
+		lines = append(lines, "Available models:")
+		for _, opt := range m.availableModels {
+			marker := "  "
+			if opt.ID == m.modelName {
+				marker = "▸ "
+			}
+			lines = append(lines, marker+opt.DisplayName+" ("+opt.ID+")")
+		}
+		lines = append(lines, "\nUse /model <name> to switch (e.g. /model sonnet)")
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
-			Content: "Model: " + m.modelName,
+			Content: strings.Join(lines, "\n"),
 			Status:  AgentActive,
 		})
 		m.input = ""
 		m.scrollToBottom()
-		return "model"
+		return "model", nil
 	case "/compact":
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
@@ -358,9 +421,9 @@ func (m *Model) executeCommand(cmd string) string {
 		})
 		m.input = ""
 		m.scrollToBottom()
-		return "compact"
+		return "compact", nil
 	}
-	return ""
+	return "", nil
 }
 
 // View implements tea.Model.

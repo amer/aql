@@ -20,7 +20,7 @@ func SlashCommands() []Command {
 		{Name: "/clear", Description: "Clear chat history", Action: "clear"},
 		{Name: "/agents", Description: "List active agents", Action: "agents"},
 		{Name: "/status", Description: "Show workflow status", Action: "status"},
-		{Name: "/model", Description: "Show current model", Action: "model"},
+		{Name: "/model", Description: "List/switch models (e.g. /model sonnet)", Action: "model"},
 		{Name: "/compact", Description: "Compact conversation context", Action: "compact"},
 	}
 }
