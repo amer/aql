@@ -2,7 +2,6 @@ package tui_test
 
 import (
 	"fmt"
-	"regexp"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -10,31 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-var stripAnsi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-func strip(s string) string {
-	return stripAnsi.ReplaceAllString(s, "")
-}
-
-// testModel creates a Model with a standard window size and optional onSubmit.
-func testModel(onSubmit tui.SubmitFunc) tui.Model {
-	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, onSubmit)
-	m, _ = applyMsgCmd(m, tea.WindowSizeMsg{Width: 100, Height: 40})
-	return m
-}
-
-func applyMsgCmd(m tui.Model, msg tea.Msg) (tui.Model, tea.Cmd) {
-	updated, cmd := m.Update(msg)
-	return updated.(tui.Model), cmd
-}
-
-func typeString(m tui.Model, s string) tui.Model {
-	for _, c := range s {
-		m = applyKey(m, string(c))
-	}
-	return m
-}
 
 // --- Scenario: Full conversation flow ---
 
@@ -98,7 +72,7 @@ func TestIntegration_FullConversation(t *testing.T) {
 
 	// 7. Verify view renders without panic
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "AQL")
 	assert.Contains(t, plain, "write auth tests")
 	assert.Contains(t, plain, "add edge cases")
@@ -212,7 +186,7 @@ func TestIntegration_SlashModelOpensPicker(t *testing.T) {
 
 	// View should show the 3 model tiers
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "Sonnet")
 	assert.Contains(t, plain, "Opus")
 	assert.Contains(t, plain, "Haiku")
@@ -461,7 +435,7 @@ func TestIntegration_PaletteRendersInView(t *testing.T) {
 	m = applyKey(m, "/")
 
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "/help")
 	assert.Contains(t, plain, "/exit")
 }
@@ -547,7 +521,7 @@ func TestIntegration_ToolCallStatuses(t *testing.T) {
 
 	// Verify they render with correct status indicators
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "bash")
 	assert.Contains(t, plain, "write_file")
 }
@@ -588,7 +562,7 @@ func TestIntegration_MarkdownInAgentOutput(t *testing.T) {
 
 	require.Len(t, m.Chat(), 1)
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "func Fix()")
 }
 
@@ -647,7 +621,7 @@ func TestIntegration_ViewLayout(t *testing.T) {
 	m := testModel(nil)
 
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 
 	// Header elements
 	assert.Contains(t, plain, "AQL")
@@ -669,7 +643,7 @@ func TestIntegration_StreamingPromptShowsAgent(t *testing.T) {
 	assert.True(t, m.IsStreaming())
 
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "coder")
 	assert.Contains(t, plain, "Composing")
 	assert.Contains(t, plain, "tokens")
@@ -695,7 +669,7 @@ func TestIntegration_ScrollingLongConversation(t *testing.T) {
 	assert.NotEmpty(t, view)
 
 	// Latest messages should be visible (auto-scroll)
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "Message 99")
 }
 
@@ -727,19 +701,6 @@ func TestIntegration_ClearThenContinue(t *testing.T) {
 	require.Len(t, m.Chat(), 1)
 	assert.Equal(t, "new topic", m.Chat()[0].Content)
 	assert.Equal(t, []string{"hello", "new topic"}, submitted)
-}
-
-// --- Paste test helpers ---
-
-// applyPaste simulates a bracketed paste event from the terminal.
-func applyPaste(m tui.Model, text string) tui.Model {
-	msg := tea.KeyMsg{
-		Type:  tea.KeyRunes,
-		Runes: []rune(text),
-		Paste: true,
-	}
-	updated, _ := m.Update(msg)
-	return updated.(tui.Model)
 }
 
 // --- Scenario: Basic paste inserts text into input ---
@@ -876,6 +837,6 @@ func TestIntegration_PasteVisibleInView(t *testing.T) {
 
 	m = applyPaste(m, "visible text")
 	view := m.View()
-	plain := strip(view)
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "visible text", "pasted text should be visible in the view")
 }

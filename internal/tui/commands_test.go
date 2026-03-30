@@ -1,7 +1,6 @@
 package tui_test
 
 import (
-	"regexp"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -135,7 +134,7 @@ func TestModelPickerUsesDynamicTiers(t *testing.T) {
 
 	// Trigger /model command
 	result := tui.RenderModelPicker(m.GetModelTiers(), 0, "", 80)
-	plain := stripAnsiCmds(result)
+	plain := stripAnsi(result)
 	assert.Contains(t, plain, "Custom Model A")
 	assert.Contains(t, plain, "Custom Model B")
 	assert.NotContains(t, plain, "Haiku", "should not show hardcoded tiers")
@@ -170,7 +169,7 @@ func TestBootstrappingIsInvisible(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = updated.(tui.Model)
 	view := m.View()
-	plain := stripAnsiCmds(view)
+	plain := stripAnsi(view)
 	assert.NotContains(t, plain, "Bootstrapping")
 
 	// ModelsLoadedMsg should still update model tiers silently
@@ -183,7 +182,7 @@ func TestBootstrappingIsInvisible(t *testing.T) {
 func TestRenderModelPicker(t *testing.T) {
 	tiers := tui.DefaultModelTiers()
 	result := tui.RenderModelPicker(tiers, 0, "claude-sonnet-4-6", 80)
-	plain := stripAnsiCmds(result)
+	plain := stripAnsi(result)
 
 	assert.Contains(t, plain, "Select model")
 	assert.Contains(t, plain, "Sonnet")
@@ -196,7 +195,7 @@ func TestRenderModelPicker(t *testing.T) {
 func TestRenderModelPickerHighlightsCurrent(t *testing.T) {
 	tiers := tui.DefaultModelTiers()
 	result := tui.RenderModelPicker(tiers, 1, "claude-opus-4-6", 80)
-	plain := stripAnsiCmds(result)
+	plain := stripAnsi(result)
 	// Opus is selected (idx 1) and is current model
 	assert.Contains(t, plain, "✓")
 }
@@ -212,11 +211,6 @@ func TestRenderModelPickerCustomEntry(t *testing.T) {
 	tiers := tui.DefaultModelTiers()
 	// selected=3 means "Use custom model ID" entry
 	result := tui.RenderModelPicker(tiers, 3, "", 80)
-	plain := stripAnsiCmds(result)
+	plain := stripAnsi(result)
 	assert.Contains(t, plain, "custom model ID")
 }
-
-var stripAnsiCmds = func() func(string) string {
-	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	return func(s string) string { return re.ReplaceAllString(s, "") }
-}()

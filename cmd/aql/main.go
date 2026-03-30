@@ -170,7 +170,9 @@ func run() error {
 
 	onBash := func(command string) tea.Cmd {
 		return func() tea.Msg {
-			cmd := exec.Command("sh", "-c", command)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "sh", "-c", command)
 			cmd.Dir = workDir
 			out, err := cmd.CombinedOutput()
 			return tui.BashResultMsg{
@@ -213,12 +215,15 @@ func run() error {
 		slog.Info("agent recreated with new model", "model", modelID)
 	})
 
-	model.SetBootstrapping(true)
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+
+	// Cancel background work when the TUI exits
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
 
 	// Probe models in background — updates TUI and cache when done
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(bgCtx, 30*time.Second)
 		defer cancel()
 
 		var usableModels []agent.ModelInfo

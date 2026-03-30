@@ -13,11 +13,6 @@ func RenderPrompt(input string, width int) string {
 	return cursor + input
 }
 
-// RenderPromptStreaming renders the prompt area while an agent is responding.
-func RenderPromptStreaming(spinnerFrame int, agentName string, width int) string {
-	return RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", SpinnerBraille)
-}
-
 // renderPromptFrame renders the separator-wrapped prompt area.
 // content is the middle line (prompt input or spinner).
 func renderPromptFrame(content string, projectName string, width int) string {

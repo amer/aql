@@ -208,187 +208,10 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Model picker intercepts keys when visible
 		if m.modelPickerVisible {
-			tiers := m.GetModelTiers()
-			maxIdx := len(tiers) // includes "Use custom ID" entry
-			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
-			case "esc":
-				m.modelPickerVisible = false
-				m.modelPickerIdx = 0
-				m.modelPickerInput = ""
-				return m, nil
-			case "up":
-				if m.modelPickerIdx > 0 {
-					m.modelPickerIdx--
-				}
-				return m, nil
-			case "down":
-				if m.modelPickerIdx < maxIdx {
-					m.modelPickerIdx++
-				}
-				return m, nil
-			case "backspace":
-				if len(m.modelPickerInput) > 0 {
-					m.modelPickerInput = m.modelPickerInput[:len(m.modelPickerInput)-1]
-				}
-				return m, nil
-			case "enter":
-				if m.modelPickerIdx < len(tiers) {
-					// Selected a tier from the list
-					tier := tiers[m.modelPickerIdx]
-					return m, m.selectModel(tier.ModelID, tier.Label+" ("+tier.ModelID+")")
-				}
-				// "Use custom ID" entry — use the typed input as model ID
-				if m.modelPickerInput != "" {
-					return m, m.selectModel(m.modelPickerInput, m.modelPickerInput)
-				}
-				return m, nil
-			default:
-				// Typing only applies when on the custom ID entry
-				if m.modelPickerIdx == len(tiers) && len(msg.String()) == 1 {
-					m.modelPickerInput += msg.String()
-				}
-				return m, nil
-			}
+			return m.handleModelPickerKey(msg)
 		}
-
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			if m.paletteVisible {
-				m.paletteVisible = false
-				m.paletteSelected = 0
-				m.inputBuf.Clear()
-			}
-		case "tab":
-			if m.paletteVisible && len(m.paletteFiltered) > 0 {
-				m.inputBuf.Set(m.paletteFiltered[m.paletteSelected].Name)
-				m.paletteVisible = false
-				m.paletteSelected = 0
-			}
-		case "alt+enter":
-			m.inputBuf.Insert('\n')
-		case "enter":
-			input := m.inputBuf.String()
-			if input != "" && !m.streaming {
-				// If palette is visible, execute the selected command
-				cmd := strings.TrimSpace(input)
-				if m.paletteVisible && len(m.paletteFiltered) > 0 {
-					cmd = m.paletteFiltered[m.paletteSelected].Name
-				}
-				m.paletteVisible = false
-				m.paletteSelected = 0
-
-				if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
-					return m, tea.Quit
-				}
-
-				if result, resultCmd := m.executeCommand(cmd); result != "" {
-					return m, resultCmd
-				}
-
-				// ! bash mode: execute shell command
-				if IsBashCommand(input) {
-					shellCmd := ParseBashCommand(input)
-					if shellCmd != "" {
-						m.history.Push(input)
-						m.chat = append(m.chat, ChatEntry{
-							Type:    EntryUserInput,
-							Content: input,
-						})
-						m.inputBuf.Clear()
-						m.scrollToBottom()
-						if m.onBash != nil {
-							return m, m.onBash(shellCmd)
-						}
-					}
-					return m, nil
-				}
-
-				m.history.Push(input)
-				m.chat = append(m.chat, ChatEntry{
-					Type:    EntryUserInput,
-					Content: input,
-				})
-				m.inputBuf.Clear()
-				m.scrollToBottom()
-
-				if m.onSubmit != nil {
-					return m, m.onSubmit(input)
-				}
-			}
-		case "backspace":
-			m.inputBuf.DeleteBackward()
-			m.updatePalette()
-		case "left":
-			m.inputBuf.MoveLeft()
-		case "right":
-			m.inputBuf.MoveRight()
-		case "ctrl+a", "home":
-			m.inputBuf.MoveToStart()
-		case "ctrl+e", "end":
-			m.inputBuf.MoveToEnd()
-		case "alt+p":
-			m.modelPickerVisible = true
-			m.modelPickerIdx = 0
-			m.modelPickerInput = ""
-			for i, tier := range m.GetModelTiers() {
-				if tier.ModelID == m.modelName {
-					m.modelPickerIdx = i
-					break
-				}
-			}
-			return m, nil
-		case "shift+up":
-			m.scrollUp(1)
-			return m, nil
-		case "shift+down":
-			m.scrollDown(1)
-			return m, nil
-		case "pgup":
-			m.scrollUp(m.visibleHeight() / 2)
-			return m, nil
-		case "pgdown":
-			m.scrollDown(m.visibleHeight() / 2)
-			return m, nil
-		case "ctrl+d":
-			return m, tea.Quit
-		case "ctrl+j":
-			m.inputBuf.Insert('\n')
-		case "ctrl+k":
-			m.inputBuf.KillToEnd()
-			m.updatePalette()
-		case "ctrl+u":
-			m.inputBuf.KillToStart()
-			m.updatePalette()
-		case "up":
-			if m.paletteVisible {
-				if m.paletteSelected > 0 {
-					m.paletteSelected--
-				}
-			} else if val, ok := m.history.Previous(); ok {
-				m.inputBuf.Set(val)
-			}
-		case "down":
-			if m.paletteVisible {
-				if m.paletteSelected < len(m.paletteFiltered)-1 {
-					m.paletteSelected++
-				}
-			} else if val, ok := m.history.Next(); ok {
-				m.inputBuf.Set(val)
-			}
-		default:
-			if msg.Paste {
-				m.inputBuf.InsertString(string(msg.Runes))
-			} else if len(msg.String()) == 1 {
-				m.inputBuf.Insert(rune(msg.String()[0]))
-			}
-			m.updatePalette()
-		}
+		return m.handleKey(msg)
 
 	case tea.MouseMsg:
 		switch msg.Button {
@@ -403,6 +226,186 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+	default:
+		return m.handleMsg(msg)
+	}
+
+	return m, nil
+}
+
+func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	tiers := m.GetModelTiers()
+	maxIdx := len(tiers) // includes "Use custom ID" entry
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.modelPickerVisible = false
+		m.modelPickerIdx = 0
+		m.modelPickerInput = ""
+	case "up":
+		if m.modelPickerIdx > 0 {
+			m.modelPickerIdx--
+		}
+	case "down":
+		if m.modelPickerIdx < maxIdx {
+			m.modelPickerIdx++
+		}
+	case "backspace":
+		if len(m.modelPickerInput) > 0 {
+			m.modelPickerInput = m.modelPickerInput[:len(m.modelPickerInput)-1]
+		}
+	case "enter":
+		if m.modelPickerIdx < len(tiers) {
+			tier := tiers[m.modelPickerIdx]
+			return m, m.selectModel(tier.ModelID, tier.Label+" ("+tier.ModelID+")")
+		}
+		if m.modelPickerInput != "" {
+			return m, m.selectModel(m.modelPickerInput, m.modelPickerInput)
+		}
+	default:
+		if m.modelPickerIdx == len(tiers) && len(msg.String()) == 1 {
+			m.modelPickerInput += msg.String()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "ctrl+d":
+		return m, tea.Quit
+	case "esc":
+		if m.paletteVisible {
+			m.paletteVisible = false
+			m.paletteSelected = 0
+			m.inputBuf.Clear()
+		}
+	case "tab":
+		if m.paletteVisible && len(m.paletteFiltered) > 0 {
+			m.inputBuf.Set(m.paletteFiltered[m.paletteSelected].Name)
+			m.paletteVisible = false
+			m.paletteSelected = 0
+		}
+	case "alt+enter", "ctrl+j":
+		m.inputBuf.Insert('\n')
+	case "enter":
+		return m.handleSubmit()
+	case "backspace":
+		m.inputBuf.DeleteBackward()
+		m.updatePalette()
+	case "left":
+		m.inputBuf.MoveLeft()
+	case "right":
+		m.inputBuf.MoveRight()
+	case "ctrl+a", "home":
+		m.inputBuf.MoveToStart()
+	case "ctrl+e", "end":
+		m.inputBuf.MoveToEnd()
+	case "ctrl+k":
+		m.inputBuf.KillToEnd()
+		m.updatePalette()
+	case "ctrl+u":
+		m.inputBuf.KillToStart()
+		m.updatePalette()
+	case "alt+p":
+		m.openModelPicker()
+	case "shift+up":
+		m.scrollUp(1)
+	case "shift+down":
+		m.scrollDown(1)
+	case "pgup":
+		m.scrollUp(m.visibleHeight() / 2)
+	case "pgdown":
+		m.scrollDown(m.visibleHeight() / 2)
+	case "up":
+		if m.paletteVisible {
+			if m.paletteSelected > 0 {
+				m.paletteSelected--
+			}
+		} else if val, ok := m.history.Previous(); ok {
+			m.inputBuf.Set(val)
+		}
+	case "down":
+		if m.paletteVisible {
+			if m.paletteSelected < len(m.paletteFiltered)-1 {
+				m.paletteSelected++
+			}
+		} else if val, ok := m.history.Next(); ok {
+			m.inputBuf.Set(val)
+		}
+	default:
+		if msg.Paste {
+			m.inputBuf.InsertString(string(msg.Runes))
+		} else if len(msg.String()) == 1 {
+			m.inputBuf.Insert(rune(msg.String()[0]))
+		}
+		m.updatePalette()
+	}
+	return m, nil
+}
+
+func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
+	input := m.inputBuf.String()
+	if input == "" || m.streaming {
+		return m, nil
+	}
+
+	// Resolve command: palette selection takes priority
+	cmd := strings.TrimSpace(input)
+	if m.paletteVisible && len(m.paletteFiltered) > 0 {
+		cmd = m.paletteFiltered[m.paletteSelected].Name
+	}
+	m.paletteVisible = false
+	m.paletteSelected = 0
+
+	if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
+		return m, tea.Quit
+	}
+	if result, resultCmd := m.executeCommand(cmd); result != "" {
+		return m, resultCmd
+	}
+
+	// ! bash mode
+	if IsBashCommand(input) {
+		shellCmd := ParseBashCommand(input)
+		if shellCmd != "" {
+			m.history.Push(input)
+			m.chat = append(m.chat, ChatEntry{Type: EntryUserInput, Content: input})
+			m.inputBuf.Clear()
+			m.scrollToBottom()
+			if m.onBash != nil {
+				return m, m.onBash(shellCmd)
+			}
+		}
+		return m, nil
+	}
+
+	// Normal submit
+	m.history.Push(input)
+	m.chat = append(m.chat, ChatEntry{Type: EntryUserInput, Content: input})
+	m.inputBuf.Clear()
+	m.scrollToBottom()
+	if m.onSubmit != nil {
+		return m, m.onSubmit(input)
+	}
+	return m, nil
+}
+
+func (m *Model) openModelPicker() {
+	m.modelPickerVisible = true
+	m.modelPickerIdx = 0
+	m.modelPickerInput = ""
+	for i, tier := range m.GetModelTiers() {
+		if tier.ModelID == m.modelName {
+			m.modelPickerIdx = i
+			break
+		}
+	}
+}
+
+func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case SpinnerTickMsg:
 		if m.streaming {
 			m.spinnerFrame++
@@ -414,23 +417,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AgentStreamStartMsg:
 		if !m.streaming {
-			m.spinnerType = RandomSpinnerType()
-			m.spinnerFrame = 0
-			m.streamStart = time.Now()
-			m.streamChars = 0
-			m.streaming = true
+			m.startStream()
 			return m, SpinnerTickFor(m.spinnerType)
 		}
 
 	case AgentStreamDeltaMsg:
 		wasStreaming := m.streaming
 		if !wasStreaming {
-			m.spinnerType = RandomSpinnerType()
-			m.spinnerFrame = 0
-			m.streamStart = time.Now()
-			m.streamChars = 0
+			m.startStream()
 		}
-		m.streaming = true
 		m.streamChars += len(msg.Delta)
 		// Append to existing agent text entry or create new one
 		if len(m.chat) > 0 {
@@ -458,7 +453,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tokenCount += EstimateTokens(m.streamChars)
 		elapsed := time.Since(m.streamStart)
 		m.streaming = false
-		// Add completion indicator with blank lines around it
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
 			Content: "\n" + RenderCompletionIndicator(elapsed) + "\n",
@@ -527,6 +521,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) startStream() {
+	m.spinnerType = RandomSpinnerType()
+	m.spinnerFrame = 0
+	m.streamStart = time.Now()
+	m.streamChars = 0
+	m.streaming = true
 }
 
 // selectModel handles model selection from the picker or custom input.
@@ -602,6 +604,17 @@ func (m *Model) updatePalette() {
 	}
 }
 
+// addStatusChat appends a status message to chat, clears input, and scrolls to bottom.
+func (m *Model) addStatusChat(content string, status AgentStatus) {
+	m.chat = append(m.chat, ChatEntry{
+		Type:    EntryAgentStatus,
+		Content: content,
+		Status:  status,
+	})
+	m.inputBuf.Clear()
+	m.scrollToBottom()
+}
+
 // executeCommand handles built-in slash commands. Returns non-empty string if handled,
 // and optionally a tea.Cmd to execute.
 func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
@@ -619,40 +632,18 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		for _, c := range SlashCommands() {
 			lines = append(lines, "  "+c.Name+" — "+c.Description)
 		}
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: strings.Join(lines, "\n"),
-			Status:  AgentActive,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat(strings.Join(lines, "\n"), AgentActive)
 		return "help", nil
 	case "/agents":
-		names := strings.Join(m.agentNames, ", ")
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: "Active agents: " + names,
-			Status:  AgentActive,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat("Active agents: "+strings.Join(m.agentNames, ", "), AgentActive)
 		return "agents", nil
 	case "/status":
-		status := "Workflow: " + m.workflowName + " · Agents: " + strings.Join(m.agentNames, ", ")
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: status,
-			Status:  AgentActive,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat("Workflow: "+m.workflowName+" · Agents: "+strings.Join(m.agentNames, ", "), AgentActive)
 		return "status", nil
 	case "/model":
-		// Open interactive model picker
 		m.modelPickerVisible = true
 		m.modelPickerIdx = 0
 		m.modelPickerInput = ""
-		// Pre-select current model's tier
 		for i, tier := range m.GetModelTiers() {
 			if tier.ModelID == m.modelName {
 				m.modelPickerIdx = i
@@ -663,22 +654,10 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		return "model", nil
 	case "/cost":
 		usage := fmt.Sprintf("Token usage: %s (%s)", FormatTokenCount(m.tokenCount), FormatTokenCountShort(m.tokenCount))
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: usage,
-			Status:  AgentActive,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat(usage, AgentActive)
 		return "cost", nil
 	case "/compact":
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: "Context compaction is not yet implemented",
-			Status:  AgentWaiting,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat("Context compaction is not yet implemented", AgentWaiting)
 		return "compact", nil
 	case "/spinner":
 		types := SpinnerTypes()
@@ -691,13 +670,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		}
 		m.spinnerType = next
 		def := SpinnerDef(next)
-		m.chat = append(m.chat, ChatEntry{
-			Type:    EntryAgentStatus,
-			Content: "Spinner: " + def.Name + " " + def.Frames[0],
-			Status:  AgentActive,
-		})
-		m.inputBuf.Clear()
-		m.scrollToBottom()
+		m.addStatusChat("Spinner: "+def.Name+" "+def.Frames[0], AgentActive)
 		return "spinner", nil
 	}
 	return "", nil

@@ -143,10 +143,18 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
+// ExecuteToolFunc is the function used to execute tools. Override in tests
+// to inject mocks. Default is executeTool.
+var ExecuteToolFunc = executeTool
+
 // ExecuteTool runs a tool by name with the given JSON input.
 // Tool errors (file not found, command failure) are returned as content strings,
 // not Go errors — only truly unknown tools return a Go error.
 func ExecuteTool(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
+	return ExecuteToolFunc(ctx, workDir, name, input)
+}
+
+func executeTool(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
 	slog.Debug("executing tool", "tool", name, "workDir", workDir)
 
 	switch name {
@@ -165,6 +173,16 @@ func ExecuteTool(ctx context.Context, workDir string, name string, input json.Ra
 	}
 }
 
+// parseInput unmarshals JSON tool input into the given struct pointer.
+// Returns a user-facing error string if parsing fails.
+func parseInput[T any](input json.RawMessage) (T, string) {
+	var params T
+	if err := json.Unmarshal(input, &params); err != nil {
+		return params, "invalid input: " + err.Error()
+	}
+	return params, ""
+}
+
 func resolvePath(workDir, path string) string {
 	if filepath.IsAbs(path) {
 		return path
@@ -173,11 +191,11 @@ func resolvePath(workDir, path string) string {
 }
 
 func execReadFile(workDir string, input json.RawMessage) (string, error) {
-	var params struct {
+	params, errMsg := parseInput[struct {
 		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return "invalid input: " + err.Error(), nil
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
 	}
 	data, err := os.ReadFile(resolvePath(workDir, params.Path))
 	if err != nil {
@@ -187,12 +205,12 @@ func execReadFile(workDir string, input json.RawMessage) (string, error) {
 }
 
 func execWriteFile(workDir string, input json.RawMessage) (string, error) {
-	var params struct {
+	params, errMsg := parseInput[struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return "invalid input: " + err.Error(), nil
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
 	}
 	path := resolvePath(workDir, params.Path)
 	// Create parent directories if needed
@@ -206,11 +224,11 @@ func execWriteFile(workDir string, input json.RawMessage) (string, error) {
 }
 
 func execListDirectory(workDir string, input json.RawMessage) (string, error) {
-	var params struct {
+	params, errMsg := parseInput[struct {
 		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return "invalid input: " + err.Error(), nil
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
 	}
 	entries, err := os.ReadDir(resolvePath(workDir, params.Path))
 	if err != nil {
@@ -228,11 +246,11 @@ func execListDirectory(workDir string, input json.RawMessage) (string, error) {
 }
 
 func execBash(ctx context.Context, workDir string, input json.RawMessage) (string, error) {
-	var params struct {
+	params, errMsg := parseInput[struct {
 		Command string `json:"command"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return "invalid input: " + err.Error(), nil
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", params.Command)
 	cmd.Dir = workDir
@@ -245,13 +263,13 @@ func execBash(ctx context.Context, workDir string, input json.RawMessage) (strin
 }
 
 func execGrep(ctx context.Context, workDir string, input json.RawMessage) (string, error) {
-	var params struct {
+	params, errMsg := parseInput[struct {
 		Pattern string `json:"pattern"`
 		Path    string `json:"path"`
 		Include string `json:"include"`
-	}
-	if err := json.Unmarshal(input, &params); err != nil {
-		return "invalid input: " + err.Error(), nil
+	}](input)
+	if errMsg != "" {
+		return errMsg, nil
 	}
 	searchPath := workDir
 	if params.Path != "" {

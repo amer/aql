@@ -30,5 +30,8 @@ secrets/
 .aql_tokens.json
 aql.log
 
+# Reference repos
+.claude-code-ref/
+
 # OS
 .DS_Store

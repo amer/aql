@@ -2,7 +2,6 @@ package tui_test
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestNewModel(t *testing.T) {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, nil)
@@ -232,7 +229,7 @@ func TestRenderChatEntryUserInput(t *testing.T) {
 func TestRenderChatEntryAgentText(t *testing.T) {
 	entry := tui.ChatEntry{Type: tui.EntryAgentText, AgentName: "coder", Content: "Writing code..."}
 	result := tui.RenderChatEntry(entry, 80)
-	plain := ansiRe.ReplaceAllString(result, "")
+	plain := stripAnsi(result)
 	assert.Contains(t, plain, "coder")
 	assert.Contains(t, plain, "Writing code")
 }
@@ -359,7 +356,7 @@ func TestPaletteRenderedBelowPrompt(t *testing.T) {
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = applyKey(m, "/")
 	view := m.View()
-	plain := ansiRe.ReplaceAllString(view, "")
+	plain := stripAnsi(view)
 	promptIdx := strings.Index(plain, "❯ /")
 	paletteIdx := strings.Index(plain, "/help")
 	require.True(t, promptIdx >= 0, "prompt should be in view")
@@ -368,17 +365,6 @@ func TestPaletteRenderedBelowPrompt(t *testing.T) {
 }
 
 // --- Scroll tests ---
-
-// fillChat adds n agent messages to produce enough lines for scrolling.
-func fillChat(m tui.Model, n int) tui.Model {
-	for i := 0; i < n; i++ {
-		m = applyMsg(m, tui.AgentOutputMsg{
-			AgentName: "coder",
-			Output:    fmt.Sprintf("Message %d with enough content to fill a line", i),
-		})
-	}
-	return m
-}
 
 func TestScrollOffset_DefaultIsZero(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
@@ -531,7 +517,7 @@ func TestScrollOffset_ViewShowsIndicatorWhenScrolledUp(t *testing.T) {
 
 	m = applyKey(m, "pgup")
 	view := m.View()
-	plain := ansiRe.ReplaceAllString(view, "")
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "↑", "should show scroll-up indicator when scrolled up")
 }
 
@@ -548,7 +534,7 @@ func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {
 
 	// At bottom, should see latest
 	view := m.View()
-	plain := ansiRe.ReplaceAllString(view, "")
+	plain := stripAnsi(view)
 	assert.Contains(t, plain, "Line-099")
 
 	// Scroll up a lot
@@ -557,7 +543,7 @@ func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {
 	}
 
 	view = m.View()
-	plain = ansiRe.ReplaceAllString(view, "")
+	plain = stripAnsi(view)
 	// Should see earlier content, not the latest
 	assert.Contains(t, plain, "Line-0", "should show earlier messages when scrolled up")
 }
@@ -651,39 +637,4 @@ func TestUpDownArrow_DoesNotScroll(t *testing.T) {
 	assert.Equal(t, 0, m.ScrollOffset(), "up arrow should not change scroll offset")
 	m = applyKey(m, "down")
 	assert.Equal(t, 0, m.ScrollOffset(), "down arrow should not change scroll offset")
-}
-
-func applyKey(m tui.Model, key string) tui.Model {
-	var msg tea.Msg
-	switch key {
-	case "enter":
-		msg = tea.KeyMsg{Type: tea.KeyEnter}
-	case "backspace":
-		msg = tea.KeyMsg{Type: tea.KeyBackspace}
-	case "tab":
-		msg = tea.KeyMsg{Type: tea.KeyTab}
-	case "up":
-		msg = tea.KeyMsg{Type: tea.KeyUp}
-	case "down":
-		msg = tea.KeyMsg{Type: tea.KeyDown}
-	case "esc":
-		msg = tea.KeyMsg{Type: tea.KeyEscape}
-	case "pgup":
-		msg = tea.KeyMsg{Type: tea.KeyPgUp}
-	case "pgdown":
-		msg = tea.KeyMsg{Type: tea.KeyPgDown}
-	case "shift+up":
-		msg = tea.KeyMsg{Type: tea.KeyShiftUp}
-	case "shift+down":
-		msg = tea.KeyMsg{Type: tea.KeyShiftDown}
-	default:
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
-	}
-	updated, _ := m.Update(msg)
-	return updated.(tui.Model)
-}
-
-func applyMsg(m tui.Model, msg tea.Msg) tui.Model {
-	updated, _ := m.Update(msg)
-	return updated.(tui.Model)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -102,8 +103,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				return
 			}
 
-			// Execute tools and collect results
-			var toolResultBlocks []anthropic.ContentBlockParamUnion
+			// Notify TUI of all tool calls up front
 			for _, tu := range toolUses {
 				ch <- StreamEvent{
 					AgentName: a.config.Name,
@@ -113,30 +113,49 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 						Input:    string(tu.Input),
 					},
 				}
+			}
 
-				slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
-				result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.Name, tu.Input)
+			// Execute tools in parallel
+			type toolResult struct {
+				output  string
+				isError bool
+			}
+			results := make([]toolResult, len(toolUses))
 
-				isError := execErr != nil
-				if execErr != nil {
-					result = execErr.Error()
-				}
+			var wg sync.WaitGroup
+			for i, tu := range toolUses {
+				wg.Add(1)
+				go func(idx int, tu anthropic.ToolUseBlock) {
+					defer wg.Done()
+					slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
+					result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.Name, tu.Input)
+					if execErr != nil {
+						results[idx] = toolResult{output: execErr.Error(), isError: true}
+					} else {
+						results[idx] = toolResult{output: result}
+					}
+				}(i, tu)
+			}
+			wg.Wait()
 
+			// Emit results and build API response in original order
+			var toolResultBlocks []anthropic.ContentBlockParamUnion
+			for i, tu := range toolUses {
+				r := results[i]
 				ch <- StreamEvent{
 					AgentName: a.config.Name,
 					ToolDone: &ToolDoneEvent{
 						ToolName: tu.Name,
 						ToolID:   tu.ID,
-						Output:   result,
-						IsError:  isError,
+						Output:   r.output,
+						IsError:  r.isError,
 					},
 				}
-
 				toolResultBlocks = append(toolResultBlocks, anthropic.ContentBlockParamUnion{
 					OfToolResult: &anthropic.ToolResultBlockParam{
 						ToolUseID: tu.ID,
 						Content: []anthropic.ToolResultBlockParamContentUnion{
-							{OfText: &anthropic.TextBlockParam{Text: result}},
+							{OfText: &anthropic.TextBlockParam{Text: r.output}},
 						},
 					},
 				})
