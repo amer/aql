@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"container/heap"
 	"log/slog"
 	"path/filepath"
-	"sort"
+	"runtime"
+	"sync"
 	"time"
 )
 
@@ -51,8 +53,30 @@ func (m *Manager) GetShared(id string) (Entry, error) {
 	return m.shared.Get(id)
 }
 
+// scored pairs an entry with its relevance score.
+type scored struct {
+	entry Entry
+	score float64
+}
+
+// scoredHeap is a min-heap of scored entries, used for top-K selection.
+type scoredHeap []scored
+
+func (h scoredHeap) Len() int           { return len(h) }
+func (h scoredHeap) Less(i, j int) bool { return h[i].score < h[j].score } // min-heap
+func (h scoredHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *scoredHeap) Push(x any)        { *h = append(*h, x.(scored)) }
+func (h *scoredHeap) Pop() any {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
 // Query retrieves the top-K most relevant entries across all memory layers,
 // ranked by the combined recency/frequency/similarity score.
+// Uses parallel scoring and a min-heap for O(n log k) selection.
 func (m *Manager) Query(queryEmbedding []float32, topK int) []Entry {
 	now := time.Now()
 
@@ -66,31 +90,60 @@ func (m *Manager) Query(queryEmbedding []float32, topK int) []Entry {
 
 	slog.Debug("memory query", "agentID", m.agentID, "topK", topK, "shortTerm", len(shortTermEntries), "shared", len(sharedEntries))
 
-	type scored struct {
-		entry Entry
-		score float64
+	n := len(all)
+	if n == 0 {
+		return nil
+	}
+	if topK > n {
+		topK = n
 	}
 
-	ranked := make([]scored, len(all))
-	for i, e := range all {
-		ranked[i] = scored{entry: e, score: RelevanceScore(e, queryEmbedding, now, m.weights)}
+	// Score all entries in parallel using worker pool
+	scores := make([]float64, n)
+	workers := runtime.NumCPU()
+	if workers > n {
+		workers = n
 	}
 
-	sort.Slice(ranked, func(i, j int) bool {
-		return ranked[i].score > ranked[j].score
-	})
+	var wg sync.WaitGroup
+	chunkSize := (n + workers - 1) / workers
+	for w := 0; w < workers; w++ {
+		start := w * chunkSize
+		end := start + chunkSize
+		if end > n {
+			end = n
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				scores[i] = RelevanceScore(all[i], queryEmbedding, now, m.weights)
+			}
+		}(start, end)
+	}
+	wg.Wait()
 
-	if topK > len(ranked) {
-		topK = len(ranked)
+	// Use a min-heap of size k for O(n log k) top-K selection
+	h := make(scoredHeap, 0, topK)
+	heap.Init(&h)
+
+	for i := 0; i < n; i++ {
+		if h.Len() < topK {
+			heap.Push(&h, scored{entry: all[i], score: scores[i]})
+		} else if scores[i] > h[0].score {
+			h[0] = scored{entry: all[i], score: scores[i]}
+			heap.Fix(&h, 0)
+		}
 	}
 
-	result := make([]Entry, topK)
-	for i := 0; i < topK; i++ {
-		result[i] = ranked[i].entry
+	// Extract from heap in descending score order
+	result := make([]Entry, h.Len())
+	for i := len(result) - 1; i >= 0; i-- {
+		result[i] = heap.Pop(&h).(scored).entry
 	}
 
 	if len(result) > 0 {
-		slog.Debug("memory query results", "agentID", m.agentID, "returned", len(result), "topScore", ranked[0].score)
+		slog.Debug("memory query results", "agentID", m.agentID, "returned", len(result), "topScore", scores[0])
 	}
 	return result
 }

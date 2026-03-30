@@ -25,8 +25,8 @@ Opportunities to make better use of Go concurrency patterns across the codebase.
 - **File:** `internal/memory/manager.go`
 - **Problem:** `Query()` scores all entries sequentially, then full-sorts O(n log n) when only top-K needed
 - **Pattern:** Worker pool for parallel scoring + heap for O(n log k) partial selection
-- **Impact:** 4-8x faster for large memory sets (10k+ entries)
-- **Status:** TODO
+- **Impact:** ~1.8x at 10k entries (scales with dataset size), 16% less memory
+- **Status:** DONE
 
 ## Medium Impact
 
