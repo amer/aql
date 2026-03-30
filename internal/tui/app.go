@@ -404,18 +404,18 @@ func (m Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Command palette (above prompt)
-	if m.paletteVisible && len(m.paletteFiltered) > 0 {
-		b.WriteString("\n")
-		b.WriteString(RenderCommandPalette(m.paletteFiltered, m.paletteSelected, m.width))
-	}
-
-	// Prompt at bottom
+	// Prompt
 	b.WriteString("\n")
 	if m.streaming {
 		b.WriteString(RenderPromptStreaming(m.spinnerFrame, m.agentName(), m.width))
 	} else {
 		b.WriteString(RenderPrompt(m.input, m.width))
+	}
+
+	// Command palette (below prompt, like Claude Code)
+	if m.paletteVisible && len(m.paletteFiltered) > 0 {
+		b.WriteString("\n")
+		b.WriteString(RenderCommandPalette(m.paletteFiltered, m.paletteSelected, m.width))
 	}
 
 	// Status bar

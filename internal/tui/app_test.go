@@ -3,6 +3,7 @@ package tui_test
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -349,6 +350,19 @@ func TestPaletteViewShowsPalette(t *testing.T) {
 	view := m.View()
 	assert.Contains(t, view, "/help")
 	assert.Contains(t, view, "/exit")
+}
+
+func TestPaletteRenderedBelowPrompt(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = applyKey(m, "/")
+	view := m.View()
+	plain := ansiRe.ReplaceAllString(view, "")
+	promptIdx := strings.Index(plain, "> /")
+	paletteIdx := strings.Index(plain, "/help")
+	require.True(t, promptIdx >= 0, "prompt should be in view")
+	require.True(t, paletteIdx >= 0, "palette should be in view")
+	assert.True(t, paletteIdx > promptIdx, "palette should render below the prompt, not above")
 }
 
 func applyKey(m tui.Model, key string) tui.Model {
