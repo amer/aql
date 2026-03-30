@@ -93,6 +93,8 @@ type Model struct {
 	modelPickerVisible bool
 	modelPickerIdx     int
 	modelPickerInput   string
+	spinnerType        SpinnerType
+	modelTiers         []ModelTier // dynamic model tiers from API; nil = use defaults
 }
 
 // NewModel creates the initial TUI model.
@@ -128,6 +130,29 @@ func (m *Model) SetTokenCount(count int) {
 	m.tokenCount = count
 }
 
+// SetModelTiers sets the dynamic model tiers for the model picker.
+func (m *Model) SetModelTiers(tiers []ModelTier) {
+	m.modelTiers = tiers
+}
+
+// GetModelTiers returns the current model tiers, falling back to defaults.
+func (m Model) GetModelTiers() []ModelTier {
+	if len(m.modelTiers) > 0 {
+		return m.modelTiers
+	}
+	return DefaultModelTiers()
+}
+
+// SetSpinnerType sets the active spinner animation style.
+func (m *Model) SetSpinnerType(st SpinnerType) {
+	m.spinnerType = st
+}
+
+// ActiveSpinnerType returns the current spinner animation style.
+func (m Model) ActiveSpinnerType() SpinnerType {
+	return m.spinnerType
+}
+
 // TokenCountMsg updates the token count in the status bar.
 type TokenCountMsg struct {
 	Count int
@@ -144,7 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Model picker intercepts keys when visible
 		if m.modelPickerVisible {
-			tiers := ModelTiers()
+			tiers := m.GetModelTiers()
 			maxIdx := len(tiers) // includes "Use custom ID" entry
 			switch msg.String() {
 			case "ctrl+c":
@@ -271,7 +296,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SpinnerTickMsg:
 		if m.streaming {
 			m.spinnerFrame++
-			return m, SpinnerTick()
+			return m, SpinnerTickFor(m.spinnerType)
 		}
 
 	case TokenCountMsg:
@@ -279,6 +304,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AgentStreamDeltaMsg:
 		wasStreaming := m.streaming
+		if !wasStreaming {
+			m.spinnerType = RandomSpinnerType()
+			m.spinnerFrame = 0
+		}
 		m.streaming = true
 		// Append to existing agent text entry or create new one
 		if len(m.chat) > 0 {
@@ -287,7 +316,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				last.Content += msg.Delta
 				m.scrollToBottom()
 				if !wasStreaming {
-					return m, SpinnerTick()
+					return m, SpinnerTickFor(m.spinnerType)
 				}
 				return m, nil
 			}
@@ -299,7 +328,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.scrollToBottom()
 		if !wasStreaming {
-			return m, SpinnerTick()
+			return m, SpinnerTickFor(m.spinnerType)
 		}
 
 	case AgentStreamDoneMsg:
@@ -434,7 +463,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.modelPickerIdx = 0
 		m.modelPickerInput = ""
 		// Pre-select current model's tier
-		for i, tier := range ModelTiers() {
+		for i, tier := range m.GetModelTiers() {
 			if tier.ModelID == m.modelName {
 				m.modelPickerIdx = i
 				break
@@ -451,6 +480,25 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.input = ""
 		m.scrollToBottom()
 		return "compact", nil
+	case "/spinner":
+		types := SpinnerTypes()
+		next := SpinnerBraille
+		for i, st := range types {
+			if st == m.spinnerType {
+				next = types[(i+1)%len(types)]
+				break
+			}
+		}
+		m.spinnerType = next
+		def := SpinnerDef(next)
+		m.chat = append(m.chat, ChatEntry{
+			Type:    EntryAgentStatus,
+			Content: "Spinner: " + def.Name + " " + def.Frames[0],
+			Status:  AgentActive,
+		})
+		m.input = ""
+		m.scrollToBottom()
+		return "spinner", nil
 	}
 	return "", nil
 }
@@ -499,7 +547,7 @@ func (m Model) View() string {
 	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
 	if m.streaming {
-		b.WriteString(RenderPromptAreaStreaming(m.spinnerFrame, m.agentName(), m.projectPath, m.width))
+		b.WriteString(RenderPromptAreaStreaming(m.spinnerFrame, m.agentName(), m.projectPath, m.width, m.spinnerType))
 	} else {
 		b.WriteString(RenderPromptArea(m.input, m.projectPath, m.width))
 	}
@@ -513,7 +561,7 @@ func (m Model) View() string {
 	// Model picker (below prompt)
 	if m.modelPickerVisible {
 		b.WriteString("\n")
-		b.WriteString(RenderModelPicker(ModelTiers(), m.modelPickerIdx, m.modelName, m.width))
+		b.WriteString(RenderModelPicker(m.GetModelTiers(), m.modelPickerIdx, m.modelName, m.width))
 	}
 
 	// Status bar

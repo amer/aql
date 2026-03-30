@@ -25,6 +25,7 @@ func SlashCommands() []Command {
 		{Name: "/status", Description: "Show workflow status", Action: "status"},
 		{Name: "/model", Description: "List/switch models (e.g. /model sonnet)", Action: "model"},
 		{Name: "/compact", Description: "Compact conversation context", Action: "compact"},
+		{Name: "/spinner", Description: "Cycle spinner animation style", Action: "spinner"},
 	}
 }
 
@@ -54,8 +55,8 @@ type ModelTier struct {
 	Pricing     string // e.g. "$5/$25 per Mtok"
 }
 
-// ModelTiers returns the available model tiers, matching Claude Code's picker.
-func ModelTiers() []ModelTier {
+// DefaultModelTiers returns the hardcoded fallback model tiers.
+func DefaultModelTiers() []ModelTier {
 	return []ModelTier{
 		{
 			Label:       "Default (recommended)",

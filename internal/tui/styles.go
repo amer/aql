@@ -3,17 +3,17 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Claude Code color palette
-	brandColor   = lipgloss.Color("#DA7756") // claude orange
-	accentColor  = lipgloss.Color("#5C94F0") // blue accent
-	successColor = lipgloss.Color("#5CB85C") // green
-	warningColor = lipgloss.Color("#D4A843") // amber
-	errorColor   = lipgloss.Color("#D9534F") // red
-	dimColor     = lipgloss.Color("#555555") // dim gray
-	mutedColor   = lipgloss.Color("#888888") // muted
-	textColor    = lipgloss.Color("#D4D4D4") // light text
-	brightColor  = lipgloss.Color("#FFFFFF") // bright white
-	codeColor    = lipgloss.Color("#7EC8E3") // cyan for code
+	// Tokyo Night Storm color palette
+	brandColor   = lipgloss.Color("#ff9e64") // orange
+	accentColor  = lipgloss.Color("#7aa2f7") // blue
+	successColor = lipgloss.Color("#9ece6a") // green
+	warningColor = lipgloss.Color("#e0af68") // yellow
+	errorColor   = lipgloss.Color("#f7768e") // red
+	dimColor     = lipgloss.Color("#545c7e") // dark3
+	mutedColor   = lipgloss.Color("#737aa2") // dark5
+	textColor    = lipgloss.Color("#a9b1d6") // foreground dark
+	brightColor  = lipgloss.Color("#c0caf5") // foreground
+	codeColor    = lipgloss.Color("#7dcfff") // cyan
 
 	// Header / welcome
 	HeaderStyle = lipgloss.NewStyle().

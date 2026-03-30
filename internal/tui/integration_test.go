@@ -260,7 +260,7 @@ func TestIntegration_ModelPickerEscDismisses(t *testing.T) {
 func TestIntegration_ModelPickerPreSelectsCurrent(t *testing.T) {
 	m := testModel(nil)
 	// Set current model to Opus tier
-	tiers := tui.ModelTiers()
+	tiers := tui.DefaultModelTiers()
 	m.SetModelName(tiers[1].ModelID) // Opus
 
 	m = typeString(m, "/model")

@@ -68,6 +68,102 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 	return models, nil
 }
 
+// ProbeUsableModels fetches the model list and probes each one with a minimal
+// request to determine which models the API key can actually use. Models that
+// return 400/403 are filtered out.
+func ProbeUsableModels(ctx context.Context) ([]ModelInfo, error) {
+	client := anthropic.NewClient()
+	return probeUsableModelsWithClient(ctx, client, false)
+}
+
+// ProbeUsableModelsWithBaseURL is like ProbeUsableModels but uses a custom base URL.
+func ProbeUsableModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelInfo, error) {
+	client := anthropic.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithAPIKey("test-key"),
+	)
+	return probeUsableModelsWithClient(ctx, client, false)
+}
+
+// ProbeUsableModelsWithAPIKey probes models using a specific API key.
+func ProbeUsableModelsWithAPIKey(ctx context.Context, apiKey string) ([]ModelInfo, error) {
+	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+	return probeUsableModelsWithClient(ctx, client, false)
+}
+
+// ProbeUsableModelsWithBilling probes models with the Claude Code billing header.
+// This unlocks Opus/Sonnet for OAuth Console users.
+func ProbeUsableModelsWithBilling(ctx context.Context, baseURL string, apiKey string) ([]ModelInfo, error) {
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
+	}
+	client := anthropic.NewClient(opts...)
+	return probeUsableModelsWithClient(ctx, client, true)
+}
+
+// ProbeUsableModelsWithOAuthKey probes models using an OAuth API key with billing header.
+func ProbeUsableModelsWithOAuthKey(ctx context.Context, apiKey string) ([]ModelInfo, error) {
+	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+	return probeUsableModelsWithClient(ctx, client, true)
+}
+
+func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, withBilling bool) ([]ModelInfo, error) {
+	models, err := fetchModelsWithClient(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Debug("probing model access", "totalModels", len(models), "billing", withBilling)
+
+	var usable []ModelInfo
+	for _, m := range models {
+		if probeModel(ctx, client, m.ID, withBilling) {
+			slog.Debug("model accessible", "model", m.ID)
+			usable = append(usable, m)
+		} else {
+			slog.Debug("model not accessible", "model", m.ID)
+		}
+	}
+
+	slog.Info("model probe complete", "total", len(models), "usable", len(usable))
+	return usable, nil
+}
+
+// probeModel sends a minimal request to check if a model is accessible.
+// When withBilling is true, includes the Claude Code billing header for OAuth access.
+func probeModel(ctx context.Context, client anthropic.Client, modelID string, withBilling bool) bool {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(modelID),
+		MaxTokens: 1,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(".")),
+		},
+	}
+
+	var reqOpts []option.RequestOption
+
+	if withBilling {
+		params.System = []anthropic.TextBlockParam{
+			{Text: billingHeader},
+		}
+		params.Thinking = anthropic.ThinkingConfigParamUnion{
+			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
+		}
+		params.OutputConfig = anthropic.OutputConfigParam{
+			Effort: anthropic.OutputConfigEffortMedium,
+		}
+		params.MaxTokens = 1024
+		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", claudeCodeBetas))
+	}
+
+	_, err := client.Messages.New(ctx, params, reqOpts...)
+	return err == nil
+}
+
 // ResolveModel maps a model string to an anthropic.Model.
 // Supports shortcuts ("haiku", "sonnet", "opus") and full model IDs.
 // Defaults to Sonnet if empty. Rejects obviously invalid values

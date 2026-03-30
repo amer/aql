@@ -5,7 +5,7 @@ import "fmt"
 // RenderHeader renders the Claude Code-style welcome header.
 func RenderHeader(projectPath string, modelName string, width int) string {
 	title := HeaderStyle.Render("╭─ AQL")
-	subtitle := HeaderDimStyle.Render(" — agent orchestrator")
+	subtitle := HeaderDimStyle.Render(" — Agent Quorum Loop")
 	line1 := title + subtitle
 
 	path := DimStyle.Render(fmt.Sprintf("│ %s", projectPath))

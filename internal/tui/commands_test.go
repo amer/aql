@@ -98,8 +98,8 @@ func TestCommandAction(t *testing.T) {
 	}
 }
 
-func TestModelTiers(t *testing.T) {
-	tiers := tui.ModelTiers()
+func TestModelTiersFallback(t *testing.T) {
+	tiers := tui.DefaultModelTiers()
 	require.Len(t, tiers, 3, "should have Default, Opus, Haiku")
 
 	assert.Equal(t, "Default (recommended)", tiers[0].Label)
@@ -109,12 +109,39 @@ func TestModelTiers(t *testing.T) {
 	for _, tier := range tiers {
 		assert.NotEmpty(t, tier.ModelID, "tier must have a model ID")
 		assert.NotEmpty(t, tier.Description, "tier must have a description")
-		assert.NotEmpty(t, tier.Pricing, "tier must have pricing")
 	}
 }
 
+func TestSetModelTiers(t *testing.T) {
+	m := tui.NewModel("test", []string{"agent"}, nil)
+
+	dynamic := []tui.ModelTier{
+		{Label: "Opus 4.6", ModelID: "claude-opus-4-6-20260301", Description: "1M ctx"},
+		{Label: "Sonnet 4.6", ModelID: "claude-sonnet-4-6-20260301", Description: "200k ctx"},
+	}
+	m.SetModelTiers(dynamic)
+	assert.Equal(t, dynamic, m.GetModelTiers())
+}
+
+func TestModelPickerUsesDynamicTiers(t *testing.T) {
+	m := tui.NewModel("test", []string{"agent"}, nil)
+
+	dynamic := []tui.ModelTier{
+		{Label: "Custom Model A", ModelID: "model-a", Description: "fast"},
+		{Label: "Custom Model B", ModelID: "model-b", Description: "smart"},
+	}
+	m.SetModelTiers(dynamic)
+
+	// Trigger /model command
+	result := tui.RenderModelPicker(m.GetModelTiers(), 0, "", 80)
+	plain := stripAnsiCmds(result)
+	assert.Contains(t, plain, "Custom Model A")
+	assert.Contains(t, plain, "Custom Model B")
+	assert.NotContains(t, plain, "Haiku", "should not show hardcoded tiers")
+}
+
 func TestRenderModelPicker(t *testing.T) {
-	tiers := tui.ModelTiers()
+	tiers := tui.DefaultModelTiers()
 	result := tui.RenderModelPicker(tiers, 0, "claude-sonnet-4-6", 80)
 	plain := stripAnsiCmds(result)
 
@@ -128,7 +155,7 @@ func TestRenderModelPicker(t *testing.T) {
 }
 
 func TestRenderModelPickerHighlightsCurrent(t *testing.T) {
-	tiers := tui.ModelTiers()
+	tiers := tui.DefaultModelTiers()
 	result := tui.RenderModelPicker(tiers, 1, "claude-opus-4-6", 80)
 	plain := stripAnsiCmds(result)
 	// Opus is selected (idx 1) and is current model
@@ -136,14 +163,14 @@ func TestRenderModelPickerHighlightsCurrent(t *testing.T) {
 }
 
 func TestRenderModelPickerDifferentSelection(t *testing.T) {
-	tiers := tui.ModelTiers()
+	tiers := tui.DefaultModelTiers()
 	r0 := tui.RenderModelPicker(tiers, 0, "", 80)
 	r1 := tui.RenderModelPicker(tiers, 1, "", 80)
 	assert.NotEqual(t, r0, r1, "different selection should render differently")
 }
 
 func TestRenderModelPickerCustomEntry(t *testing.T) {
-	tiers := tui.ModelTiers()
+	tiers := tui.DefaultModelTiers()
 	// selected=3 means "Use custom model ID" entry
 	result := tui.RenderModelPicker(tiers, 3, "", 80)
 	plain := stripAnsiCmds(result)

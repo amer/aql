@@ -115,6 +115,49 @@ func TestRunner_InvalidModelID(t *testing.T) {
 	}
 }
 
+// TestRunner_OAuthTokenSentAsAPIKey verifies that OAuth tokens (sk-ant-oat01-*)
+// are sent as x-api-key header, not as Authorization: Bearer. The token endpoint
+// returns an API key, not a Bearer token.
+func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/stream_hello.sse")
+	require.NoError(t, err)
+
+	var capturedAPIKey string
+	var capturedAuthHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAPIKey = r.Header.Get("X-Api-Key")
+		capturedAuthHeader = r.Header.Get("Authorization")
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write(fixture)
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	oauthKey := "sk-ant-oat01-test-oauth-key"
+
+	a, err := agent.NewWithOAuthKey(agent.Config{
+		Name:         "test",
+		Role:         "test",
+		SystemPrompt: "test",
+	}, workDir, oauthKey, server.URL)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch := a.Run(ctx, "hi")
+	for range ch {
+	}
+
+	assert.Equal(t, oauthKey, capturedAPIKey,
+		"OAuth key must be sent as x-api-key header")
+	assert.Empty(t, capturedAuthHeader,
+		"OAuth key must NOT be sent as Authorization: Bearer")
+}
+
 // TestRunner_API400Error verifies the agent surfaces a meaningful error
 // when the API returns 400 Bad Request (e.g., model not accessible).
 func TestRunner_API400Error(t *testing.T) {
@@ -153,6 +196,10 @@ func TestRunner_API400Error(t *testing.T) {
 
 	require.Error(t, gotError, "should return an error on 400")
 	assert.Contains(t, gotError.Error(), "400")
+	assert.Contains(t, gotError.Error(), "aql auth login",
+		"400 error should tell user to run aql auth login for full access")
+	assert.Contains(t, gotError.Error(), "claude-opus-4-6",
+		"400 error should mention the model that failed")
 }
 
 // TestRunner_API404ModelNotFound verifies the agent handles model-not-found errors.
@@ -192,4 +239,6 @@ func TestRunner_API404ModelNotFound(t *testing.T) {
 
 	require.Error(t, gotError, "should return an error on 404")
 	assert.Contains(t, gotError.Error(), "404")
+	assert.Contains(t, gotError.Error(), "not found",
+		"404 error should include hint about model not being found")
 }

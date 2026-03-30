@@ -10,7 +10,7 @@ output is rendered with [Glamour](https://github.com/charmbracelet/glamour).
 
 ```text
 ┌─────────────────────────────────────────────────┐
-│ ╭─ AQL — agent orchestrator                     │  ← header.go
+│ ╭─ AQL — Agent Quorum Loop                      │  ← header.go
 │ │ /path/to/project                              │
 │ │ model: claude-sonnet-4                        │
 │ ╰─                                              │
@@ -37,7 +37,7 @@ output is rendered with [Glamour](https://github.com/charmbracelet/glamour).
 ## Components
 
 | File             | Purpose                                           |
-|------------------|---------------------------------------------------|
+| ---------------- | ------------------------------------------------- |
 | `app.go`         | Main Bubble Tea model, Update/View, message types |
 | `styles.go`      | Lip Gloss styles and color palette                |
 | `header.go`      | Welcome header with branding                      |
@@ -58,16 +58,16 @@ output is rendered with [Glamour](https://github.com/charmbracelet/glamour).
 
 ## Message Types
 
-| Message                | Trigger                         |
-|------------------------|---------------------------------|
-| `AgentStreamDeltaMsg`  | Each streamed text chunk        |
-| `AgentStreamDoneMsg`   | Streaming complete              |
-| `AgentStreamErrorMsg`  | API error during streaming      |
-| `AgentOutputMsg`       | Non-streaming agent output      |
-| `AgentStatusMsg`       | Agent status change             |
-| `AgentToolCallMsg`     | Tool invocation by agent        |
-| `SpinnerTickMsg`       | Spinner frame advance (80ms)    |
-| `TokenCountMsg`        | Token count update              |
+| Message               | Trigger                      |
+| --------------------- | ---------------------------- |
+| `AgentStreamDeltaMsg` | Each streamed text chunk     |
+| `AgentStreamDoneMsg`  | Streaming complete           |
+| `AgentStreamErrorMsg` | API error during streaming   |
+| `AgentOutputMsg`      | Non-streaming agent output   |
+| `AgentStatusMsg`      | Agent status change          |
+| `AgentToolCallMsg`    | Tool invocation by agent     |
+| `SpinnerTickMsg`      | Spinner frame advance (80ms) |
+| `TokenCountMsg`       | Token count update           |
 
 ## Multiline Input
 

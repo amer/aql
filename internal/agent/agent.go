@@ -18,6 +18,7 @@ type Agent struct {
 	systemPrompt string
 	client       anthropic.Client
 	history      []anthropic.MessageParam
+	isOAuth      bool // true when created via OAuth Console login (enables billing header for Opus)
 }
 
 // New creates an agent from config. It loads CLAUDE.md from workDir
@@ -35,6 +36,48 @@ func New(cfg Config, workDir string) (*Agent, error) {
 	}
 
 	return newAgent(cfg, memManager, claudeMD, anthropic.NewClient())
+}
+
+// NewWithOAuthKey creates an agent using an OAuth-issued API key (sk-ant-oat01-*).
+// The token endpoint returns an API key, so it's sent as x-api-key, not Bearer.
+func NewWithOAuthKey(cfg Config, workDir string, apiKey string, baseURL ...string) (*Agent, error) {
+	slog.Debug("creating agent with OAuth key", "agent", cfg.Name, "role", cfg.Role)
+
+	claudeMD := CollectClaudeMD(workDir)
+	memManager, err := memory.NewManager(cfg.Name, workDir)
+	if err != nil {
+		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
+	}
+
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if len(baseURL) > 0 && baseURL[0] != "" {
+		opts = append(opts, option.WithBaseURL(baseURL[0]))
+	}
+	client := anthropic.NewClient(opts...)
+	a, err := newAgent(cfg, memManager, claudeMD, client)
+	if err != nil {
+		return nil, err
+	}
+	a.isOAuth = true
+	return a, nil
+}
+
+// NewWithBearerToken creates an agent that authenticates via Authorization: Bearer header.
+func NewWithBearerToken(cfg Config, workDir string, token string, baseURL ...string) (*Agent, error) {
+	slog.Debug("creating agent with Bearer auth", "agent", cfg.Name, "role", cfg.Role)
+
+	claudeMD := CollectClaudeMD(workDir)
+	memManager, err := memory.NewManager(cfg.Name, workDir)
+	if err != nil {
+		return nil, fmt.Errorf("init memory for agent %s: %w", cfg.Name, err)
+	}
+
+	opts := []option.RequestOption{option.WithAuthToken(token)}
+	if len(baseURL) > 0 && baseURL[0] != "" {
+		opts = append(opts, option.WithBaseURL(baseURL[0]))
+	}
+	client := anthropic.NewClient(opts...)
+	return newAgent(cfg, memManager, claudeMD, client)
 }
 
 // NewWithBaseURL creates an agent that uses a custom API base URL.

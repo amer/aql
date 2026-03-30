@@ -3,13 +3,36 @@ package agent_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// loadTokensFromDir tries to load OAuth tokens, walking up to project root.
+func loadTokensFromDir(t *testing.T, startDir string) (*auth.Tokens, error) {
+	t.Helper()
+	dir := startDir
+	for {
+		tokens, err := auth.LoadTokens(dir)
+		if err != nil {
+			return nil, err
+		}
+		if tokens != nil {
+			return tokens, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil, os.ErrNotExist
+}
 
 // TestRunnerLive_StreamsFromAPI calls the real Claude API.
 // Only runs when AQL_LIVE_TEST=1 is set — use this to validate the cache
@@ -65,6 +88,73 @@ func TestRunnerLive_StreamsFromAPI(t *testing.T) {
 	}
 	assert.Contains(t, full, "hello")
 	t.Logf("received %d chunks, full response: %q", len(chunks), full)
+}
+
+// TestRunnerLive_OAuthKeyAccessesOpus verifies that an OAuth-issued API key
+// (from `aql auth login --console`) can access Opus. This is the core integration
+// test for the OAuth flow — it catches the exact bug where the user logs in
+// successfully but the agent still gets 400 because the token isn't used correctly.
+//
+// Requires: .aql_tokens.json in project root (from `aql auth login --console`).
+func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
+	if os.Getenv("AQL_LIVE_TEST") != "1" {
+		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
+	}
+
+	// Load OAuth tokens — walk up from cwd to find .aql_tokens.json
+	workDir, err := os.Getwd()
+	require.NoError(t, err)
+
+	tokens, err := loadTokensFromDir(t, workDir)
+	if err != nil {
+		t.Skipf("no OAuth tokens found: %v — run `aql auth login --console`", err)
+	}
+
+	require.False(t, tokens.IsExpired(),
+		"OAuth token is expired — run `aql auth login --console` to refresh")
+
+	if tokens.APIKey == "" {
+		t.Skip("no API key in tokens — re-run `aql auth login --console` to get one")
+	}
+
+	t.Logf("OAuth token found, expires at %s, API key prefix: %s",
+		tokens.ExpiresAt.Format("15:04:05"), tokens.APIKey[:min(15, len(tokens.APIKey))])
+
+	// This is the critical test: use the OAuth-derived API key to access Opus
+	a, err := agent.NewWithOAuthKey(agent.Config{
+		Name:         "test-oauth-opus",
+		Role:         "test",
+		SystemPrompt: "Reply with exactly one word: pong",
+		Model:        "claude-opus-4-6",
+	}, t.TempDir(), tokens.APIKey)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := a.Run(ctx, "ping")
+
+	var gotDone bool
+	var gotError error
+	var response string
+
+	for evt := range ch {
+		if evt.Error != nil {
+			gotError = evt.Error
+			break
+		}
+		if evt.Done {
+			gotDone = true
+			break
+		}
+		response += evt.Text
+	}
+
+	require.NoError(t, gotError,
+		"OAuth-derived API key should access Opus without error")
+	assert.True(t, gotDone, "should complete successfully")
+	assert.NotEmpty(t, response, "Opus should produce a response")
+	t.Logf("Opus responded via OAuth API key: %q", response)
 }
 
 // TestRunnerLive_AllModelTiers verifies that each model tier from the

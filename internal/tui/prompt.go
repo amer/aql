@@ -14,7 +14,7 @@ func RenderPrompt(input string, width int) string {
 
 // RenderPromptStreaming renders the prompt area while an agent is responding.
 func RenderPromptStreaming(spinnerFrame int, agentName string, width int) string {
-	return RenderSpinner(spinnerFrame, agentName+" is responding...")
+	return RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", SpinnerBraille)
 }
 
 // RenderPromptArea renders the full prompt area matching Claude Code's layout:
@@ -53,7 +53,7 @@ func RenderPromptArea(input string, projectName string, width int) string {
 }
 
 // RenderPromptAreaStreaming renders the prompt area during streaming.
-func RenderPromptAreaStreaming(spinnerFrame int, agentName string, projectName string, width int) string {
+func RenderPromptAreaStreaming(spinnerFrame int, agentName string, projectName string, width int, st SpinnerType) string {
 	var b strings.Builder
 
 	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
@@ -74,7 +74,7 @@ func RenderPromptAreaStreaming(spinnerFrame int, agentName string, projectName s
 	b.WriteString("\n")
 
 	// Spinner line
-	b.WriteString(RenderSpinner(spinnerFrame, agentName+" is responding..."))
+	b.WriteString(RenderSpinnerWithType(spinnerFrame, agentName+" is responding...", st))
 	b.WriteString("\n")
 
 	// Bottom separator
