@@ -38,6 +38,10 @@
 - Record lessons learned in `doc/mistakes/`
 - When introducing or changing CLI commands, document them in `doc/cli/`
 - After changing code, update relevant docs to match — code is the source of truth, not docs
+- Use structured logging with `log/slog` — never use `fmt.Println` or `log.Printf` for operational logs
+- Include good debug-level logs at key decision points, I/O boundaries, and error paths
+- Log fields should be meaningful: agent name, event type, duration, error details — not just messages
+- Use `slog.Debug` for detailed tracing, `slog.Info` for operational events, `slog.Warn`/`slog.Error` for problems
 
 ## Conventional Commits
 
