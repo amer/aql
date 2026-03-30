@@ -314,6 +314,46 @@ func TestIntegration_CommandPaletteFuzzyMatch(t *testing.T) {
 	assert.Equal(t, "/help", cmds[0].Name)
 }
 
+func TestIntegration_PaletteEnterExecutesTopMatch(t *testing.T) {
+	m := testModel(nil)
+
+	// Type "/e" — fuzzy matches /exit, /help, /clear, etc. Top should be /exit
+	m = applyKey(m, "/")
+	m = applyKey(m, "e")
+	require.True(t, m.IsPaletteVisible())
+	require.True(t, len(m.PaletteCommands()) > 0)
+
+	// Press Enter — should execute the selected palette command, not submit "/e"
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// /exit triggers tea.Quit
+	assert.NotNil(t, cmd, "should produce a quit cmd from /exit")
+	assert.Len(t, m.Chat(), 0, "should not add /e as user message")
+}
+
+func TestIntegration_PaletteEnterExecutesClear(t *testing.T) {
+	m := testModel(nil)
+
+	// Add some chat history first
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+	require.Len(t, m.Chat(), 1)
+
+	// Type "/cl" — should fuzzy match /clear
+	m = applyKey(m, "/")
+	m = applyKey(m, "c")
+	m = applyKey(m, "l")
+	require.True(t, m.IsPaletteVisible())
+	cmds := m.PaletteCommands()
+	require.True(t, len(cmds) > 0)
+	assert.Equal(t, "/clear", cmds[0].Name)
+
+	// Press Enter — should execute /clear
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	assert.Len(t, m.Chat(), 0, "/clear should have cleared the chat")
+}
+
 func TestIntegration_ModelPickerCustomID(t *testing.T) {
 	m := testModel(nil)
 

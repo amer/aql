@@ -230,7 +230,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input += "\n"
 		case "enter":
 			if m.input != "" && !m.streaming {
+				// If palette is visible, execute the selected command
 				cmd := strings.TrimSpace(m.input)
+				if m.paletteVisible && len(m.paletteFiltered) > 0 {
+					cmd = m.paletteFiltered[m.paletteSelected].Name
+				}
 				m.paletteVisible = false
 				m.paletteSelected = 0
 
