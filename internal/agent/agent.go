@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/amer/aql/internal/memory"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // Agent represents a single coding agent with its config, memory, and context.
@@ -13,6 +14,8 @@ type Agent struct {
 	memManager   *memory.Manager
 	claudeMD     string
 	systemPrompt string
+	client       anthropic.Client
+	history      []anthropic.MessageParam
 }
 
 // New creates an agent from config. It loads CLAUDE.md from workDir
@@ -29,6 +32,7 @@ func New(cfg Config, workDir string) (*Agent, error) {
 		config:     cfg,
 		memManager: memManager,
 		claudeMD:   claudeMD,
+		client:     anthropic.NewClient(),
 	}
 	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD)
 

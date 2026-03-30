@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
-	"github.com/amer/aql/internal/aql"
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/tui"
 )
 
 func main() {
@@ -15,7 +19,56 @@ func main() {
 }
 
 func run() error {
-	result := aql.Execute("SELECT * FROM users")
-	fmt.Println(result)
-	return nil
+	workDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	coder, err := agent.New(agent.Config{
+		Name:         "coder",
+		Role:         "Senior Go developer",
+		SystemPrompt: "You are a senior Go developer. Be concise and helpful.",
+	}, workDir)
+	if err != nil {
+		return err
+	}
+
+	var program *tea.Program
+
+	onSubmit := func(input string) tea.Cmd {
+		return func() tea.Msg {
+			ctx := context.Background()
+			ch := coder.Run(ctx, input)
+
+			go func() {
+				for evt := range ch {
+					if evt.Error != nil {
+						program.Send(tui.AgentStreamErrorMsg{
+							AgentName: evt.AgentName,
+							Error:     evt.Error,
+						})
+						return
+					}
+					if evt.Done {
+						program.Send(tui.AgentStreamDoneMsg{
+							AgentName: evt.AgentName,
+						})
+						return
+					}
+					program.Send(tui.AgentStreamDeltaMsg{
+						AgentName: evt.AgentName,
+						Delta:     evt.Text,
+					})
+				}
+			}()
+
+			return nil
+		}
+	}
+
+	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
+
+	program = tea.NewProgram(model, tea.WithAltScreen())
+	_, err = program.Run()
+	return err
 }

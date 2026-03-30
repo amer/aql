@@ -31,6 +31,23 @@ type AgentOutputMsg struct {
 	Output    string
 }
 
+// AgentStreamDeltaMsg is sent for each streamed text chunk.
+type AgentStreamDeltaMsg struct {
+	AgentName string
+	Delta     string
+}
+
+// AgentStreamDoneMsg is sent when streaming is complete.
+type AgentStreamDoneMsg struct {
+	AgentName string
+}
+
+// AgentStreamErrorMsg is sent when streaming encounters an error.
+type AgentStreamErrorMsg struct {
+	AgentName string
+	Error     error
+}
+
 // AgentStatusMsg is sent when an agent's status changes.
 type AgentStatusMsg struct {
 	AgentName string
@@ -44,6 +61,10 @@ type AgentToolCallMsg struct {
 	ToolCall  ToolCall
 }
 
+// SubmitFunc is called when the user submits input. It should return a tea.Cmd
+// that kicks off agent processing.
+type SubmitFunc func(input string) tea.Cmd
+
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
 	workflowName string
@@ -53,15 +74,18 @@ type Model struct {
 	width        int
 	height       int
 	scrollOffset int
+	onSubmit     SubmitFunc
+	streaming    bool
 }
 
 // NewModel creates the initial TUI model.
-func NewModel(workflowName string, agentNames []string) Model {
+func NewModel(workflowName string, agentNames []string, onSubmit SubmitFunc) Model {
 	return Model{
 		workflowName: workflowName,
 		agentNames:   agentNames,
 		width:        80,
 		height:       24,
+		onSubmit:     onSubmit,
 	}
 }
 
@@ -78,7 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			if m.input != "" {
+			if m.input != "" && !m.streaming {
 				cmd := strings.TrimSpace(m.input)
 				if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
 					return m, tea.Quit
@@ -87,8 +111,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Type:    EntryUserInput,
 					Content: m.input,
 				})
+				userInput := m.input
 				m.input = ""
 				m.scrollToBottom()
+
+				if m.onSubmit != nil {
+					return m, m.onSubmit(userInput)
+				}
 			}
 		case "backspace":
 			if len(m.input) > 0 {
@@ -109,6 +138,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case AgentStreamDeltaMsg:
+		m.streaming = true
+		// Append to existing agent text entry or create new one
+		if len(m.chat) > 0 {
+			last := &m.chat[len(m.chat)-1]
+			if last.Type == EntryAgentText && last.AgentName == msg.AgentName {
+				last.Content += msg.Delta
+				m.scrollToBottom()
+				return m, nil
+			}
+		}
+		m.chat = append(m.chat, ChatEntry{
+			Type:      EntryAgentText,
+			AgentName: msg.AgentName,
+			Content:   msg.Delta,
+		})
+		m.scrollToBottom()
+
+	case AgentStreamDoneMsg:
+		m.streaming = false
+
+	case AgentStreamErrorMsg:
+		m.streaming = false
+		m.chat = append(m.chat, ChatEntry{
+			Type:      EntryAgentStatus,
+			AgentName: msg.AgentName,
+			Status:    AgentError,
+			Content:   msg.Error.Error(),
+		})
+		m.scrollToBottom()
 
 	case AgentOutputMsg:
 		m.chat = append(m.chat, ChatEntry{
@@ -153,10 +213,15 @@ func (m Model) View() string {
 		chatLines = append(chatLines, RenderChatEntry(entry, m.width))
 	}
 
+	// Show streaming indicator
+	if m.streaming {
+		chatLines = append(chatLines, DimStyle.Render("  ..."))
+	}
+
 	// Calculate visible area (leave room for prompt)
 	chatContent := strings.Join(chatLines, "\n")
 	contentLines := strings.Split(chatContent, "\n")
-	visibleHeight := m.height - 3 // room for prompt
+	visibleHeight := m.height - 3
 
 	// Show bottom of chat (auto-scroll)
 	start := 0
@@ -178,7 +243,11 @@ func (m Model) View() string {
 
 	// Prompt at bottom
 	b.WriteString("\n")
-	b.WriteString(RenderPrompt(m.input, m.width))
+	if m.streaming {
+		b.WriteString(DimStyle.Render("  agent is responding..."))
+	} else {
+		b.WriteString(RenderPrompt(m.input, m.width))
+	}
 
 	return b.String()
 }
@@ -220,4 +289,9 @@ func (m Model) Chat() []ChatEntry {
 // Input returns the current input text (for testing).
 func (m Model) Input() string {
 	return m.input
+}
+
+// IsStreaming returns whether the model is currently streaming (for testing).
+func (m Model) IsStreaming() bool {
+	return m.streaming
 }

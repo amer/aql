@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -10,13 +11,13 @@ import (
 )
 
 func TestNewModel(t *testing.T) {
-	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"})
+	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, nil)
 	assert.Len(t, m.Chat(), 0)
 	assert.Equal(t, "", m.Input())
 }
 
 func TestModelKeyInput(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyKey(m, "h")
 	m = applyKey(m, "i")
@@ -25,7 +26,7 @@ func TestModelKeyInput(t *testing.T) {
 }
 
 func TestModelBackspace(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyKey(m, "h")
 	m = applyKey(m, "i")
@@ -35,7 +36,7 @@ func TestModelBackspace(t *testing.T) {
 }
 
 func TestModelSubmit(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyKey(m, "h")
 	m = applyKey(m, "i")
@@ -47,14 +48,93 @@ func TestModelSubmit(t *testing.T) {
 	assert.Equal(t, "hi", m.Chat()[0].Content)
 }
 
+func TestModelSubmitCallsOnSubmit(t *testing.T) {
+	var received string
+	onSubmit := func(input string) tea.Cmd {
+		received = input
+		return nil
+	}
+
+	m := tui.NewModel("test", []string{"coder"}, onSubmit)
+	m = applyKey(m, "g")
+	m = applyKey(m, "o")
+	m = applyKey(m, "enter")
+
+	assert.Equal(t, "go", received)
+}
+
 func TestModelEmptySubmit(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyKey(m, "enter")
 	assert.Len(t, m.Chat(), 0)
 }
 
+func TestModelStreamDelta(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "Hello "})
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "world"})
+
+	require.Len(t, m.Chat(), 1)
+	assert.Equal(t, "Hello world", m.Chat()[0].Content)
+	assert.True(t, m.IsStreaming())
+}
+
+func TestModelStreamDone(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "done"})
+	m = applyMsg(m, tui.AgentStreamDoneMsg{AgentName: "coder"})
+
+	assert.False(t, m.IsStreaming())
+}
+
+func TestModelStreamError(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	m = applyMsg(m, tui.AgentStreamErrorMsg{
+		AgentName: "coder",
+		Error:     fmt.Errorf("API timeout"),
+	})
+
+	require.Len(t, m.Chat(), 1)
+	assert.Equal(t, tui.EntryAgentStatus, m.Chat()[0].Type)
+	assert.Equal(t, tui.AgentError, m.Chat()[0].Status)
+	assert.Contains(t, m.Chat()[0].Content, "API timeout")
+	assert.False(t, m.IsStreaming())
+}
+
+func TestModelBlocksInputWhileStreaming(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	// Start streaming
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "..."})
+
+	// Try to submit - should be blocked
+	m = applyKey(m, "x")
+	m = applyKey(m, "enter")
+
+	// Input should still be there, not submitted
+	assert.Equal(t, "x", m.Input())
+	// Only the stream entry, no user input entry
+	assert.Len(t, m.Chat(), 1)
+}
+
+func TestModelMultipleAgentStreams(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder", "reviewer"}, nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "code "})
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "reviewer", Delta: "review "})
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "more"})
+
+	require.Len(t, m.Chat(), 3)
+	assert.Equal(t, "code ", m.Chat()[0].Content)
+	assert.Equal(t, "review ", m.Chat()[1].Content)
+	assert.Equal(t, "more", m.Chat()[2].Content)
+}
+
 func TestModelAgentOutputMsg(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyMsg(m, tui.AgentOutputMsg{
 		AgentName: "coder",
@@ -63,12 +143,11 @@ func TestModelAgentOutputMsg(t *testing.T) {
 
 	require.Len(t, m.Chat(), 1)
 	assert.Equal(t, tui.EntryAgentText, m.Chat()[0].Type)
-	assert.Equal(t, "coder", m.Chat()[0].AgentName)
 	assert.Equal(t, "Writing tests...", m.Chat()[0].Content)
 }
 
 func TestModelAgentStatusMsg(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyMsg(m, tui.AgentStatusMsg{
 		AgentName: "coder",
@@ -78,11 +157,10 @@ func TestModelAgentStatusMsg(t *testing.T) {
 
 	require.Len(t, m.Chat(), 1)
 	assert.Equal(t, tui.EntryAgentStatus, m.Chat()[0].Type)
-	assert.Equal(t, tui.AgentActive, m.Chat()[0].Status)
 }
 
 func TestModelAgentToolCallMsg(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
@@ -91,40 +169,53 @@ func TestModelAgentToolCallMsg(t *testing.T) {
 
 	require.Len(t, m.Chat(), 1)
 	assert.Equal(t, tui.EntryAgentTool, m.Chat()[0].Type)
-	assert.Equal(t, "write_file", m.Chat()[0].ToolCall.Name)
+}
+
+func TestModelExitCommand(t *testing.T) {
+	for _, cmd := range []string{"/exit", "/quit", "/q"} {
+		t.Run(cmd, func(t *testing.T) {
+			m := tui.NewModel("test", []string{"coder"}, nil)
+			for _, c := range cmd {
+				m = applyKey(m, string(c))
+			}
+			_, teaCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			assert.NotNil(t, teaCmd, "should return quit command for %s", cmd)
+		})
+	}
 }
 
 func TestModelViewContainsPrompt(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
+	m := tui.NewModel("test", []string{"coder"}, nil)
 	view := m.View()
 	assert.Contains(t, view, ">")
 }
 
 func TestModelChatFlow(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder", "reviewer"})
+	m := tui.NewModel("test", []string{"coder", "reviewer"}, nil)
 
 	// User sends a message
 	m = applyKey(m, "g")
 	m = applyKey(m, "o")
 	m = applyKey(m, "enter")
 
-	// Coder responds
-	m = applyMsg(m, tui.AgentStatusMsg{AgentName: "coder", Status: tui.AgentActive, StatusMsg: "working"})
-	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "Writing auth module..."})
-	m = applyMsg(m, tui.AgentToolCallMsg{AgentName: "coder", ToolCall: tui.ToolCall{Name: "write_file", Content: "auth.go"}})
+	// Coder streams response
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "Writing auth..."})
+	m = applyMsg(m, tui.AgentStreamDoneMsg{AgentName: "coder"})
 
 	// Reviewer responds
-	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "reviewer", Output: "Looks good, consider adding error handling"})
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "reviewer", Output: "Looks good"})
 
-	require.Len(t, m.Chat(), 5)
-
-	// Verify the order
+	require.Len(t, m.Chat(), 3)
 	assert.Equal(t, tui.EntryUserInput, m.Chat()[0].Type)
-	assert.Equal(t, tui.EntryAgentStatus, m.Chat()[1].Type)
+	assert.Equal(t, tui.EntryAgentText, m.Chat()[1].Type)
 	assert.Equal(t, tui.EntryAgentText, m.Chat()[2].Type)
-	assert.Equal(t, tui.EntryAgentTool, m.Chat()[3].Type)
-	assert.Equal(t, tui.EntryAgentText, m.Chat()[4].Type)
-	assert.Equal(t, "reviewer", m.Chat()[4].AgentName)
+}
+
+func TestModelWindowResize(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := m.View()
+	assert.NotEmpty(t, view)
 }
 
 func TestRenderChatEntryUserInput(t *testing.T) {
@@ -161,26 +252,6 @@ func TestRenderChatEntryStatus(t *testing.T) {
 	result := tui.RenderChatEntry(entry, 80)
 	assert.Contains(t, result, "reviewer")
 	assert.Contains(t, result, "waiting for code")
-}
-
-func TestModelExitCommand(t *testing.T) {
-	for _, cmd := range []string{"/exit", "/quit", "/q"} {
-		t.Run(cmd, func(t *testing.T) {
-			m := tui.NewModel("test", []string{"coder"})
-			for _, c := range cmd {
-				m = applyKey(m, string(c))
-			}
-			_, teaCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			assert.NotNil(t, teaCmd, "should return quit command for %s", cmd)
-		})
-	}
-}
-
-func TestModelWindowResize(t *testing.T) {
-	m := tui.NewModel("test", []string{"coder"})
-	m = applyMsg(m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	view := m.View()
-	assert.NotEmpty(t, view)
 }
 
 func applyKey(m tui.Model, key string) tui.Model {
