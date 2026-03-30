@@ -26,6 +26,7 @@ secrets/
 
 # AQL local preferences
 .aql_model
+aql.log
 
 # OS
 .DS_Store

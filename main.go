@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 
@@ -20,6 +21,15 @@ func main() {
 }
 
 func run() error {
+	// Redirect logs to file so they don't corrupt the TUI
+	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer logFile.Close()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	log.SetOutput(logFile)
+
 	if err := agent.CheckEnv(os.Getenv("ANTHROPIC_API_KEY")); err != nil {
 		return err
 	}
