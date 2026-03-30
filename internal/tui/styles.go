@@ -62,6 +62,11 @@ var (
 			Foreground(primaryColor).
 			Bold(true)
 
+	// User input
+	UserInputStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+
 	// Dim text
 	DimStyle = lipgloss.NewStyle().
 			Foreground(dimColor)

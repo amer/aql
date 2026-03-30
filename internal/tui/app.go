@@ -6,6 +6,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// ChatEntry represents a single item in the scrolling chat log.
+type ChatEntry struct {
+	Type      ChatEntryType
+	AgentName string
+	Content   string
+	ToolCall  *ToolCall
+	Status    AgentStatus
+}
+
+// ChatEntryType identifies the kind of chat entry.
+type ChatEntryType int
+
+const (
+	EntryUserInput ChatEntryType = iota
+	EntryAgentText
+	EntryAgentTool
+	EntryAgentStatus
+)
+
 // AgentOutputMsg is sent when an agent produces new output.
 type AgentOutputMsg struct {
 	AgentName string
@@ -28,31 +47,19 @@ type AgentToolCallMsg struct {
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
 	workflowName string
-	agents       []AgentPanelData
-	agentIndex   map[string]int
+	agentNames   []string
+	chat         []ChatEntry
 	input        string
 	width        int
 	height       int
-	submitted    []string
+	scrollOffset int
 }
 
 // NewModel creates the initial TUI model.
 func NewModel(workflowName string, agentNames []string) Model {
-	agents := make([]AgentPanelData, len(agentNames))
-	index := make(map[string]int, len(agentNames))
-
-	for i, name := range agentNames {
-		agents[i] = AgentPanelData{
-			Name:   name,
-			Status: AgentWaiting,
-		}
-		index[name] = i
-	}
-
 	return Model{
 		workflowName: workflowName,
-		agents:       agents,
-		agentIndex:   index,
+		agentNames:   agentNames,
 		width:        80,
 		height:       24,
 	}
@@ -68,17 +75,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			return m, tea.Quit
 		case "enter":
 			if m.input != "" {
-				m.submitted = append(m.submitted, m.input)
+				cmd := strings.TrimSpace(m.input)
+				if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
+					return m, tea.Quit
+				}
+				m.chat = append(m.chat, ChatEntry{
+					Type:    EntryUserInput,
+					Content: m.input,
+				})
 				m.input = ""
+				m.scrollToBottom()
 			}
 		case "backspace":
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
+		case "up":
+			if m.scrollOffset > 0 {
+				m.scrollOffset--
+			}
+		case "down":
+			m.scrollOffset++
 		default:
 			if len(msg.String()) == 1 {
 				m.input += msg.String()
@@ -90,56 +111,113 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case AgentOutputMsg:
-		if idx, ok := m.agentIndex[msg.AgentName]; ok {
-			m.agents[idx].Output = msg.Output
-		}
+		m.chat = append(m.chat, ChatEntry{
+			Type:      EntryAgentText,
+			AgentName: msg.AgentName,
+			Content:   msg.Output,
+		})
+		m.scrollToBottom()
 
 	case AgentStatusMsg:
-		if idx, ok := m.agentIndex[msg.AgentName]; ok {
-			m.agents[idx].Status = msg.Status
-			m.agents[idx].StatusMsg = msg.StatusMsg
-		}
+		m.chat = append(m.chat, ChatEntry{
+			Type:      EntryAgentStatus,
+			AgentName: msg.AgentName,
+			Content:   msg.StatusMsg,
+			Status:    msg.Status,
+		})
+		m.scrollToBottom()
 
 	case AgentToolCallMsg:
-		if idx, ok := m.agentIndex[msg.AgentName]; ok {
-			m.agents[idx].ToolCalls = append(m.agents[idx].ToolCalls, msg.ToolCall)
-		}
+		m.chat = append(m.chat, ChatEntry{
+			Type:      EntryAgentTool,
+			AgentName: msg.AgentName,
+			ToolCall:  &msg.ToolCall,
+		})
+		m.scrollToBottom()
 	}
 
 	return m, nil
+}
+
+func (m *Model) scrollToBottom() {
+	m.scrollOffset = len(m.chat)
 }
 
 // View implements tea.Model.
 func (m Model) View() string {
 	var b strings.Builder
 
-	// Status bar
-	b.WriteString(RenderStatusBar(m.workflowName, len(m.agents), m.width))
-	b.WriteString("\n\n")
+	// Render all chat entries
+	var chatLines []string
+	for _, entry := range m.chat {
+		chatLines = append(chatLines, RenderChatEntry(entry, m.width))
+	}
 
-	// Agent panels
-	for _, agent := range m.agents {
-		b.WriteString(RenderAgentPanel(agent))
+	// Calculate visible area (leave room for prompt)
+	chatContent := strings.Join(chatLines, "\n")
+	contentLines := strings.Split(chatContent, "\n")
+	visibleHeight := m.height - 3 // room for prompt
+
+	// Show bottom of chat (auto-scroll)
+	start := 0
+	if len(contentLines) > visibleHeight {
+		start = len(contentLines) - visibleHeight
+	}
+	if start < 0 {
+		start = 0
+	}
+
+	visible := contentLines[start:]
+	b.WriteString(strings.Join(visible, "\n"))
+
+	// Pad to push prompt to bottom
+	padding := visibleHeight - len(visible)
+	for i := 0; i < padding; i++ {
 		b.WriteString("\n")
 	}
 
 	// Prompt at bottom
+	b.WriteString("\n")
 	b.WriteString(RenderPrompt(m.input, m.width))
 
 	return b.String()
 }
 
-// Submitted returns all submitted inputs (for testing).
-func (m Model) Submitted() []string {
-	return m.submitted
+// RenderChatEntry renders a single chat entry.
+func RenderChatEntry(entry ChatEntry, width int) string {
+	switch entry.Type {
+	case EntryUserInput:
+		return UserInputStyle.Render("> " + entry.Content)
+
+	case EntryAgentText:
+		header := RenderAgentHeader(entry.AgentName, AgentActive)
+		body := AgentBody.Render(entry.Content)
+		return header + "\n" + body
+
+	case EntryAgentTool:
+		if entry.ToolCall != nil {
+			return RenderToolBlock(*entry.ToolCall)
+		}
+		return ""
+
+	case EntryAgentStatus:
+		header := RenderAgentHeader(entry.AgentName, entry.Status)
+		if entry.Content != "" {
+			return header + " " + DimStyle.Render(entry.Content)
+		}
+		return header
+
+	default:
+		return ""
+	}
+}
+
+// Chat returns all chat entries (for testing).
+func (m Model) Chat() []ChatEntry {
+	return m.chat
 }
 
 // Input returns the current input text (for testing).
 func (m Model) Input() string {
 	return m.input
-}
-
-// AgentPanels returns the agent panel data (for testing).
-func (m Model) AgentPanels() []AgentPanelData {
-	return m.agents
 }
