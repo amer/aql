@@ -18,5 +18,8 @@ bin/
 *.swp
 *.swo
 
+# Secrets
+secrets/
+
 # OS
 .DS_Store
