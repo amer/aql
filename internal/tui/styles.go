@@ -3,6 +3,7 @@ package tui
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -17,6 +18,8 @@ func stripAnsiString(s string) string {
 // highlightLineRange applies ANSI reverse-video (\x1b[7m) to characters at
 // visible columns [fromCol, toCol) in a line that may contain ANSI escapes.
 // If toCol < 0, highlights to end of line.
+// Columns are counted per rune (not byte) so multi-byte characters like ● or ╭
+// each count as one column.
 func highlightLineRange(line string, fromCol, toCol int) string {
 	var result strings.Builder
 	result.Grow(len(line) + 20)
@@ -25,20 +28,60 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 	i := 0
 
 	for i < len(line) {
-		// Skip ANSI escape sequences without counting them as columns.
-		if line[i] == '\x1b' && i+1 < len(line) && line[i+1] == '[' {
-			j := i + 2
-			for j < len(line) && !((line[j] >= 'A' && line[j] <= 'Z') || (line[j] >= 'a' && line[j] <= 'z')) {
-				j++
+		// Skip all ANSI escape sequences without counting them as columns.
+		if line[i] == '\x1b' && i+1 < len(line) {
+			next := line[i+1]
+			switch {
+			case next == '[':
+				// CSI sequence: ESC [ <params> <letter>
+				j := i + 2
+				for j < len(line) && !((line[j] >= 'A' && line[j] <= 'Z') || (line[j] >= 'a' && line[j] <= 'z')) {
+					j++
+				}
+				if j < len(line) {
+					j++ // include terminating letter
+				}
+				result.WriteString(line[i:j])
+				i = j
+				continue
+			case next >= 0x20 && next <= 0x2F:
+				// Intermediate-byte sequence: ESC <intermediate>+ <final>
+				// Covers ESC(B, ESC## etc. used by lipgloss resets.
+				j := i + 1
+				for j < len(line) && line[j] >= 0x20 && line[j] <= 0x2F {
+					j++
+				}
+				if j < len(line) {
+					j++ // include final byte
+				}
+				result.WriteString(line[i:j])
+				i = j
+				continue
+			case next == ']':
+				// OSC sequence: ESC ] ... BEL/ST
+				j := i + 2
+				for j < len(line) && line[j] != '\x07' {
+					if line[j] == '\x1b' && j+1 < len(line) && line[j+1] == '\\' {
+						j += 2
+						break
+					}
+					j++
+				}
+				if j < len(line) && line[j] == '\x07' {
+					j++
+				}
+				result.WriteString(line[i:j])
+				i = j
+				continue
+			default:
+				// Two-byte escape (e.g. ESC 7, ESC 8)
+				result.WriteString(line[i : i+2])
+				i += 2
+				continue
 			}
-			if j < len(line) {
-				j++ // include the terminating letter
-			}
-			result.WriteString(line[i:j])
-			i = j
-			continue
 		}
 
+		// Check highlight boundaries before writing the rune.
 		if col == fromCol && !inHighlight {
 			result.WriteString("\x1b[7m")
 			inHighlight = true
@@ -48,8 +91,10 @@ func highlightLineRange(line string, fromCol, toCol int) string {
 			inHighlight = false
 		}
 
-		result.WriteByte(line[i])
-		i++
+		// Write one complete UTF-8 rune (not byte).
+		_, size := utf8.DecodeRuneInString(line[i:])
+		result.WriteString(line[i : i+size])
+		i += size
 		col++
 	}
 
