@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -61,8 +62,64 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		for iteration := 0; iteration < 25; iteration++ {
 			params, reqOpts := a.buildMessageParams(model)
 
-			resp, err := a.client.Messages.New(ctx, params, reqOpts...)
-			if err != nil {
+			stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
+
+			// Accumulate content blocks from the stream
+			var assistantBlocks []anthropic.ContentBlockParamUnion
+			type pendingToolUse struct {
+				id       string
+				name     string
+				inputBuf strings.Builder
+			}
+			var toolUses []pendingToolUse
+			var stopReason anthropic.StopReason
+
+			// Track active block by index
+			activeBlocks := map[int64]*pendingToolUse{}
+			textBlocks := map[int64]*strings.Builder{}
+
+			for stream.Next() {
+				evt := stream.Current()
+
+				switch v := evt.AsAny().(type) {
+				case anthropic.ContentBlockStartEvent:
+					cb := v.ContentBlock
+					switch cb.Type {
+					case "text":
+						textBlocks[v.Index] = &strings.Builder{}
+					case "tool_use":
+						tu := &pendingToolUse{id: cb.ID, name: cb.Name}
+						activeBlocks[v.Index] = tu
+						toolUses = append(toolUses, *tu)
+					}
+
+				case anthropic.ContentBlockDeltaEvent:
+					switch d := v.Delta.AsAny().(type) {
+					case anthropic.TextDelta:
+						if d.Text != "" {
+							ch <- StreamEvent{AgentName: a.config.Name, Text: d.Text}
+							if sb, ok := textBlocks[v.Index]; ok {
+								sb.WriteString(d.Text)
+							}
+						}
+					case anthropic.InputJSONDelta:
+						if tu, ok := activeBlocks[v.Index]; ok {
+							tu.inputBuf.WriteString(d.PartialJSON)
+							// Update the last toolUses entry for this block
+							for i := range toolUses {
+								if toolUses[i].id == tu.id {
+									toolUses[i].inputBuf = tu.inputBuf
+								}
+							}
+						}
+					}
+
+				case anthropic.MessageDeltaEvent:
+					stopReason = v.Delta.StopReason
+				}
+			}
+
+			if err := stream.Err(); err != nil {
 				slog.Error("API error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "iteration", iteration)
 				ch <- StreamEvent{
 					AgentName: a.config.Name,
@@ -70,35 +127,36 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				}
 				return
 			}
+			stream.Close()
 
-			// Process response content blocks
-			var assistantBlocks []anthropic.ContentBlockParamUnion
-			var toolUses []anthropic.ToolUseBlock
-
-			for _, block := range resp.Content {
-				switch v := block.AsAny().(type) {
-				case anthropic.TextBlock:
-					if v.Text != "" {
-						ch <- StreamEvent{AgentName: a.config.Name, Text: v.Text}
-						assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(v.Text))
-					}
-				case anthropic.ToolUseBlock:
-					toolUses = append(toolUses, v)
-					assistantBlocks = append(assistantBlocks, anthropic.ContentBlockParamUnion{
-						OfToolUse: &anthropic.ToolUseBlockParam{
-							ID:    v.ID,
-							Name:  v.Name,
-							Input: v.Input,
-						},
-					})
+			// Build assistant message from accumulated blocks
+			for _, sb := range textBlocks {
+				text := sb.String()
+				if text != "" {
+					assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(text))
 				}
+			}
+			for _, tu := range toolUses {
+				var input json.RawMessage
+				if tu.inputBuf.Len() > 0 {
+					input = json.RawMessage(tu.inputBuf.String())
+				} else {
+					input = json.RawMessage("{}")
+				}
+				assistantBlocks = append(assistantBlocks, anthropic.ContentBlockParamUnion{
+					OfToolUse: &anthropic.ToolUseBlockParam{
+						ID:    tu.id,
+						Name:  tu.name,
+						Input: input,
+					},
+				})
 			}
 
 			a.history = append(a.history, anthropic.NewAssistantMessage(assistantBlocks...))
 
 			// If no tool uses or stop reason is end_turn, we're done
-			if len(toolUses) == 0 || resp.StopReason == anthropic.StopReasonEndTurn {
-				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", resp.StopReason)
+			if len(toolUses) == 0 || stopReason == anthropic.StopReasonEndTurn {
+				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", stopReason)
 				ch <- StreamEvent{AgentName: a.config.Name, Done: true}
 				return
 			}
@@ -108,9 +166,9 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				ch <- StreamEvent{
 					AgentName: a.config.Name,
 					ToolCall: &ToolCallEvent{
-						ToolName: tu.Name,
-						ToolID:   tu.ID,
-						Input:    string(tu.Input),
+						ToolName: tu.name,
+						ToolID:   tu.id,
+						Input:    tu.inputBuf.String(),
 					},
 				}
 			}
@@ -125,10 +183,10 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			var wg sync.WaitGroup
 			for i, tu := range toolUses {
 				wg.Add(1)
-				go func(idx int, tu anthropic.ToolUseBlock) {
+				go func(idx int, tu pendingToolUse) {
 					defer wg.Done()
-					slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
-					result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.Name, tu.Input)
+					slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.name, "id", tu.id)
+					result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.name, json.RawMessage(tu.inputBuf.String()))
 					if execErr != nil {
 						results[idx] = toolResult{output: execErr.Error(), isError: true}
 					} else {
@@ -145,15 +203,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				ch <- StreamEvent{
 					AgentName: a.config.Name,
 					ToolDone: &ToolDoneEvent{
-						ToolName: tu.Name,
-						ToolID:   tu.ID,
+						ToolName: tu.name,
+						ToolID:   tu.id,
 						Output:   r.output,
 						IsError:  r.isError,
 					},
 				}
 				toolResultBlocks = append(toolResultBlocks, anthropic.ContentBlockParamUnion{
 					OfToolResult: &anthropic.ToolResultBlockParam{
-						ToolUseID: tu.ID,
+						ToolUseID: tu.id,
 						Content: []anthropic.ToolResultBlockParamContentUnion{
 							{OfText: &anthropic.TextBlockParam{Text: r.output}},
 						},
@@ -185,12 +243,19 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 		{Text: a.systemPrompt},
 	}
 
+	defs := ToolDefinitions()
+	toolNames := make([]string, len(defs))
+	for i, d := range defs {
+		toolNames[i] = d.Name
+	}
+	slog.Debug("building API request", "agent", a.config.Name, "toolCount", len(defs), "tools", toolNames)
+
 	params := anthropic.MessageNewParams{
 		Model:     model,
 		MaxTokens: 4096,
 		System:    system,
 		Messages:  a.history,
-		Tools:     ToAPITools(ToolDefinitions()),
+		Tools:     ToAPITools(defs),
 	}
 
 	var reqOpts []option.RequestOption

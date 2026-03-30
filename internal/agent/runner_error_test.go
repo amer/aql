@@ -30,9 +30,7 @@ func TestRunner_SendsCorrectModelID(t *testing.T) {
 		if m, ok := req["model"].(string); ok {
 			capturedModel = m
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(fixture)
+		serveSSE(w, jsonToSSE(fixture))
 	}))
 	defer server.Close()
 
@@ -126,9 +124,7 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 		capturedAPIKey = r.Header.Get("X-Api-Key")
 		capturedAuthHeader = r.Header.Get("Authorization")
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(fixture)
+		serveSSE(w, jsonToSSE(fixture))
 	}))
 	defer server.Close()
 

@@ -22,9 +22,7 @@ func TestRunnerReplay_MessageFromFixture(t *testing.T) {
 	require.NoError(t, err)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(fixture)
+		serveSSE(w, jsonToSSE(fixture))
 	}))
 	defer server.Close()
 
@@ -69,11 +67,8 @@ func TestRunnerReplay_ToolUse(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		w.Header().Set("Content-Type", "application/json")
-
 		if callCount == 1 {
-			// First call: Claude wants to use a tool
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_1",
 				"type": "message",
 				"role": "assistant",
@@ -84,10 +79,9 @@ func TestRunnerReplay_ToolUse(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "tool_use",
 				"usage": {"input_tokens": 30, "output_tokens": 20}
-			}`))
+			}`)))
 		} else {
-			// Second call: Claude returns final text after seeing tool result
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_2",
 				"type": "message",
 				"role": "assistant",
@@ -97,7 +91,7 @@ func TestRunnerReplay_ToolUse(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "end_turn",
 				"usage": {"input_tokens": 50, "output_tokens": 10}
-			}`))
+			}`)))
 		}
 	}))
 	defer server.Close()
@@ -162,11 +156,8 @@ func TestRunnerReplay_ParallelToolExecution(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		w.Header().Set("Content-Type", "application/json")
-
 		if callCount == 1 {
-			// Claude wants to read 3 files at once
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_1",
 				"type": "message",
 				"role": "assistant",
@@ -179,10 +170,9 @@ func TestRunnerReplay_ParallelToolExecution(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "tool_use",
 				"usage": {"input_tokens": 50, "output_tokens": 40}
-			}`))
+			}`)))
 		} else {
-			// Second call: final response
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_2",
 				"type": "message",
 				"role": "assistant",
@@ -192,7 +182,7 @@ func TestRunnerReplay_ParallelToolExecution(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "end_turn",
 				"usage": {"input_tokens": 80, "output_tokens": 10}
-			}`))
+			}`)))
 		}
 	}))
 	defer server.Close()
@@ -267,10 +257,8 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		w.Header().Set("Content-Type", "application/json")
-
 		if callCount == 1 {
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_1",
 				"type": "message",
 				"role": "assistant",
@@ -282,9 +270,9 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "tool_use",
 				"usage": {"input_tokens": 30, "output_tokens": 20}
-			}`))
+			}`)))
 		} else {
-			w.Write([]byte(`{
+			serveSSE(w, jsonToSSE([]byte(`{
 				"id": "msg_2",
 				"type": "message",
 				"role": "assistant",
@@ -292,7 +280,7 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 				"model": "claude-sonnet-4-6-20250514",
 				"stop_reason": "end_turn",
 				"usage": {"input_tokens": 50, "output_tokens": 5}
-			}`))
+			}`)))
 		}
 	}))
 	defer server.Close()

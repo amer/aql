@@ -33,9 +33,7 @@ func TestRunner_BillingHeader(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &capturedBody)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(fixture)
+		serveSSE(w, jsonToSSE(fixture))
 	}))
 	defer server.Close()
 
