@@ -282,6 +282,38 @@ func TestIntegration_ModelPickerFilter(t *testing.T) {
 	assert.NotContains(t, plain, "Claude Sonnet 4")
 }
 
+func TestIntegration_ModelPickerFuzzyMatch(t *testing.T) {
+	m := testModel(nil)
+
+	m = typeString(m, "/model")
+	m = applyKey(m, "enter")
+	require.True(t, m.IsModelPickerVisible())
+
+	// "op46" should fuzzy-match "Claude Opus 4" (skipping characters)
+	for _, c := range "op4" {
+		m = applyKey(m, string(c))
+	}
+
+	view := m.View()
+	plain := strip(view)
+	assert.Contains(t, plain, "Claude Opus 4")
+}
+
+func TestIntegration_CommandPaletteFuzzyMatch(t *testing.T) {
+	m := testModel(nil)
+
+	// Type "/hlp" — fuzzy match for /help
+	m = applyKey(m, "/")
+	m = applyKey(m, "h")
+	m = applyKey(m, "l")
+	m = applyKey(m, "p")
+
+	assert.True(t, m.IsPaletteVisible())
+	cmds := m.PaletteCommands()
+	require.True(t, len(cmds) > 0, "should fuzzy-match /help")
+	assert.Equal(t, "/help", cmds[0].Name)
+}
+
 func TestIntegration_ModelPickerCustomID(t *testing.T) {
 	m := testModel(nil)
 
@@ -406,13 +438,15 @@ func TestIntegration_CommandPalette(t *testing.T) {
 	cmds := m.PaletteCommands()
 	assert.True(t, len(cmds) > 0)
 
-	// Type 'h' to filter
+	// Type 'help' to filter — /help should be the top result
 	m = applyKey(m, "h")
+	m = applyKey(m, "e")
+	m = applyKey(m, "l")
+	m = applyKey(m, "p")
 	assert.True(t, m.IsPaletteVisible())
 	filtered := m.PaletteCommands()
-	for _, cmd := range filtered {
-		assert.Contains(t, cmd.Name, "h")
-	}
+	require.True(t, len(filtered) > 0)
+	assert.Equal(t, "/help", filtered[0].Name)
 
 	// Navigate down
 	m = applyKey(m, "down")

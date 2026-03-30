@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sahilm/fuzzy"
 )
 
 // Command represents a slash command in the palette.
@@ -26,17 +28,20 @@ func SlashCommands() []Command {
 	}
 }
 
-// FilterCommands filters commands by prefix match against the query.
+// FilterCommands filters commands by fuzzy match against the query.
 func FilterCommands(cmds []Command, query string) []Command {
 	if query == "" {
 		return cmds
 	}
-	q := strings.ToLower(query)
-	var result []Command
-	for _, cmd := range cmds {
-		if strings.HasPrefix(strings.ToLower(cmd.Name), q) {
-			result = append(result, cmd)
-		}
+	// Build searchable strings: "name description"
+	strs := make([]string, len(cmds))
+	for i, cmd := range cmds {
+		strs[i] = cmd.Name + " " + cmd.Description
+	}
+	matches := fuzzy.Find(query, strs)
+	result := make([]Command, len(matches))
+	for i, m := range matches {
+		result[i] = cmds[m.Index]
 	}
 	return result
 }

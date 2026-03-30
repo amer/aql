@@ -276,13 +276,14 @@ func TestPaletteHidesOnBackspaceRemovingSlash(t *testing.T) {
 func TestPaletteFiltersAsYouType(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyKey(m, "/")
+	m = applyKey(m, "h")
 	m = applyKey(m, "e")
-	// Palette should be visible and filtered
+	m = applyKey(m, "l")
+	// Palette should be visible and filtered — /help should be top result
 	assert.True(t, m.IsPaletteVisible())
 	filtered := m.PaletteCommands()
-	for _, cmd := range filtered {
-		assert.Contains(t, cmd.Name, "e")
-	}
+	require.True(t, len(filtered) > 0)
+	assert.Equal(t, "/help", filtered[0].Name)
 }
 
 func TestPaletteNavigateUpDown(t *testing.T) {

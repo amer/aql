@@ -27,10 +27,14 @@ func TestFilterCommandsEmpty(t *testing.T) {
 
 func TestFilterCommandsPartialMatch(t *testing.T) {
 	cmds := tui.SlashCommands()
-	filtered := tui.FilterCommands(cmds, "/e")
+	filtered := tui.FilterCommands(cmds, "/exit")
+	found := false
 	for _, cmd := range filtered {
-		assert.Contains(t, cmd.Name, "e", "filtered commands should contain the query")
+		if cmd.Name == "/exit" {
+			found = true
+		}
 	}
+	assert.True(t, found, "/exit should be in fuzzy results for '/exit'")
 }
 
 func TestFilterCommandsFullMatch(t *testing.T) {

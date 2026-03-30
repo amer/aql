@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sahilm/fuzzy"
 )
 
 // ChatEntry represents a single item in the scrolling chat log.
@@ -383,18 +384,20 @@ func (m *Model) selectModel(modelID string, label string) tea.Cmd {
 	}
 }
 
-// filteredModels returns available models filtered by the picker input.
+// filteredModels returns available models filtered by fuzzy match on the picker input.
 func (m *Model) filteredModels() []ModelOption {
 	if m.modelPickerInput == "" {
 		return m.availableModels
 	}
-	q := strings.ToLower(m.modelPickerInput)
-	var result []ModelOption
-	for _, opt := range m.availableModels {
-		if strings.Contains(strings.ToLower(opt.ID), q) ||
-			strings.Contains(strings.ToLower(opt.DisplayName), q) {
-			result = append(result, opt)
-		}
+	// Build searchable strings: "DisplayName ID"
+	strs := make([]string, len(m.availableModels))
+	for i, opt := range m.availableModels {
+		strs[i] = opt.DisplayName + " " + opt.ID
+	}
+	matches := fuzzy.Find(m.modelPickerInput, strs)
+	result := make([]ModelOption, len(matches))
+	for i, match := range matches {
+		result[i] = m.availableModels[match.Index]
 	}
 	return result
 }
