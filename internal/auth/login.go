@@ -47,6 +47,9 @@ type LoginOptions struct {
 	TokenURL string
 	// OpenURL is called to open the authorization URL. Defaults to opening a browser.
 	OpenURL func(url string) error
+	// HTTPClient is the HTTP client used for token exchange and API key creation.
+	// Defaults to http.DefaultClient if nil.
+	HTTPClient *http.Client
 }
 
 // callbackServer holds the state for the local OAuth callback HTTP server.
@@ -129,9 +132,9 @@ func openAuthURL(authURL string, opener func(string) error) {
 }
 
 // exchangeAndCreateKey exchanges the authorization code for tokens, then creates an API key.
-func exchangeAndCreateKey(tokenURL, code, verifier, state string, port int) (*Tokens, error) {
+func exchangeAndCreateKey(client *http.Client, tokenURL, code, verifier, state string, port int) (*Tokens, error) {
 	slog.Debug("received authorization code")
-	tokens, err := ExchangeCode(http.DefaultClient, tokenURL, code, verifier, state, port)
+	tokens, err := ExchangeCode(client, tokenURL, code, verifier, state, port)
 	if err != nil {
 		return nil, fmt.Errorf("exchange code: %w", err)
 	}
@@ -139,7 +142,7 @@ func exchangeAndCreateKey(tokenURL, code, verifier, state string, port int) (*To
 	// Create an API key from the OAuth token — the Messages API requires
 	// a real API key, not the OAuth Bearer token directly.
 	slog.Debug("creating API key from OAuth token")
-	apiKey, err := CreateAPIKey(http.DefaultClient, CreateAPIKeyURL, tokens.AccessToken)
+	apiKey, err := CreateAPIKey(client, CreateAPIKeyURL, tokens.AccessToken)
 	if err != nil {
 		return nil, fmt.Errorf("create API key: %w", err)
 	}
@@ -159,6 +162,11 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 		tokenURL = DefaultTokenURL
 	}
 
+	client := opts.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
 	verifier, challenge := GeneratePKCE()
 	state := generateState()
 
@@ -174,7 +182,7 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 
 	select {
 	case code := <-cs.codeCh:
-		return exchangeAndCreateKey(tokenURL, code, verifier, state, cs.port)
+		return exchangeAndCreateKey(client, tokenURL, code, verifier, state, cs.port)
 	case err := <-cs.errCh:
 		return nil, err
 	case <-ctx.Done():
