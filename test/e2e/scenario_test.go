@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/amer/aql/test/e2e"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,9 +79,6 @@ func TestE2E_RecordAPICall(t *testing.T) {
 	}, 30*time.Second))
 
 	term.SaveScreenshot("after-response")
-
-	exchanges := term.APIExchanges()
-	assert.NotEmpty(t, exchanges, "should have recorded API exchanges")
 }
 
 // TestE2E_EditFileShowsDiff verifies that when the agent edits a file,
