@@ -65,10 +65,11 @@ type Model struct {
 	viewLines       []string         // plain text lines from last render (for selection extraction)
 	pendingQuestion *AgentAskUserMsg // non-nil when agent is waiting for user answer
 
-	stream   streamState
-	picker   modelPickerState
-	tsSearch transcriptSearchState
-	palette  paletteState
+	stream    streamState
+	picker    modelPickerState
+	tsSearch  transcriptSearchState
+	palette   paletteState
+	taskPanel taskState
 
 	// Callbacks
 	onSubmit        SubmitFunc
@@ -394,6 +395,18 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.startStream()
 		m.stream.phase = PhaseRequesting
 		return "compact", m.onCompact()
+	case "/tasks":
+		if len(m.taskPanel.tasks) == 0 {
+			m.addStatusChat("No tasks tracked yet", AgentActive)
+			return "tasks", nil
+		}
+		m.taskPanel.visible = !m.taskPanel.visible
+		if m.taskPanel.visible {
+			m.addStatusChat("Task panel shown (ctrl+t to toggle)", AgentActive)
+		} else {
+			m.addStatusChat("Task panel hidden (ctrl+t to toggle)", AgentActive)
+		}
+		return "tasks", nil
 	case "/spinner":
 		types := SpinnerTypes()
 		next := SpinnerBraille
@@ -469,6 +482,14 @@ func (m Model) View() string {
 		b.WriteString(RenderStreamingIndicator(m.stream.spinnerFrame, m.agentName(), status, m.stream.spinnerType))
 	}
 
+	// Task panel (between streaming indicator and prompt)
+	if m.taskPanel.visible && len(m.taskPanel.tasks) > 0 {
+		panel := RenderTaskPanel(m.taskPanel.tasks, m.width)
+		if panel != "" {
+			b.WriteString(panel)
+		}
+	}
+
 	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
 	promptPath := m.projectPath
@@ -495,7 +516,15 @@ func (m Model) View() string {
 
 	// Status bar
 	b.WriteString("\n")
-	b.WriteString(RenderStatusBar(m.modelName, m.tokenCount, m.width))
+	var hints []string
+	if len(m.taskPanel.tasks) > 0 {
+		if m.taskPanel.visible {
+			hints = append(hints, "ctrl+t to hide tasks")
+		} else {
+			hints = append(hints, "ctrl+t to show tasks")
+		}
+	}
+	b.WriteString(RenderStatusBar(m.modelName, m.tokenCount, m.width, hints...))
 
 	// Apply selection highlight (reverse video) if active
 	if m.selection.Active() {

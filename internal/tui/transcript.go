@@ -20,6 +20,11 @@ var toolDisplayNames = map[string]string{
 	"web_fetch":      "Fetch",
 	"web_search":     "Search",
 	"ask_user":       "Ask",
+	"task_create":    "Create Task",
+	"task_update":    "Update Task",
+	"task_list":      "List Tasks",
+	"agent":          "Agent",
+	"notebook_edit":  "Notebook",
 }
 
 // ToolDisplayName returns a display-friendly name for a tool.
@@ -52,6 +57,11 @@ var toolInputExtractors = map[string]func(map[string]any) string{
 		}
 		return fmt.Sprintf(`"%s"`, pattern)
 	},
+	"task_create":   quoteField("description"),
+	"task_update":   extractField("status"),
+	"task_list":     nil,
+	"agent":         quoteField("description"),
+	"notebook_edit": extractField("path"),
 }
 
 func extractField(field string) func(map[string]any) string {
@@ -83,7 +93,7 @@ func FormatToolHeader(name, jsonInput string) string {
 	}
 
 	extractor, ok := toolInputExtractors[name]
-	if !ok {
+	if !ok || extractor == nil {
 		return displayName
 	}
 

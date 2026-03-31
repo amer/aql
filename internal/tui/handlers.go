@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/amer/aql/internal/domain"
 )
 
 func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -91,6 +93,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openModelPicker()
 	case "ctrl+o":
 		m.tsSearch.mode = !m.tsSearch.mode
+	case "ctrl+t":
+		m.ToggleTasks()
 	case "shift+up":
 		m.scrollUp(3)
 	case "shift+down":
@@ -443,6 +447,13 @@ func (m *Model) handleBashResult(msg BashResultMsg) {
 }
 
 func (m *Model) handleToolCall(msg AgentToolCallMsg) {
+	// Task tools are suppressed from the transcript and routed to the task panel.
+	if isTaskTool(msg.ToolCall.Name) {
+		if msg.ToolCall.Status != domain.ToolRunning {
+			m.handleTaskToolResult(msg.ToolCall.Name, msg.ToolCall.Content)
+		}
+		return
+	}
 	m.chat = append(m.chat, ChatEntry{
 		Type:      EntryAgentTool,
 		AgentName: msg.AgentName,

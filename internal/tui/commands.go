@@ -27,6 +27,7 @@ func SlashCommands() []Command {
 		{Name: "/cost", Description: "Show token usage", Action: "cost"},
 		{Name: "/compact", Description: "Compact conversation context", Action: "compact"},
 		{Name: "/spinner", Description: "Cycle spinner animation style", Action: "spinner"},
+		{Name: "/tasks", Description: "Show/hide task tracking panel", Action: "tasks"},
 	}
 }
 
