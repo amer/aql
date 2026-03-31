@@ -9,7 +9,7 @@ behind an environment variable.
 
 - Recorded SSE responses stored in `internal/agent/testdata/stream_hello.sse`
 - `httptest.NewServer` serves the fixture file with `Content-Type: text/event-stream`
-- Agent created with `NewWithBaseURL()` pointing to the test server
+- Agent created with `agent.New(cfg, workDir, agent.WithBaseURL(server.URL))` pointing to the test server
 - Runs in normal `go test` — no API key or network required
 
 ## Live API Tests (`runner_integration_test.go`)
@@ -19,9 +19,9 @@ behind an environment variable.
 - Used to validate against the real API or re-record fixtures
 - Skipped by default in CI and local development
 
-## NewWithBaseURL
+## Base URL Injection
 
-`agent.NewWithBaseURL(cfg, workDir, baseURL)` creates an agent with a custom API
+`agent.New(cfg, workDir, agent.WithBaseURL(url))` creates an agent with a custom API
 base URL and a dummy API key. This enables injecting test HTTP servers without
 touching production code paths.
 

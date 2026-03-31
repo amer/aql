@@ -33,13 +33,9 @@ func main() {
 }
 
 func run() error {
-	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return fmt.Errorf("open log file: %w", err)
+	if err := setupLogging(); err != nil {
+		return err
 	}
-	defer logFile.Close()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	log.SetOutput(logFile)
 
 	// Handle `aql auth login` subcommand
 	if len(os.Args) > 2 && os.Args[1] == "auth" && os.Args[2] == "login" {
@@ -96,13 +92,44 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	var streamCancel context.CancelFunc
 
+	model := configureTUI(cfg, workDir, cachedModels, coder, &streamCancel, &program, opts)
+
+	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+
+	startBackgroundModelProbe(apiKey, useOAuth, workDir, program)
+
+	_, err = program.Run()
+	return err
+}
+
+func setupLogging() error {
+	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	// Note: logFile is intentionally not closed here — it stays open for the
+	// lifetime of the process and is cleaned up on exit.
+	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	log.SetOutput(logFile)
+	return nil
+}
+
+func configureTUI(
+	cfg agent.Config,
+	workDir string,
+	cachedModels []domain.ModelInfo,
+	coder *agent.Agent,
+	streamCancel *context.CancelFunc,
+	program **tea.Program,
+	opts []agent.Option,
+) tui.Model {
 	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := context.WithCancel(context.Background())
-			streamCancel = cancel
-			program.Send(tui.AgentStreamStartMsg{AgentName: "coder"})
+			*streamCancel = cancel
+			(*program).Send(tui.AgentStreamStartMsg{AgentName: "coder"})
 			ch := coder.Run(ctx, input)
-			go stream.Forward(ctx, ch, func(msg any) { program.Send(msg) })
+			go stream.Forward(ctx, ch, func(msg any) { (*program).Send(msg) })
 			return nil
 		}
 	}
@@ -120,7 +147,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	model := tui.NewModel("aql", []string{"coder"}, onSubmit)
 	model.SetProjectPath(workDir)
-	model.SetModelName(savedModel)
+	model.SetModelName(cfg.Model)
 	model.SetOnBash(onBash)
 	if len(cachedModels) > 0 {
 		model.SetModelTiers(modelsToTiers(cachedModels))
@@ -135,8 +162,8 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		}
 	})
 	model.SetCancelStream(func() {
-		if streamCancel != nil {
-			streamCancel()
+		if *streamCancel != nil {
+			(*streamCancel)()
 		}
 	})
 	model.SetOnModelSelected(func(modelID string) {
@@ -150,25 +177,21 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 			slog.Error("failed to recreate agent with new model", "model", modelID, "error", createErr)
 			return
 		}
-		coder = newCoder
+		*coder = *newCoder
 		slog.Info("model switched", "model", modelID)
 	})
 
-	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	return model
+}
 
-	bgCtx, bgCancel := context.WithCancel(context.Background())
-	defer bgCancel()
-
+func startBackgroundModelProbe(apiKey string, useOAuth bool, workDir string, program *tea.Program) {
 	go func() {
-		ctx, cancel := context.WithTimeout(bgCtx, modelProbeTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
 		defer cancel()
 		models.ProbeAndUpdate(ctx, apiKey, useOAuth, workDir, func(usable []domain.ModelInfo) {
 			program.Send(tui.ModelsLoadedMsg{Tiers: modelsToTiers(usable)})
 		})
 	}()
-
-	_, err = program.Run()
-	return err
 }
 
 func modelsToTiers(ms []domain.ModelInfo) []tui.ModelTier {

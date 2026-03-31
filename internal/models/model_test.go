@@ -66,7 +66,7 @@ func TestFetchModelsFromFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ms, err := models.FetchModelsWithBaseURL(ctx, server.URL)
+	ms, err := models.FetchModels(ctx, models.ClientConfig{BaseURL: server.URL, APIKey: "test-key"})
 	require.NoError(t, err)
 	assert.True(t, len(ms) > 0, "should return at least one model")
 
@@ -102,7 +102,7 @@ func TestFetchModelsLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ms, err := models.FetchModels(ctx)
+	ms, err := models.FetchModels(ctx, models.ClientConfig{})
 	require.NoError(t, err)
 	assert.True(t, len(ms) > 0, "should return at least one model from API")
 	t.Logf("fetched %d models from API:", len(ms))
@@ -141,7 +141,7 @@ func TestProbeUsableModels(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	usable, err := models.ProbeUsableModelsWithBaseURL(ctx, server.URL)
+	usable, err := models.ProbeUsableModels(ctx, models.ClientConfig{BaseURL: server.URL, APIKey: "test-key"})
 	require.NoError(t, err)
 
 	// Should only contain haiku models (the ones that return 200)
@@ -196,14 +196,14 @@ func TestProbeUsableModelsWithBilling(t *testing.T) {
 	defer cancel()
 
 	// Without billing: only haiku
-	withoutBilling, err := models.ProbeUsableModelsWithBaseURL(ctx, server.URL)
+	withoutBilling, err := models.ProbeUsableModels(ctx, models.ClientConfig{BaseURL: server.URL, APIKey: "test-key"})
 	require.NoError(t, err)
 	for _, m := range withoutBilling {
 		assert.Contains(t, m.ID, "haiku", "without billing, only haiku should work")
 	}
 
 	// With billing: all models
-	withBilling, err := models.ProbeUsableModelsWithBilling(ctx, server.URL, "test-key")
+	withBilling, err := models.ProbeUsableModels(ctx, models.ClientConfig{BaseURL: server.URL, APIKey: "test-key", WithBilling: true})
 	require.NoError(t, err)
 	assert.True(t, len(withBilling) > len(withoutBilling),
 		"billing header should unlock more models: got %d vs %d", len(withBilling), len(withoutBilling))
@@ -221,7 +221,7 @@ func TestProbeUsableModelsLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	usable, err := models.ProbeUsableModelsWithAPIKey(ctx, apiKey)
+	usable, err := models.ProbeUsableModels(ctx, models.ClientConfig{APIKey: apiKey})
 	require.NoError(t, err)
 	assert.True(t, len(usable) > 0, "should find at least one usable model")
 
@@ -248,7 +248,7 @@ func TestProbeUsableModelsLive_OAuthBilling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	usable, err2 := models.ProbeUsableModelsWithOAuthKey(ctx, tokens.APIKey)
+	usable, err2 := models.ProbeUsableModels(ctx, models.ClientConfig{APIKey: tokens.APIKey, WithBilling: true})
 	require.NoError(t, err2)
 	assert.True(t, len(usable) > 0, "should find at least one usable model")
 

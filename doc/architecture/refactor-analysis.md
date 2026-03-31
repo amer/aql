@@ -5,12 +5,12 @@ Date: 2026-03-31
 ## 1. What We Have (Package Map)
 
 ```
-cmd/aql/main.go          — 392 lines, wires everything together
+cmd/aql/main.go          — ~200 lines, wires everything together (split into setupLogging, configureTUI, startBackgroundModelProbe)
 internal/
   agent/                  — 13 files, ~2800 lines (core)
     agent.go              — Agent struct, New(), system prompt building
-    runner.go             — Run() streaming loop, tool loop, retry logic
-    model.go              — ModelInfo, FetchModels, ProbeUsableModels, ResolveModel, SaveModel
+    runner.go             — Run() orchestrator, streamWithRetry(), consumeStream(), executeTools()
+    model.go              — ResolveModel, SaveModel (FetchModels/ProbeUsableModels moved to models package)
     model_cache.go        — SaveModelCache, LoadModelCache
     config.go             — Config struct (YAML), MemoryConfig, EventsConfig
     context.go            — LoadClaudeMD, CollectClaudeMD
@@ -21,6 +21,7 @@ internal/
     tools_web.go          — execWebFetch, execWebSearch, HTML parsing
   tui/                    — 27 files, ~5000 lines (UI)
     app.go                — Model struct, Update(), all Msg types, callbacks
+    handlers.go           — handleKey/handleMsg/handleSubmit dispatchers + focused handler methods
     transcript.go         — tool display names, rendering
     commands.go           — slash commands, ModelTier, model picker, command palette
     streamstatus.go       — StreamPhase, FormatStreamStatus
@@ -60,7 +61,8 @@ internal/
 
 ```
 cmd/aql/main.go
-  ├── agent   (Config, Agent, New, Run, ModelInfo, ProbeUsableModels, etc.)
+  ├── agent   (Config, Agent, New, Run)
+  ├── models  (ClientConfig, FetchModels, ProbeUsableModels, ProbeAndUpdate)
   ├── auth    (LoadTokens, Login, SaveTokens)
   └── tui     (Model, NewModel, all Msg types, ModelTier)
 
@@ -185,7 +187,7 @@ main.go does too much:
 - Model selection callback (recreates agent)
 - All callback wiring (onClear, onCompact, onModelSelected, etc.)
 
-The `onSubmit` closure alone is 87 lines of goroutine + channel + select + switch.
+The `onSubmit` closure delegates to `stream.Forward()` for event translation (~10 lines).
 
 ## 7. The God Object: agent package
 
@@ -203,15 +205,15 @@ These are ~7 distinct responsibilities in one package.
 
 ## 8. Summary of Smells
 
-| Smell                       | Where                      | Impact                     |
-| --------------------------- | -------------------------- | -------------------------- |
-| Parallel tool call types    | agent ↔ tui                | Manual translation in main |
-| Parallel token usage types  | agent ↔ tui                | Identical struct, 2 names  |
-| Dead code: events package   | events/                    | Unused in production       |
-| Dead code: orchestrator     | orchestrator/              | Unused in production       |
-| Dead code: memory queries   | memory.Manager.Query()     | Created, never queried     |
-| Dead code: YAML config      | Config.Tools/Memory/Events | Fields never populated     |
-| Global mutable: AskUserFunc | agent.AskUserFunc          | Implicit coupling          |
-| God main.go                 | cmd/aql/main.go            | 392-line wiring monster    |
-| God agent package           | internal/agent/            | 7+ responsibilities        |
-| ModelInfo → ModelTier dance | main.go modelsToTiers()    | Could share a type         |
+| Smell                       | Where                      | Impact                      |
+| --------------------------- | -------------------------- | --------------------------- |
+| Parallel tool call types    | agent ↔ tui                | Manual translation in main  |
+| Parallel token usage types  | agent ↔ tui                | Identical struct, 2 names   |
+| Dead code: events package   | events/                    | Unused in production        |
+| Dead code: orchestrator     | orchestrator/              | Unused in production        |
+| Dead code: memory queries   | memory.Manager.Query()     | Created, never queried      |
+| Dead code: YAML config      | Config.Tools/Memory/Events | Fields never populated      |
+| Global mutable: AskUserFunc | agent.AskUserFunc          | Implicit coupling           |
+| God main.go                 | cmd/aql/main.go            | ~200 lines after extraction |
+| God agent package           | internal/agent/            | 7+ responsibilities         |
+| ModelInfo → ModelTier dance | main.go modelsToTiers()    | Could share a type          |

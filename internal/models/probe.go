@@ -36,18 +36,30 @@ const (
 	ClaudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
 )
 
-// FetchModels lists available models from the Anthropic API.
-func FetchModels(ctx context.Context) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient()
-	return fetchModelsWithClient(ctx, client)
+// ClientConfig holds the parameters needed to construct an Anthropic client
+// and configure probe behavior. Pass this to FetchModels and ProbeUsableModels
+// instead of using variant-specific functions.
+type ClientConfig struct {
+	APIKey      string
+	BaseURL     string
+	WithBilling bool
 }
 
-// FetchModelsWithBaseURL lists available models using a custom API base URL.
-func FetchModelsWithBaseURL(ctx context.Context, baseURL string) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient(
-		option.WithBaseURL(baseURL),
-		option.WithAPIKey("test-key"),
-	)
+// buildClient constructs an anthropic.Client from the config.
+func (c ClientConfig) buildClient() anthropic.Client {
+	var opts []option.RequestOption
+	if c.APIKey != "" {
+		opts = append(opts, option.WithAPIKey(c.APIKey))
+	}
+	if c.BaseURL != "" {
+		opts = append(opts, option.WithBaseURL(c.BaseURL))
+	}
+	return anthropic.NewClient(opts...)
+}
+
+// FetchModels lists available models from the Anthropic API.
+func FetchModels(ctx context.Context, cfg ClientConfig) ([]domain.ModelInfo, error) {
+	client := cfg.buildClient()
 	return fetchModelsWithClient(ctx, client)
 }
 
@@ -83,40 +95,9 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]doma
 
 // ProbeUsableModels fetches the model list and probes each one with a minimal
 // request to determine which models the API key can actually use.
-func ProbeUsableModels(ctx context.Context) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient()
-	return probeUsableModelsWithClient(ctx, client, false)
-}
-
-// ProbeUsableModelsWithBaseURL is like ProbeUsableModels but uses a custom base URL.
-func ProbeUsableModelsWithBaseURL(ctx context.Context, baseURL string) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient(
-		option.WithBaseURL(baseURL),
-		option.WithAPIKey("test-key"),
-	)
-	return probeUsableModelsWithClient(ctx, client, false)
-}
-
-// ProbeUsableModelsWithAPIKey probes models using a specific API key.
-func ProbeUsableModelsWithAPIKey(ctx context.Context, apiKey string) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-	return probeUsableModelsWithClient(ctx, client, false)
-}
-
-// ProbeUsableModelsWithBilling probes models with the Claude Code billing header.
-func ProbeUsableModelsWithBilling(ctx context.Context, baseURL string, apiKey string) ([]domain.ModelInfo, error) {
-	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
-	if baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
-	}
-	client := anthropic.NewClient(opts...)
-	return probeUsableModelsWithClient(ctx, client, true)
-}
-
-// ProbeUsableModelsWithOAuthKey probes models using an OAuth API key with billing header.
-func ProbeUsableModelsWithOAuthKey(ctx context.Context, apiKey string) ([]domain.ModelInfo, error) {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-	return probeUsableModelsWithClient(ctx, client, true)
+func ProbeUsableModels(ctx context.Context, cfg ClientConfig) ([]domain.ModelInfo, error) {
+	client := cfg.buildClient()
+	return probeUsableModelsWithClient(ctx, client, cfg.WithBilling)
 }
 
 // relevantModelPrefixes filters the model list to only models we care about probing.
