@@ -40,7 +40,7 @@
 - When introducing or changing CLI commands, document them in `doc/cli/`
 - After changing code, update relevant docs to match — code is the source of truth, not docs
 - Place changelogs in `doc/changelog/YYYY/MM/` subdirectories (e.g., `doc/changelog/2026/03/`)
-- Prefix changelog filenames with creation date: `YYYY-MM-DD-description.md` (e.g., `2026-03-31-system-prompt-improvements.md`)
+- Prefix changelog filenames with creation time (HHMM): `HHMM-description.md` (e.g., `1040-system-prompt-improvements.md`)
 - Use descriptive kebab-case for the description portion of changelog filenames
 - Use structured logging with `log/slog` — never use `fmt.Println` or `log.Printf` for operational logs
 - Include good debug-level logs at key decision points, I/O boundaries, and error paths
