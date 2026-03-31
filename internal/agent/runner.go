@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/domain"
+	"github.com/amer/aql/internal/models"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
@@ -303,12 +304,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 	return ch
 }
 
-// billingHeader is the Claude Code billing header that enables access to
-// Opus/Sonnet models via OAuth Console login.
-const billingHeader = "x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;"
-
-// claudeCodeBetas are the beta feature flags required for Claude Code billing.
-const claudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
+// billingHeader and claudeCodeBetas are imported from the models package.
+var (
+	billingHeader   = models.BillingHeader
+	claudeCodeBetas = models.ClaudeCodeBetas
+)
 
 // buildMessageParams constructs the API request params with tools.
 func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewParams, []option.RequestOption) {

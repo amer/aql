@@ -1,19 +1,42 @@
-package agent
+package models
 
 import (
 	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/amer/aql/internal/domain"
 )
 
 const (
+	modelFileName  = ".aql_model"
 	modelCacheFile = ".aql_models_cache.json"
 	modelCacheTTL  = 1 * time.Hour
 )
+
+// SaveModel persists the selected model ID to a file in the given directory.
+func SaveModel(dir string, model string) error {
+	if err := ValidateModelID(model); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, modelFileName), []byte(model), 0644)
+}
+
+// LoadModel reads the persisted model ID from the given directory.
+// Returns empty string if no file exists (caller should use default).
+func LoadModel(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, modelFileName))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
 
 type modelCache struct {
 	Models    []domain.ModelInfo `json:"models"`
