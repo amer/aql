@@ -4,32 +4,32 @@ package e2e
 // FILE GUIDELINES
 //
 // BELONGS HERE:
-//   - Exchange — captured HTTP request/response pair,
+//   - Exchange — captured HTTP request/response pair (incl. errors),
 //     Recorder — reverse proxy that records all traffic,
 //     NewRecorder() — creates a recording proxy for an upstream URL,
-//     ServeHTTP() — implements http.Handler,
-//     Exchanges() — returns captured exchanges,
-//     SaveExchanges() — writes exchanges to disk,
+//     Replayer — serves previously recorded exchanges (no network),
+//     NewReplayer() — creates a replay server from exchanges,
+//     SaveExchanges() / LoadExchanges() — JSON serialization,
 //     recordingTransport — wraps RoundTripper to capture bodies,
-//     formatExchange() / sanitizePath() — output formatting helpers.
+//     recordingBody — streams response while accumulating for recording.
 //
 // MUST NOT GO HERE:
 //   - Terminal PTY management (terminal.go)
 //   - Screenshot capture (screenshot.go)
 //   - Terminal options (option.go)
 //
-// Q: How is the recorder wired into tests?
-// A: Use WithRecordAPI() option on NewTerminal(). The terminal sets up
-//    an httptest.Server with the recorder as handler.
+// Q: How do I record API calls?
+// A: Use APIOption(fixtureDir) in scenario tests. Set E2E_RECORD=1
+//    to record, omit it to replay saved fixtures.
 //
-// Q: Can I filter or modify recorded exchanges?
-// A: No. The recorder captures everything verbatim. Filtering belongs
-//    in test assertions.
+// Q: Where are fixtures stored?
+// A: test/e2e/testdata/<scenario>/exchanges.json — committed to git.
 // ──────────────────────────────────────────────────────────────────
 
 import (
-	"fmt"
+	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -40,6 +40,8 @@ import (
 )
 
 // Exchange represents a captured HTTP request/response pair.
+// If the request was interrupted (e.g. context canceled), Error is set
+// and StatusCode/ResponseBody may be empty.
 type Exchange struct {
 	Timestamp       time.Time
 	Method          string
@@ -50,6 +52,7 @@ type Exchange struct {
 	ResponseHeaders http.Header
 	ResponseBody    string
 	Duration        time.Duration
+	Error           string // non-empty if the request failed
 }
 
 // Recorder is an HTTP reverse proxy that captures all request/response exchanges.
@@ -75,7 +78,16 @@ func NewRecorder(upstreamURL string) *Recorder {
 		req.Host = target.Host
 	}
 
-	rec.proxy = &httputil.ReverseProxy{Director: director}
+	rec.proxy = &httputil.ReverseProxy{
+		Director:      director,
+		FlushInterval: -1, // flush immediately — required for SSE streaming
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// Silently handle proxy errors (e.g. context canceled during cleanup).
+			// The exchange is already recorded by recordingTransport.
+			w.WriteHeader(http.StatusBadGateway)
+		},
+		ErrorLog: log.New(io.Discard, "", 0), // suppress default stderr logging
+	}
 
 	// Wrap the proxy transport to capture exchanges
 	rec.proxy.Transport = &recordingTransport{
@@ -100,21 +112,72 @@ func (r *Recorder) Exchanges() []Exchange {
 	return out
 }
 
-// SaveExchanges writes all captured exchanges to files in the given directory.
-func (r *Recorder) SaveExchanges(dir string) error {
+// SaveJSON writes all captured exchanges to a JSON file in the given directory.
+func (r *Recorder) SaveJSON(dir string) error {
+	return SaveExchanges(dir, r.Exchanges())
+}
+
+// SaveExchanges writes exchanges to a JSON file in the given directory.
+func SaveExchanges(dir string, exchanges []Exchange) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	exchanges := r.Exchanges()
-	for i, ex := range exchanges {
-		filename := fmt.Sprintf("%03d-%s-%s.txt", i+1, ex.Method, sanitizePath(ex.Path))
-		content := formatExchange(ex)
-		path := filepath.Join(dir, filename)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return err
+	data, err := json.MarshalIndent(exchanges, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "exchanges.json"), data, 0o644)
+}
+
+// LoadExchanges reads exchanges from a JSON file in the given directory.
+func LoadExchanges(dir string) ([]Exchange, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "exchanges.json"))
+	if err != nil {
+		return nil, err
+	}
+	var exchanges []Exchange
+	if err := json.Unmarshal(data, &exchanges); err != nil {
+		return nil, err
+	}
+	return exchanges, nil
+}
+
+// Replayer is an HTTP server that replays previously recorded exchanges
+// in order. No network calls are made.
+type Replayer struct {
+	mu        sync.Mutex
+	exchanges []Exchange
+	index     int
+}
+
+// NewReplayer creates a replay server from a list of exchanges.
+func NewReplayer(exchanges []Exchange) *Replayer {
+	return &Replayer{exchanges: exchanges}
+}
+
+// ServeHTTP implements http.Handler — replays the next exchange in sequence.
+func (r *Replayer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	if r.index >= len(r.exchanges) {
+		r.mu.Unlock()
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	ex := r.exchanges[r.index]
+	r.index++
+	r.mu.Unlock()
+
+	for key, vals := range ex.ResponseHeaders {
+		for _, v := range vals {
+			w.Header().Add(key, v)
 		}
 	}
-	return nil
+	if ex.StatusCode != 0 {
+		w.WriteHeader(ex.StatusCode)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	io.WriteString(w, ex.ResponseBody) //nolint:errcheck
 }
 
 func (r *Recorder) record(ex Exchange) {
@@ -146,31 +209,63 @@ func (t *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	// Forward request
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
+		// Record the failed exchange so interrupted requests aren't lost
+		t.rec.record(Exchange{
+			Timestamp:      start,
+			Method:         req.Method,
+			Path:           req.URL.Path,
+			RequestHeaders: req.Header.Clone(),
+			RequestBody:    reqBody,
+			Duration:       time.Since(start),
+			Error:          err.Error(),
+		})
 		return nil, err
 	}
 
-	// Capture response body (read then replace)
-	respData, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, err
+	// Wrap the response body so it streams through to the caller
+	// while accumulating the full body for recording on Close().
+	resp.Body = &recordingBody{
+		inner: resp.Body,
+		onClose: func(accumulated string) {
+			t.rec.record(Exchange{
+				Timestamp:       start,
+				Method:          req.Method,
+				Path:            req.URL.Path,
+				RequestHeaders:  req.Header.Clone(),
+				RequestBody:     reqBody,
+				StatusCode:      resp.StatusCode,
+				ResponseHeaders: resp.Header.Clone(),
+				ResponseBody:    accumulated,
+				Duration:        time.Since(start),
+			})
+		},
 	}
-	respBody := string(respData)
-	resp.Body = io.NopCloser(stringReader(respBody))
-
-	t.rec.record(Exchange{
-		Timestamp:       start,
-		Method:          req.Method,
-		Path:            req.URL.Path,
-		RequestHeaders:  req.Header.Clone(),
-		RequestBody:     reqBody,
-		StatusCode:      resp.StatusCode,
-		ResponseHeaders: resp.Header.Clone(),
-		ResponseBody:    respBody,
-		Duration:        time.Since(start),
-	})
 
 	return resp, nil
+}
+
+// recordingBody wraps a response body, streaming bytes through to the caller
+// while accumulating them. On Close(), it calls onClose with the full body.
+type recordingBody struct {
+	inner   io.ReadCloser
+	buf     []byte
+	onClose func(accumulated string)
+}
+
+func (r *recordingBody) Read(p []byte) (int, error) {
+	n, err := r.inner.Read(p)
+	if n > 0 {
+		r.buf = append(r.buf, p[:n]...)
+	}
+	return n, err
+}
+
+func (r *recordingBody) Close() error {
+	err := r.inner.Close()
+	if r.onClose != nil {
+		r.onClose(string(r.buf))
+	}
+	return err
 }
 
 func stringReader(s string) io.Reader {
@@ -188,42 +283,3 @@ func stringReader(s string) io.Reader {
 type readerFunc func(p []byte) (int, error)
 
 func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
-
-func sanitizePath(path string) string {
-	if len(path) > 0 && path[0] == '/' {
-		path = path[1:]
-	}
-	result := make([]byte, 0, len(path))
-	for _, c := range []byte(path) {
-		if c == '/' {
-			result = append(result, '-')
-		} else if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
-			result = append(result, c)
-		}
-	}
-	return string(result)
-}
-
-func formatExchange(ex Exchange) string {
-	var b []byte
-	b = fmt.Appendf(b, "=== REQUEST ===\n")
-	b = fmt.Appendf(b, "%s %s\n", ex.Method, ex.Path)
-	b = fmt.Appendf(b, "Timestamp: %s\n", ex.Timestamp.Format(time.RFC3339Nano))
-	b = fmt.Appendf(b, "Duration: %s\n", ex.Duration)
-	b = appendHeaders(b, ex.RequestHeaders)
-	b = fmt.Appendf(b, "\n%s\n", ex.RequestBody)
-	b = fmt.Appendf(b, "\n=== RESPONSE ===\n")
-	b = fmt.Appendf(b, "Status: %d\n", ex.StatusCode)
-	b = appendHeaders(b, ex.ResponseHeaders)
-	b = fmt.Appendf(b, "\n%s\n", ex.ResponseBody)
-	return string(b)
-}
-
-func appendHeaders(b []byte, h http.Header) []byte {
-	for key, vals := range h {
-		for _, v := range vals {
-			b = fmt.Appendf(b, "%s: %s\n", key, v)
-		}
-	}
-	return b
-}

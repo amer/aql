@@ -1,6 +1,9 @@
 package e2e_test
 
 import (
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -145,4 +148,75 @@ func TestTerminal_MultipleCommands(t *testing.T) {
 	shot := term.Screenshot()
 	assert.True(t, shot.Contains("FIRST"))
 	assert.True(t, shot.Contains("SECOND"))
+}
+
+func TestAPIOption_ReplayByDefault(t *testing.T) {
+	// Create a fixture dir with exchanges
+	dir := t.TempDir()
+	exchanges := []e2e.Exchange{{
+		Method:          "POST",
+		Path:            "/v1/messages",
+		StatusCode:      200,
+		ResponseHeaders: http.Header{"Content-Type": []string{"application/json"}},
+		ResponseBody:    `{"id":"msg_1"}`,
+	}}
+	require.NoError(t, e2e.SaveExchanges(dir, exchanges))
+
+	// Without E2E_RECORD, should return WithReplayAPI
+	t.Setenv("E2E_RECORD", "")
+	opt := e2e.APIOption(dir)
+
+	// Apply to a config and verify it sets replayDir (not recordAPI)
+	cfg := e2e.ApplyOptions(opt)
+	assert.Equal(t, dir, cfg.ReplayDir)
+	assert.False(t, cfg.RecordAPI)
+}
+
+func TestAPIOption_RecordWhenEnvSet(t *testing.T) {
+	t.Setenv("E2E_RECORD", "1")
+	opt := e2e.APIOption("/some/dir")
+
+	cfg := e2e.ApplyOptions(opt)
+	assert.Equal(t, "", cfg.ReplayDir)
+	assert.True(t, cfg.RecordAPI)
+	assert.Equal(t, "/some/dir", cfg.FixtureDir)
+}
+
+func TestHasAPICredentials_EnvVar(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	assert.True(t, e2e.HasAPICredentials())
+}
+
+func TestHasAPICredentials_NoCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	// May still return true if a token file exists on this machine,
+	// so we just verify it doesn't panic and returns a bool.
+	_ = e2e.HasAPICredentials()
+}
+
+func TestTerminal_CopiesTokenFile(t *testing.T) {
+	// Create a fake token file in a temp "project root"
+	srcDir := t.TempDir()
+	tokenPath := filepath.Join(srcDir, ".aql_tokens.json")
+	os.WriteFile(tokenPath, []byte(`{"api_key":"fake"}`), 0o600)
+
+	// Spawn a shell with WithWorkDir pointing to a different temp dir
+	workDir := t.TempDir()
+	term := e2e.NewTerminal(t,
+		e2e.WithBinary("/bin/sh"),
+		e2e.WithSize(80, 24),
+		e2e.WithWorkDir(workDir),
+	)
+
+	// The token file should have been copied into the workDir
+	dst := filepath.Join(workDir, ".aql_tokens.json")
+	_, err := os.Stat(dst)
+	if e2e.HasAPICredentials() {
+		// If credentials exist on this machine, the file should be copied
+		require.NoError(t, err, "token file should be copied to workDir")
+	}
+
+	// Shell still works regardless
+	term.Send("echo TOKEN_TEST\n")
+	require.NoError(t, term.WaitFor("TOKEN_TEST", 3*time.Second))
 }

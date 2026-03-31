@@ -11,7 +11,10 @@ package e2e
 //     WithSize() — set terminal dimensions,
 //     WithWorkDir() — set process working directory,
 //     WithEnv() — add environment variables,
-//     WithRecordAPI() — enable API call recording.
+//     WithRecordAPI() — enable API call recording,
+//     WithReplayAPI() — replay saved exchanges (no network),
+//     APIOption() — auto-selects record or replay based on E2E_RECORD env,
+//     OptionSnapshot / ApplyOptions() — test helper to inspect config.
 //
 // MUST NOT GO HERE:
 //   - Terminal implementation (terminal.go)
@@ -26,14 +29,18 @@ package e2e
 //    defaultConfig(), and expose it via a With*() option.
 // ──────────────────────────────────────────────────────────────────
 
+import "os"
+
 // config holds Terminal constructor settings.
 type config struct {
-	binary    string   // path to pre-built binary (empty = build fresh)
-	cols      int      // terminal width
-	rows      int      // terminal height
-	workDir   string   // working directory for the process
-	env       []string // additional environment variables
-	recordAPI bool     // start a recording proxy for API calls
+	binary     string   // path to pre-built binary (empty = build fresh)
+	cols       int      // terminal width
+	rows       int      // terminal height
+	workDir    string   // working directory for the process
+	env        []string // additional environment variables
+	recordAPI  bool     // start a recording proxy for API calls
+	replayDir  string   // directory containing exchanges.json to replay
+	fixtureDir string   // where to save recorded fixtures (set by APIOption in record mode)
 }
 
 func defaultConfig() config {
@@ -73,4 +80,44 @@ func WithEnv(env ...string) Option {
 // Captured exchanges are saved to the artifacts directory on cleanup.
 func WithRecordAPI() Option {
 	return func(c *config) { c.recordAPI = true }
+}
+
+// WithReplayAPI replays previously recorded exchanges from the given directory.
+// No network calls are made — the exchanges.json file is served directly.
+func WithReplayAPI(dir string) Option {
+	return func(c *config) { c.replayDir = dir }
+}
+
+// APIOption returns WithReplayAPI(fixtureDir) by default, or WithRecordAPI()
+// when E2E_RECORD=1 is set. In record mode, captured exchanges are saved
+// to fixtureDir on cleanup so subsequent runs can replay them.
+func APIOption(fixtureDir string) Option {
+	if os.Getenv("E2E_RECORD") != "" {
+		return func(c *config) {
+			c.recordAPI = true
+			c.fixtureDir = fixtureDir
+		}
+	}
+	return WithReplayAPI(fixtureDir)
+}
+
+// OptionSnapshot exposes selected config fields for testing.
+type OptionSnapshot struct {
+	RecordAPI  bool
+	ReplayDir  string
+	FixtureDir string
+}
+
+// ApplyOptions applies options and returns a snapshot of the resulting config.
+// Used in tests to verify option behavior without spawning a terminal.
+func ApplyOptions(opts ...Option) OptionSnapshot {
+	cfg := defaultConfig()
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return OptionSnapshot{
+		RecordAPI:  cfg.recordAPI,
+		ReplayDir:  cfg.replayDir,
+		FixtureDir: cfg.fixtureDir,
+	}
 }

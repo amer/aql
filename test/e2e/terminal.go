@@ -36,7 +36,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -46,16 +45,17 @@ import (
 
 // Terminal wraps a PTY-spawned process and a virtual terminal emulator.
 type Terminal struct {
-	cmd      *exec.Cmd
-	ptyFile  *os.File
-	vt       vt10x.Terminal
-	done     chan struct{}
-	cols     int
-	rows     int
-	artDir   string
-	workDir  string
-	counter  int
-	recorder *Recorder // points to shared session recorder, nil if disabled
+	cmd        *exec.Cmd
+	ptyFile    *os.File
+	vt         vt10x.Terminal
+	done       chan struct{}
+	cols       int
+	rows       int
+	artDir     string
+	workDir    string
+	counter    int
+	recorder   *Recorder // points to shared session recorder, nil if disabled
+	fixtureDir string    // where to save recorded fixtures on cleanup
 }
 
 var (
@@ -151,9 +151,26 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 		cfg.workDir = t.TempDir()
 	}
 
-	// Set up shared API recording proxy if requested
+	// Copy token file into workDir so the binary can find credentials
+	if src := findTokenFile(); src != "" {
+		dst := filepath.Join(cfg.workDir, tokenFile)
+		if data, err := os.ReadFile(src); err == nil {
+			os.WriteFile(dst, data, 0o600) //nolint:errcheck
+		}
+	}
+
+	// Set up API proxy: replay saved fixtures or record live calls
 	var recorder *Recorder
-	if cfg.recordAPI {
+	if cfg.replayDir != "" {
+		exchanges, err := LoadExchanges(cfg.replayDir)
+		if err != nil {
+			t.Skipf("e2e: no fixtures in %s (run with E2E_RECORD=1 to capture): %v", cfg.replayDir, err)
+		}
+		replayer := NewReplayer(exchanges)
+		replayServer := httptest.NewServer(replayer)
+		t.Cleanup(replayServer.Close)
+		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+replayServer.URL)
+	} else if cfg.recordAPI {
 		var proxy *httptest.Server
 		recorder, proxy = ensureRecorder()
 		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+proxy.URL)
@@ -179,15 +196,16 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 	}
 
 	term := &Terminal{
-		cmd:      cmd,
-		ptyFile:  ptmx,
-		vt:       vterm,
-		done:     make(chan struct{}),
-		cols:     cfg.cols,
-		rows:     cfg.rows,
-		artDir:   artDir,
-		workDir:  cfg.workDir,
-		recorder: recorder,
+		cmd:        cmd,
+		ptyFile:    ptmx,
+		vt:         vterm,
+		done:       make(chan struct{}),
+		cols:       cfg.cols,
+		rows:       cfg.rows,
+		artDir:     artDir,
+		workDir:    cfg.workDir,
+		recorder:   recorder,
+		fixtureDir: cfg.fixtureDir,
 	}
 
 	go term.readLoop()
@@ -213,31 +231,23 @@ func (t *Terminal) readLoop() {
 }
 
 func (t *Terminal) cleanup() {
-	// Graceful shutdown
 	if t.cmd.Process != nil {
-		_ = t.cmd.Process.Signal(syscall.SIGTERM)
-
-		exited := make(chan struct{})
-		go func() {
-			_ = t.cmd.Wait()
-			close(exited)
-		}()
-
-		select {
-		case <-exited:
-		case <-time.After(2 * time.Second):
-			_ = t.cmd.Process.Kill()
-			<-exited
-		}
+		_ = t.cmd.Process.Kill()
+		_ = t.cmd.Wait()
 	}
 
 	t.ptyFile.Close()
 	<-t.done
 
-	// Save session-level API recordings (shared across all tests)
+	// Save API recordings
 	if t.recorder != nil {
 		apiDir := filepath.Join(sessionArtifactsDir(), "api")
-		_ = t.recorder.SaveExchanges(apiDir)
+		_ = t.recorder.SaveJSON(apiDir)
+
+		// Save to fixture dir for replay in future runs
+		if t.fixtureDir != "" {
+			_ = t.recorder.SaveJSON(t.fixtureDir)
+		}
 	}
 
 	// Copy application log to artifacts
@@ -339,4 +349,42 @@ func (t *Terminal) Logs() string {
 		return ""
 	}
 	return string(data)
+}
+
+const tokenFile = ".aql_tokens.json"
+
+// HasAPICredentials reports whether API credentials are available,
+// either via ANTHROPIC_API_KEY env var or a .aql_tokens.json file
+// in the project root or home directory.
+func HasAPICredentials() bool {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot(), tokenFile)); err == nil {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if _, err := os.Stat(filepath.Join(home, tokenFile)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// findTokenFile returns the path to the first .aql_tokens.json found
+// (project root, then home), or empty string if none exists.
+func findTokenFile() string {
+	p := filepath.Join(projectRoot(), tokenFile)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		p = filepath.Join(home, tokenFile)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
