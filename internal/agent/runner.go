@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/models"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -54,7 +55,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 			anthropic.NewTextBlock(userMessage),
 		))
 
-		model := ResolveModel(a.config.Model)
+		model := models.ResolveModel(a.config.Model)
 		slog.Debug("starting API call", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
@@ -319,7 +320,7 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 		{Text: a.systemPrompt},
 	}
 
-	defs := ToolDefinitions()
+	defs := tools.Definitions()
 	toolNames := make([]string, len(defs))
 	for i, d := range defs {
 		toolNames[i] = d.Name
@@ -331,7 +332,7 @@ func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewP
 		MaxTokens: defaultMaxTokens,
 		System:    system,
 		Messages:  a.history,
-		Tools:     ToAPITools(defs),
+		Tools:     tools.ToAPITools(defs),
 	}
 
 	var reqOpts []option.RequestOption

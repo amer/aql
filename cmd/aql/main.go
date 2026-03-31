@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/auth"
 	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/models"
@@ -68,7 +69,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	var program *tea.Program
 
-	askUser := func(ctx context.Context, q agent.UserQuestion) (string, error) {
+	askUser := func(ctx context.Context, q tools.UserQuestion) (string, error) {
 		responseCh := make(chan string, 1)
 		program.Send(tui.AgentAskUserMsg{
 			AgentName:  "coder",

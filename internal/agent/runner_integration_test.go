@@ -9,6 +9,7 @@ import (
 
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/auth"
+	"github.com/amer/aql/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,12 +122,12 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 		tokens.ExpiresAt.Format("15:04:05"), tokens.APIKey[:min(15, len(tokens.APIKey))])
 
 	// This is the critical test: use the OAuth-derived API key to access Opus
-	a, err := agent.NewWithOAuthKey(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test-oauth-opus",
 		Role:         "test",
 		SystemPrompt: "Reply with exactly one word: pong",
 		Model:        "claude-opus-4-6",
-	}, t.TempDir(), tokens.APIKey)
+	}, t.TempDir(), agent.WithOAuthKey(tokens.APIKey))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -248,7 +249,7 @@ func TestRunnerLive_SavedModelWorks(t *testing.T) {
 		workDir = workDir[:len(workDir)-len("/"+workDir[len(workDir)-1:])]
 	}
 
-	savedModel, err := agent.LoadModel(workDir)
+	savedModel, err := models.LoadModel(workDir)
 	if err != nil || savedModel == "" {
 		t.Skip("no .aql_model file found")
 	}

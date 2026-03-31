@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +57,7 @@ func TestToolDescriptionsPrompt(t *testing.T) {
 
 func TestToolDescriptionsPrompt_MatchesToolDefs(t *testing.T) {
 	desc := agent.ToolDescriptionsPrompt()
-	for _, td := range agent.ToolDefinitions() {
+	for _, td := range tools.Definitions() {
 		assert.Contains(t, desc, td.Name, "tool %q missing from descriptions prompt", td.Name)
 	}
 }

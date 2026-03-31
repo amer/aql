@@ -1,41 +1,55 @@
-package agent_test
+package models_test
 
 import (
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/auth"
+	"github.com/amer/aql/internal/models"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func loadTokensFromDir(t *testing.T, startDir string) (*auth.Tokens, error) {
+	t.Helper()
+	dir := startDir
+	for {
+		tokens, err := auth.LoadTokens(dir)
+		if err != nil {
+			return nil, err
+		}
+		if tokens != nil {
+			return tokens, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil, os.ErrNotExist
+}
+
 func TestResolveModelDefault(t *testing.T) {
-	model := agent.ResolveModel("")
+	model := models.ResolveModel("")
 	assert.Equal(t, anthropic.ModelClaudeSonnet4_6, model)
 }
 
 func TestResolveModelExplicit(t *testing.T) {
-	model := agent.ResolveModel("claude-sonnet-4-5")
+	model := models.ResolveModel("claude-sonnet-4-5")
 	assert.Equal(t, anthropic.Model("claude-sonnet-4-5"), model)
 }
 
 func TestResolveModelShortcuts(t *testing.T) {
-	assert.Equal(t, anthropic.ModelClaudeHaiku4_5, agent.ResolveModel("haiku"))
-	assert.Equal(t, anthropic.ModelClaudeSonnet4_6, agent.ResolveModel("sonnet"))
-	assert.Equal(t, anthropic.ModelClaudeOpus4_6, agent.ResolveModel("opus"))
-}
-
-func TestConfigModel(t *testing.T) {
-	cfg := agent.Config{
-		Name:  "test",
-		Model: "haiku",
-	}
-	assert.Equal(t, "haiku", cfg.Model)
+	assert.Equal(t, anthropic.ModelClaudeHaiku4_5, models.ResolveModel("haiku"))
+	assert.Equal(t, anthropic.ModelClaudeSonnet4_6, models.ResolveModel("sonnet"))
+	assert.Equal(t, anthropic.ModelClaudeOpus4_6, models.ResolveModel("opus"))
 }
 
 func TestFetchModelsFromFixture(t *testing.T) {
@@ -52,12 +66,12 @@ func TestFetchModelsFromFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	models, err := agent.FetchModelsWithBaseURL(ctx, server.URL)
+	ms, err := models.FetchModelsWithBaseURL(ctx, server.URL)
 	require.NoError(t, err)
-	assert.True(t, len(models) > 0, "should return at least one model")
+	assert.True(t, len(ms) > 0, "should return at least one model")
 
 	// Check that each model has an ID, display name, and context window
-	for _, m := range models {
+	for _, m := range ms {
 		assert.NotEmpty(t, m.ID)
 		assert.NotEmpty(t, m.DisplayName)
 		assert.True(t, m.MaxInputTokens > 0, "model %s should have context window size", m.ID)
@@ -65,7 +79,7 @@ func TestFetchModelsFromFixture(t *testing.T) {
 
 	// Should include 1M context models
 	var foundOpus46 bool
-	for _, m := range models {
+	for _, m := range ms {
 		if m.ID == "claude-opus-4-6-20260301" {
 			foundOpus46 = true
 			assert.Equal(t, int64(1000000), m.MaxInputTokens)
@@ -74,7 +88,7 @@ func TestFetchModelsFromFixture(t *testing.T) {
 	assert.True(t, foundOpus46, "should include Opus 4.6 with 1M context")
 
 	// Should be sorted newest first
-	assert.Contains(t, models[0].ID, "4-6", "newest models should be first")
+	assert.Contains(t, ms[0].ID, "4-6", "newest models should be first")
 }
 
 func TestFetchModelsLive(t *testing.T) {
@@ -88,11 +102,11 @@ func TestFetchModelsLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	models, err := agent.FetchModels(ctx)
+	ms, err := models.FetchModels(ctx)
 	require.NoError(t, err)
-	assert.True(t, len(models) > 0, "should return at least one model from API")
-	t.Logf("fetched %d models from API:", len(models))
-	for _, m := range models {
+	assert.True(t, len(ms) > 0, "should return at least one model from API")
+	t.Logf("fetched %d models from API:", len(ms))
+	for _, m := range ms {
 		t.Logf("  %s — %s — %dk ctx — %s", m.ID, m.DisplayName, m.MaxInputTokens/1000, m.CreatedAt.Format("2006-01-02"))
 	}
 }
@@ -127,7 +141,7 @@ func TestProbeUsableModels(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	usable, err := agent.ProbeUsableModelsWithBaseURL(ctx, server.URL)
+	usable, err := models.ProbeUsableModelsWithBaseURL(ctx, server.URL)
 	require.NoError(t, err)
 
 	// Should only contain haiku models (the ones that return 200)
@@ -182,14 +196,14 @@ func TestProbeUsableModelsWithBilling(t *testing.T) {
 	defer cancel()
 
 	// Without billing: only haiku
-	withoutBilling, err := agent.ProbeUsableModelsWithBaseURL(ctx, server.URL)
+	withoutBilling, err := models.ProbeUsableModelsWithBaseURL(ctx, server.URL)
 	require.NoError(t, err)
 	for _, m := range withoutBilling {
 		assert.Contains(t, m.ID, "haiku", "without billing, only haiku should work")
 	}
 
 	// With billing: all models
-	withBilling, err := agent.ProbeUsableModelsWithBilling(ctx, server.URL, "test-key")
+	withBilling, err := models.ProbeUsableModelsWithBilling(ctx, server.URL, "test-key")
 	require.NoError(t, err)
 	assert.True(t, len(withBilling) > len(withoutBilling),
 		"billing header should unlock more models: got %d vs %d", len(withBilling), len(withoutBilling))
@@ -207,7 +221,7 @@ func TestProbeUsableModelsLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	usable, err := agent.ProbeUsableModelsWithAPIKey(ctx, apiKey)
+	usable, err := models.ProbeUsableModelsWithAPIKey(ctx, apiKey)
 	require.NoError(t, err)
 	assert.True(t, len(usable) > 0, "should find at least one usable model")
 
@@ -234,7 +248,7 @@ func TestProbeUsableModelsLive_OAuthBilling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	usable, err2 := agent.ProbeUsableModelsWithOAuthKey(ctx, tokens.APIKey)
+	usable, err2 := models.ProbeUsableModelsWithOAuthKey(ctx, tokens.APIKey)
 	require.NoError(t, err2)
 	assert.True(t, len(usable) > 0, "should find at least one usable model")
 
@@ -256,10 +270,10 @@ func TestProbeUsableModelsLive_OAuthBilling(t *testing.T) {
 func TestSaveAndLoadModel(t *testing.T) {
 	dir := t.TempDir()
 
-	err := agent.SaveModel(dir, "claude-sonnet-4-20250514")
+	err := models.SaveModel(dir, "claude-sonnet-4-20250514")
 	assert.NoError(t, err)
 
-	loaded, err := agent.LoadModel(dir)
+	loaded, err := models.LoadModel(dir)
 	assert.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-20250514", loaded)
 }
@@ -267,7 +281,7 @@ func TestSaveAndLoadModel(t *testing.T) {
 func TestLoadModelDefault(t *testing.T) {
 	dir := t.TempDir()
 
-	loaded, err := agent.LoadModel(dir)
+	loaded, err := models.LoadModel(dir)
 	assert.NoError(t, err)
 	assert.Equal(t, "", loaded)
 }
@@ -275,10 +289,10 @@ func TestLoadModelDefault(t *testing.T) {
 func TestSaveModelOverwrites(t *testing.T) {
 	dir := t.TempDir()
 
-	agent.SaveModel(dir, "claude-haiku-4-5-20241022")
-	agent.SaveModel(dir, "claude-opus-4-20250415")
+	models.SaveModel(dir, "claude-haiku-4-5-20241022")
+	models.SaveModel(dir, "claude-opus-4-20250415")
 
-	loaded, _ := agent.LoadModel(dir)
+	loaded, _ := models.LoadModel(dir)
 	assert.Equal(t, "claude-opus-4-20250415", loaded)
 }
 
@@ -287,30 +301,30 @@ func TestSaveModelRejectsSlashCommands(t *testing.T) {
 
 	invalidValues := []string{"/exit", "/quit", "/model", "/clear", "/help", ""}
 	for _, val := range invalidValues {
-		err := agent.SaveModel(dir, val)
+		err := models.SaveModel(dir, val)
 		assert.Error(t, err, "should reject %q as model ID", val)
 	}
 }
 
 func TestSaveModelRejectsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	err := agent.SaveModel(dir, "")
+	err := models.SaveModel(dir, "")
 	assert.Error(t, err, "should reject empty model ID")
 }
 
 func TestValidateModelID(t *testing.T) {
 	// Valid IDs
-	assert.NoError(t, agent.ValidateModelID("claude-sonnet-4-6"))
-	assert.NoError(t, agent.ValidateModelID("claude-opus-4-6"))
-	assert.NoError(t, agent.ValidateModelID("claude-haiku-4-5-20251001"))
-	assert.NoError(t, agent.ValidateModelID("claude-opus-4-6-20260301"))
+	assert.NoError(t, models.ValidateModelID("claude-sonnet-4-6"))
+	assert.NoError(t, models.ValidateModelID("claude-opus-4-6"))
+	assert.NoError(t, models.ValidateModelID("claude-haiku-4-5-20251001"))
+	assert.NoError(t, models.ValidateModelID("claude-opus-4-6-20260301"))
 
 	// Invalid IDs — slash commands
-	assert.Error(t, agent.ValidateModelID("/exit"))
-	assert.Error(t, agent.ValidateModelID("/quit"))
-	assert.Error(t, agent.ValidateModelID("/model"))
+	assert.Error(t, models.ValidateModelID("/exit"))
+	assert.Error(t, models.ValidateModelID("/quit"))
+	assert.Error(t, models.ValidateModelID("/model"))
 
 	// Invalid IDs — empty or whitespace
-	assert.Error(t, agent.ValidateModelID(""))
-	assert.Error(t, agent.ValidateModelID("   "))
+	assert.Error(t, models.ValidateModelID(""))
+	assert.Error(t, models.ValidateModelID("   "))
 }

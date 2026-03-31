@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/amer/aql/internal/models"
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
@@ -60,7 +61,7 @@ func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
 
 	formatted := FormatHistoryForCompaction(a.history)
 
-	model := ResolveModel(a.config.Model)
+	model := models.ResolveModel(a.config.Model)
 
 	slog.Debug("compacting conversation history",
 		"agent", a.config.Name,

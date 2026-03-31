@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,12 +72,12 @@ func TestRunner_SendsCorrectModelID(t *testing.T) {
 			capturedModel = ""
 			workDir := t.TempDir()
 
-			a, err := agent.NewWithBaseURL(agent.Config{
+			a, err := agent.New(agent.Config{
 				Name:         "test",
 				Role:         "test",
 				SystemPrompt: "test",
 				Model:        tt.configMod,
-			}, workDir, server.URL)
+			}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -104,7 +105,7 @@ func TestRunner_InvalidModelID(t *testing.T) {
 
 	for _, model := range invalidModels {
 		t.Run(model, func(t *testing.T) {
-			resolved := string(agent.ResolveModel(model))
+			resolved := string(models.ResolveModel(model))
 			assert.NotContains(t, resolved, "/",
 				"resolved model ID must not contain slash commands")
 		})
@@ -131,11 +132,11 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 	workDir := t.TempDir()
 	oauthKey := "sk-ant-oat01-test-oauth-key"
 
-	a, err := agent.NewWithOAuthKey(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
-	}, workDir, oauthKey, server.URL)
+	}, workDir, agent.WithOAuthKey(oauthKey), agent.WithBaseURL(server.URL))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -166,12 +167,12 @@ func TestRunner_API400Error(t *testing.T) {
 
 	workDir := t.TempDir()
 
-	a, err := agent.NewWithBaseURL(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
 		Model:        "claude-opus-4-6",
-	}, workDir, server.URL)
+	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -209,12 +210,12 @@ func TestRunner_API404ModelNotFound(t *testing.T) {
 
 	workDir := t.TempDir()
 
-	a, err := agent.NewWithBaseURL(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
 		Model:        "/exit",
-	}, workDir, server.URL)
+	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

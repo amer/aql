@@ -1,4 +1,4 @@
-package agent_test
+package tools_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +26,8 @@ func writeTestFile(t *testing.T, dir, name, content string) string {
 
 // --- Tool definitions ---
 
-func TestToolDefinitions_HasAll10Tools(t *testing.T) {
-	defs := agent.ToolDefinitions()
+func TestDefinitions_HasAll10Tools(t *testing.T) {
+	defs := tools.Definitions()
 	names := make(map[string]bool)
 	for _, d := range defs {
 		names[d.Name] = true
@@ -42,10 +42,20 @@ func TestToolDefinitions_HasAll10Tools(t *testing.T) {
 	assert.Len(t, defs, len(expected))
 }
 
-func TestToolDefinitions_AllHaveDescriptionsAndSchemas(t *testing.T) {
-	for _, d := range agent.ToolDefinitions() {
+func TestDefinitions_AllHaveDescriptionsAndSchemas(t *testing.T) {
+	for _, d := range tools.Definitions() {
 		assert.NotEmpty(t, d.Description, "tool %s missing description", d.Name)
 		assert.NotNil(t, d.InputSchema, "tool %s missing schema", d.Name)
+	}
+}
+
+func TestToAPITools_ConvertsAllDefs(t *testing.T) {
+	defs := tools.Definitions()
+	apiTools := tools.ToAPITools(defs)
+	assert.Len(t, apiTools, len(defs))
+	for i, at := range apiTools {
+		require.NotNil(t, at.OfTool, "tool %d should have OfTool set", i)
+		assert.Equal(t, defs[i].Name, at.OfTool.Name)
 	}
 }
 
@@ -55,7 +65,7 @@ func TestReadFile_ReturnsFileContents(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "hello.txt", "hello world\nsecond line")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "read_file",
+	result, err := tools.Execute(context.Background(), dir, "read_file",
 		json.RawMessage(`{"path":"hello.txt"}`))
 	require.NoError(t, err)
 	assert.Equal(t, "hello world\nsecond line", result)
@@ -63,7 +73,7 @@ func TestReadFile_ReturnsFileContents(t *testing.T) {
 
 func TestReadFile_MissingFile(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "read_file",
+	result, err := tools.Execute(context.Background(), dir, "read_file",
 		json.RawMessage(`{"path":"nope.txt"}`))
 	assert.NoError(t, err)
 	assert.Contains(t, result, "no such file")
@@ -73,7 +83,7 @@ func TestReadFile_MissingFile(t *testing.T) {
 
 func TestWriteFile_CreatesFileAndVerifyContents(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "write_file",
+	result, err := tools.Execute(context.Background(), dir, "write_file",
 		json.RawMessage(`{"path":"out.txt","content":"written content"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "out.txt")
@@ -85,7 +95,7 @@ func TestWriteFile_CreatesFileAndVerifyContents(t *testing.T) {
 
 func TestWriteFile_CreatesNestedDirectories(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "write_file",
+	result, err := tools.Execute(context.Background(), dir, "write_file",
 		json.RawMessage(`{"path":"a/b/c.txt","content":"deep"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "c.txt")
@@ -101,7 +111,7 @@ func TestEdit_SingleReplace(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"hello","new_string":"goodbye"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Edited")
@@ -115,7 +125,7 @@ func TestEdit_ReplaceAll(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "aaa bbb aaa")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"aaa","new_string":"xxx","replace_all":true}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "2 replacements")
@@ -129,12 +139,11 @@ func TestEdit_AmbiguousMatchFails(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "aaa bbb aaa")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"aaa","new_string":"xxx"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "matches 2 times")
 
-	// File should be unchanged
 	data, err := os.ReadFile(filepath.Join(dir, "f.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "aaa bbb aaa", string(data))
@@ -144,7 +153,7 @@ func TestEdit_NotFoundInFile(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"zzz","new_string":"xxx"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "not found")
@@ -154,7 +163,7 @@ func TestEdit_SameStringsFails(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"hello","new_string":"hello"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "identical")
@@ -162,10 +171,25 @@ func TestEdit_SameStringsFails(t *testing.T) {
 
 func TestEdit_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
+	result, err := tools.Execute(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"nope.txt","old_string":"a","new_string":"b"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "no such file")
+}
+
+func TestEdit_MultilineContent(t *testing.T) {
+	dir := t.TempDir()
+	original := "line1\nline2\nline3\nline4"
+	writeTestFile(t, dir, "multi.txt", original)
+
+	result, err := tools.Execute(context.Background(), dir, "edit",
+		json.RawMessage(`{"file_path":"multi.txt","old_string":"line2\nline3","new_string":"replaced2\nreplaced3"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result, "Edited")
+
+	data, err := os.ReadFile(filepath.Join(dir, "multi.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "line1\nreplaced2\nreplaced3\nline4", string(data))
 }
 
 // --- list_directory ---
@@ -175,7 +199,7 @@ func TestListDirectory_ShowsFilesAndDirs(t *testing.T) {
 	writeTestFile(t, dir, "a.go", "package a")
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0755))
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "list_directory",
+	result, err := tools.Execute(context.Background(), dir, "list_directory",
 		json.RawMessage(fmt.Sprintf(`{"path":"%s"}`, dir)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "a.go")
@@ -186,7 +210,7 @@ func TestListDirectory_ShowsFilesAndDirs(t *testing.T) {
 
 func TestBash_ExecutesCommand(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "bash",
+	result, err := tools.Execute(context.Background(), dir, "bash",
 		json.RawMessage(`{"command":"echo hello from bash"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "hello from bash")
@@ -194,7 +218,7 @@ func TestBash_ExecutesCommand(t *testing.T) {
 
 func TestBash_ReportsExitError(t *testing.T) {
 	dir := t.TempDir()
-	result, err := agent.ExecuteTool(context.Background(), dir, "bash",
+	result, err := tools.Execute(context.Background(), dir, "bash",
 		json.RawMessage(`{"command":"exit 1"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "exit")
@@ -208,7 +232,7 @@ func TestGlob_MatchesGoFiles(t *testing.T) {
 	writeTestFile(t, dir, "b.go", "package b")
 	writeTestFile(t, dir, "c.txt", "not go")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "glob",
+	result, err := tools.Execute(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "a.go")
@@ -221,7 +245,7 @@ func TestGlob_RecursiveDoublestar(t *testing.T) {
 	writeTestFile(t, dir, "sub/deep.go", "package deep")
 	writeTestFile(t, dir, "top.go", "package top")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "glob",
+	result, err := tools.Execute(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"**/*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "deep.go")
@@ -232,7 +256,7 @@ func TestGlob_NoMatches(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "a.txt", "text")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "glob",
+	result, err := tools.Execute(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "No files matched")
@@ -243,11 +267,25 @@ func TestGlob_SkipsHiddenDirs(t *testing.T) {
 	writeTestFile(t, dir, ".hidden/secret.go", "package secret")
 	writeTestFile(t, dir, "visible.go", "package visible")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "glob",
+	result, err := tools.Execute(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"**/*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "visible.go")
 	assert.NotContains(t, result, "secret.go")
+}
+
+func TestGlob_SortedByModTime(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "old.go", "old")
+	writeTestFile(t, dir, "new.go", "new")
+
+	result, err := tools.Execute(context.Background(), dir, "glob",
+		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
+	require.NoError(t, err)
+	lines := strings.Split(result, "\n")
+	require.Len(t, lines, 2)
+	assert.Contains(t, lines[0], "new.go")
+	assert.Contains(t, lines[1], "old.go")
 }
 
 // --- grep ---
@@ -256,7 +294,7 @@ func TestGrep_FindsPattern(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "test.go", "func main() {\n\tfmt.Println(\"hello\")\n}")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "grep",
+	result, err := tools.Execute(context.Background(), dir, "grep",
 		json.RawMessage(`{"pattern":"Println","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Println")
@@ -267,7 +305,7 @@ func TestGrep_NoMatch(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "test.go", "package main")
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "grep",
+	result, err := tools.Execute(context.Background(), dir, "grep",
 		json.RawMessage(`{"pattern":"zzznope","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Empty(t, result)
@@ -282,7 +320,7 @@ func TestWebFetch_PlainText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_fetch",
+	result, err := tools.Execute(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Equal(t, "plain text content", result)
@@ -295,7 +333,7 @@ func TestWebFetch_HTMLExtractsText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_fetch",
+	result, err := tools.Execute(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "visible text")
@@ -309,91 +347,18 @@ func TestWebFetch_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_fetch",
+	result, err := tools.Execute(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "HTTP 404")
 }
 
 func TestWebFetch_InvalidURL(t *testing.T) {
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_fetch",
+	result, err := tools.Execute(context.Background(), ".", "web_fetch",
 		json.RawMessage(`{"url":"not a url"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "error")
 }
-
-// --- web_search ---
-
-func TestWebSearch_ParsesResults(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
-			<div class="result">
-				<a class="result__a" href="https://example.com">Example Title</a>
-				<span class="result__snippet">A snippet about the result</span>
-			</div>
-		</body></html>`)
-	}))
-	defer srv.Close()
-
-	// We can't override the DuckDuckGo URL directly, but we can test parseSearchResults
-	// through the extractText function indirectly. For a real integration test,
-	// we'd need to inject the HTTP client. Instead, test that the tool handles
-	// a valid search gracefully by verifying it doesn't error.
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_search",
-		json.RawMessage(`{"query":"golang testing"}`))
-	require.NoError(t, err)
-	// Should return something (either results or "No results found.")
-	assert.NotEmpty(t, result)
-}
-
-// --- ask_user ---
-
-func TestAskUser_WithFunc(t *testing.T) {
-	askFn := func(ctx context.Context, q agent.UserQuestion) (string, error) {
-		assert.Equal(t, "What is your name?", q.Question)
-		return "Alice", nil
-	}
-	exec := agent.DefaultToolExecutor(askFn)
-
-	result, err := exec(context.Background(), ".", "ask_user",
-		json.RawMessage(`{"question":"What is your name?"}`))
-	require.NoError(t, err)
-	assert.Equal(t, "Alice", result)
-}
-
-func TestAskUser_NoFunc(t *testing.T) {
-	// ExecuteTool with no askUser returns "not available"
-	result, err := agent.ExecuteTool(context.Background(), ".", "ask_user",
-		json.RawMessage(`{"question":"hello?"}`))
-	require.NoError(t, err)
-	assert.Contains(t, result, "not available")
-}
-
-func TestAskUser_ContextCanceled(t *testing.T) {
-	askFn := func(ctx context.Context, q agent.UserQuestion) (string, error) {
-		return "", ctx.Err()
-	}
-	exec := agent.DefaultToolExecutor(askFn)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	result, err := exec(ctx, ".", "ask_user",
-		json.RawMessage(`{"question":"hello?"}`))
-	require.NoError(t, err)
-	assert.Contains(t, result, "error")
-}
-
-// --- unknown tool ---
-
-func TestExecuteTool_Unknown(t *testing.T) {
-	_, err := agent.ExecuteTool(context.Background(), ".", "unknown_tool", json.RawMessage(`{}`))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown tool")
-}
-
-// --- extractText (via web_fetch with HTML) ---
 
 func TestWebFetch_StripsScriptsAndStyles(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -410,7 +375,7 @@ func TestWebFetch_StripsScriptsAndStyles(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := agent.ExecuteTool(context.Background(), ".", "web_fetch",
+	result, err := tools.Execute(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Title")
@@ -420,37 +385,56 @@ func TestWebFetch_StripsScriptsAndStyles(t *testing.T) {
 	assert.NotContains(t, result, "no js")
 }
 
-// --- integration: edit preserves multiline content correctly ---
+// --- web_search ---
 
-func TestEdit_MultilineContent(t *testing.T) {
-	dir := t.TempDir()
-	original := "line1\nline2\nline3\nline4"
-	writeTestFile(t, dir, "multi.txt", original)
-
-	result, err := agent.ExecuteTool(context.Background(), dir, "edit",
-		json.RawMessage(`{"file_path":"multi.txt","old_string":"line2\nline3","new_string":"replaced2\nreplaced3"}`))
+func TestWebSearch_DoesNotError(t *testing.T) {
+	result, err := tools.Execute(context.Background(), ".", "web_search",
+		json.RawMessage(`{"query":"golang testing"}`))
 	require.NoError(t, err)
-	assert.Contains(t, result, "Edited")
-
-	data, err := os.ReadFile(filepath.Join(dir, "multi.txt"))
-	require.NoError(t, err)
-	assert.Equal(t, "line1\nreplaced2\nreplaced3\nline4", string(data))
+	assert.NotEmpty(t, result)
 }
 
-// --- integration: glob returns results sorted by mod time ---
+// --- ask_user ---
 
-func TestGlob_SortedByModTime(t *testing.T) {
-	dir := t.TempDir()
-	// Create files with different mod times
-	writeTestFile(t, dir, "old.go", "old")
-	writeTestFile(t, dir, "new.go", "new")
+func TestAskUser_WithFunc(t *testing.T) {
+	askFn := func(ctx context.Context, q tools.UserQuestion) (string, error) {
+		assert.Equal(t, "What is your name?", q.Question)
+		return "Alice", nil
+	}
+	exec := tools.DefaultExecutor(askFn)
 
-	result, err := agent.ExecuteTool(context.Background(), dir, "glob",
-		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
+	result, err := exec(context.Background(), ".", "ask_user",
+		json.RawMessage(`{"question":"What is your name?"}`))
 	require.NoError(t, err)
-	lines := strings.Split(result, "\n")
-	require.Len(t, lines, 2)
-	// Most recently modified should be first
-	assert.Contains(t, lines[0], "new.go")
-	assert.Contains(t, lines[1], "old.go")
+	assert.Equal(t, "Alice", result)
+}
+
+func TestAskUser_NoFunc(t *testing.T) {
+	result, err := tools.Execute(context.Background(), ".", "ask_user",
+		json.RawMessage(`{"question":"hello?"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result, "not available")
+}
+
+func TestAskUser_ContextCanceled(t *testing.T) {
+	askFn := func(ctx context.Context, q tools.UserQuestion) (string, error) {
+		return "", ctx.Err()
+	}
+	exec := tools.DefaultExecutor(askFn)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := exec(ctx, ".", "ask_user",
+		json.RawMessage(`{"question":"hello?"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result, "error")
+}
+
+// --- unknown tool ---
+
+func TestExecute_Unknown(t *testing.T) {
+	_, err := tools.Execute(context.Background(), ".", "unknown_tool", json.RawMessage(`{}`))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown tool")
 }

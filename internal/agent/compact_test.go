@@ -79,11 +79,11 @@ const compactSummaryJSON = `{
 
 func newCompactTestAgent(t *testing.T, serverURL string) *agent.Agent {
 	t.Helper()
-	a, err := agent.NewWithBaseURL(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test-coder",
 		Role:         "Go developer",
 		SystemPrompt: "You are a Go developer.",
-	}, t.TempDir(), serverURL)
+	}, t.TempDir(), agent.WithBaseURL(serverURL), agent.WithAPIKey("test-key"))
 	require.NoError(t, err)
 	return a
 }

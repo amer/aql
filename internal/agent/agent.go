@@ -97,7 +97,7 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 
 	toolExec := o.toolExecutor
 	if toolExec == nil {
-		toolExec = DefaultToolExecutor(o.askUser)
+		toolExec = tools.DefaultExecutor(o.askUser)
 	}
 
 	a := &Agent{
@@ -129,32 +129,6 @@ func buildClient(o agentOptions) anthropic.Client {
 	}
 
 	return anthropic.NewClient(clientOpts...)
-}
-
-// NewWithOAuthKey creates an agent using an OAuth-issued API key.
-// Deprecated: Use New with WithOAuthKey option instead.
-func NewWithOAuthKey(cfg Config, workDir string, apiKey string, baseURL ...string) (*Agent, error) {
-	opts := []Option{WithOAuthKey(apiKey)}
-	if len(baseURL) > 0 && baseURL[0] != "" {
-		opts = append(opts, WithBaseURL(baseURL[0]))
-	}
-	return New(cfg, workDir, opts...)
-}
-
-// NewWithBearerToken creates an agent that authenticates via Authorization: Bearer header.
-// Deprecated: Use New with WithBearerToken option instead.
-func NewWithBearerToken(cfg Config, workDir string, token string, baseURL ...string) (*Agent, error) {
-	opts := []Option{WithBearerToken(token)}
-	if len(baseURL) > 0 && baseURL[0] != "" {
-		opts = append(opts, WithBaseURL(baseURL[0]))
-	}
-	return New(cfg, workDir, opts...)
-}
-
-// NewWithBaseURL creates an agent with a custom API base URL.
-// Deprecated: Use New with WithBaseURL option instead.
-func NewWithBaseURL(cfg Config, workDir string, baseURL string) (*Agent, error) {
-	return New(cfg, workDir, WithBaseURL(baseURL), WithAPIKey("test-key"))
 }
 
 // Name returns the agent's name.
@@ -225,7 +199,7 @@ func (a *Agent) RefreshClaudeMD() bool {
 // ToolDescriptionsPrompt generates a tool listing from ToolDefinitions()
 // so the system prompt always matches the actual registered tools.
 func ToolDescriptionsPrompt() string {
-	defs := ToolDefinitions()
+	defs := tools.Definitions()
 	var b strings.Builder
 	b.WriteString("# Available Tools\n\nYou have these tools available. Use the most appropriate tool for each task:\n")
 	for _, d := range defs {

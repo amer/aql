@@ -40,12 +40,12 @@ func TestRunner_BillingHeader(t *testing.T) {
 	workDir := t.TempDir()
 	oauthKey := "sk-ant-api03-test-oauth-key"
 
-	a, err := agent.NewWithOAuthKey(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "Be helpful.",
 		Model:        "claude-opus-4-6",
-	}, workDir, oauthKey, server.URL)
+	}, workDir, agent.WithOAuthKey(oauthKey), agent.WithBaseURL(server.URL))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -109,12 +109,12 @@ func TestRunner_NoBillingHeaderForDirectAPIKey(t *testing.T) {
 
 	workDir := t.TempDir()
 
-	a, err := agent.NewWithBaseURL(agent.Config{
+	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "Be helpful.",
 		Model:        "claude-opus-4-6",
-	}, workDir, server.URL)
+	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
