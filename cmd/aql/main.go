@@ -14,6 +14,8 @@ import (
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/auth"
 	"github.com/amer/aql/internal/domain"
+	"github.com/amer/aql/internal/models"
+	"github.com/amer/aql/internal/stream"
 	"github.com/amer/aql/internal/tui"
 )
 
@@ -84,18 +86,18 @@ func run() error {
 	}
 
 	// Load saved model + cached model list for instant startup
-	savedModel, err := agent.LoadModel(workDir)
+	savedModel, err := models.LoadModel(workDir)
 	if err != nil {
 		slog.Warn("failed to load saved model", "error", err)
 	}
 
-	cachedModels, _ := agent.LoadModelCache(workDir)
+	cachedModels, _ := models.LoadModelCache(workDir)
 	if savedModel == "" && len(cachedModels) > 0 {
 		savedModel = cachedModels[0].ID
 		slog.Info("auto-selected model from cache", "model", savedModel)
 	}
 	if savedModel == "" {
-		savedModel = string(agent.ResolveModel(""))
+		savedModel = string(models.ResolveModel(""))
 	}
 
 	cfg := agent.Config{
@@ -143,84 +145,10 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 			ctx, cancel := context.WithCancel(context.Background())
 			streamCancel = cancel
 
-			// Show spinner immediately before the API call
 			program.Send(tui.AgentStreamStartMsg{AgentName: "coder"})
 
 			ch := coder.Run(ctx, input)
-
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case evt, ok := <-ch:
-						if !ok {
-							return
-						}
-						if evt.Error != nil {
-							program.Send(tui.AgentStreamErrorMsg{
-								AgentName: evt.AgentName,
-								Error:     evt.Error,
-							})
-							return
-						}
-						if evt.Done {
-							program.Send(tui.AgentStreamDoneMsg{
-								AgentName: evt.AgentName,
-							})
-							return
-						}
-						if evt.ToolCall != nil {
-							// ask_user is displayed via AgentAskUserMsg, not as a tool block
-							if evt.ToolCall.ToolName != "ask_user" {
-								program.Send(tui.AgentToolCallMsg{
-									AgentName: evt.AgentName,
-									ToolCall: domain.ToolCall{
-										Name:    evt.ToolCall.ToolName,
-										Content: evt.ToolCall.Input,
-										Status:  domain.ToolRunning,
-										ToolID:  evt.ToolCall.ToolID,
-									},
-								})
-							}
-							continue
-						}
-						if evt.ToolDone != nil {
-							// ask_user results are already shown inline
-							if evt.ToolDone.ToolName == "ask_user" {
-								continue
-							}
-							status := domain.ToolDone
-							if evt.ToolDone.IsError {
-								status = domain.ToolError
-							}
-							program.Send(tui.AgentToolCallMsg{
-								AgentName: evt.AgentName,
-								ToolCall: domain.ToolCall{
-									Name:    evt.ToolDone.ToolName,
-									Content: evt.ToolDone.Output,
-									Status:  status,
-									ToolID:  evt.ToolDone.ToolID,
-								},
-							})
-							continue
-						}
-						if evt.TokenUsage != nil {
-							program.Send(tui.TokenUsageMsg{
-								InputTokens:  evt.TokenUsage.InputTokens,
-								OutputTokens: evt.TokenUsage.OutputTokens,
-							})
-							continue
-						}
-						if evt.Text != "" {
-							program.Send(tui.AgentStreamDeltaMsg{
-								AgentName: evt.AgentName,
-								Delta:     evt.Text,
-							})
-						}
-					}
-				}
-			}()
+			go stream.Forward(ctx, ch, func(msg any) { program.Send(msg) })
 
 			return nil
 		}
@@ -267,7 +195,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		}
 	})
 	model.SetOnModelSelected(func(modelID string) {
-		if err := agent.SaveModel(workDir, modelID); err != nil {
+		if err := models.SaveModel(workDir, modelID); err != nil {
 			slog.Error("failed to save model selection", "error", err)
 			return
 		}
@@ -299,9 +227,9 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		var usableModels []domain.ModelInfo
 		var probeErr error
 		if useOAuth {
-			usableModels, probeErr = agent.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
+			usableModels, probeErr = models.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
 		} else {
-			usableModels, probeErr = agent.ProbeUsableModelsWithAPIKey(ctx, apiKey)
+			usableModels, probeErr = models.ProbeUsableModelsWithAPIKey(ctx, apiKey)
 		}
 		if probeErr != nil {
 			slog.Warn("background model probe failed", "error", probeErr)
@@ -312,7 +240,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		}
 
 		// Update cache
-		if err := agent.SaveModelCache(workDir, usableModels); err != nil {
+		if err := models.SaveModelCache(workDir, usableModels); err != nil {
 			slog.Warn("failed to save model cache", "error", err)
 		}
 
