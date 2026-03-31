@@ -37,5 +37,8 @@ aql.log
 .DS_Store
 aql
 
+# E2E test artifacts
+test/e2e/artifacts/
+
 # Temporary files
 tmp/

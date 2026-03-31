@@ -7,6 +7,7 @@
 
 - `cmd/aql/` — CLI entrypoint
 - `internal/` — private packages
+- `test/e2e/` — PTY-based e2e test harness (build tag: `e2e`)
 - `doc/` — documentation (architecture, changelog, mistakes, adr, api, cli)
 
 ## Commands
@@ -15,6 +16,8 @@
 - `go test -v -race -count=1 ./...` — verbose with race detection
 - `go build -o bin/aql ./cmd/aql` — build binary
 - `go vet ./...` — lint
+- `go test -tags e2e -v -count=1 -timeout 60s ./test/e2e/` — run e2e tests (manual, not CI)
+- `ANTHROPIC_API_KEY=sk-... go test -tags e2e -v -run TestE2E_RecordAPICall ./test/e2e/` — e2e with API recording
 
 ## Rules
 
