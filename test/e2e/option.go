@@ -41,6 +41,7 @@ type config struct {
 	recordAPI  bool     // start a recording proxy for API calls
 	replayDir  string   // directory containing exchanges.json to replay
 	fixtureDir string   // where to save recorded fixtures (set by APIOption in record mode)
+	stubAPI    bool     // point ANTHROPIC_BASE_URL at a stub (fast boot, no network)
 }
 
 func defaultConfig() config {
@@ -86,6 +87,13 @@ func WithRecordAPI() Option {
 // No network calls are made — the exchanges.json file is served directly.
 func WithReplayAPI(dir string) Option {
 	return func(c *config) { c.replayDir = dir }
+}
+
+// WithStubAPI sets ANTHROPIC_BASE_URL to a server that returns empty responses.
+// Use this for tests that don't need the API but want the binary to boot fast
+// (avoids the 5s model probe timeout hitting the real API).
+func WithStubAPI() Option {
+	return func(c *config) { c.stubAPI = true }
 }
 
 // APIOption returns WithReplayAPI(fixtureDir) by default, or WithRecordAPI()

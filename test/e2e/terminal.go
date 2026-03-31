@@ -30,6 +30,7 @@ package e2e
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -159,9 +160,17 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 		}
 	}
 
-	// Set up API proxy: replay saved fixtures or record live calls
+	// Set up API proxy: stub, replay, or record
 	var recorder *Recorder
-	if cfg.replayDir != "" {
+	if cfg.stubAPI {
+		stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`)) //nolint:errcheck
+		}))
+		t.Cleanup(stub.Close)
+		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+stub.URL)
+	} else if cfg.replayDir != "" {
 		exchanges, err := LoadExchanges(cfg.replayDir)
 		if err != nil {
 			t.Skipf("e2e: no fixtures in %s (run with E2E_RECORD=1 to capture): %v", cfg.replayDir, err)

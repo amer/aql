@@ -13,7 +13,7 @@ import (
 )
 
 func TestE2E_WelcomeScreen(t *testing.T) {
-	term := e2e.NewTerminal(t, e2e.WithSize(120, 40))
+	term := e2e.NewTerminal(t, e2e.WithSize(120, 40), e2e.WithStubAPI())
 
 	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
 		return len(s.Text) > 0
@@ -23,7 +23,7 @@ func TestE2E_WelcomeScreen(t *testing.T) {
 }
 
 func TestE2E_TypeAndSlashHelp(t *testing.T) {
-	term := e2e.NewTerminal(t, e2e.WithSize(120, 40))
+	term := e2e.NewTerminal(t, e2e.WithSize(120, 40), e2e.WithStubAPI())
 
 	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
 		return len(s.Text) > 0
@@ -39,7 +39,7 @@ func TestE2E_TypeAndSlashHelp(t *testing.T) {
 }
 
 func TestE2E_CtrlCExit(t *testing.T) {
-	term := e2e.NewTerminal(t, e2e.WithSize(120, 40))
+	term := e2e.NewTerminal(t, e2e.WithSize(120, 40), e2e.WithStubAPI())
 
 	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
 		return len(s.Text) > 0
