@@ -1,0 +1,298 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+
+	"github.com/anthropics/anthropic-sdk-go"
+)
+
+// ToolDef is the pure definition of a tool — name, description, and JSON Schema.
+type ToolDef struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+}
+
+// UserQuestion is sent from the agent to the TUI when ask_user is invoked.
+type UserQuestion struct {
+	Question string      `json:"question"`
+	ToolID   string      `json:"-"`
+	Response chan string `json:"-"`
+}
+
+// AskUserFn is the signature for a function that asks the user a question.
+type AskUserFn func(ctx context.Context, q UserQuestion) (string, error)
+
+// ExecutorFn is the signature for a function that executes a tool by name.
+type ExecutorFn func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error)
+
+// Definitions returns the set of tools available to agents.
+func Definitions() []ToolDef {
+	return []ToolDef{
+		{
+			Name:        "read_file",
+			Description: "Read the contents of a file at the given path. Returns the file content as text.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Absolute or relative path to the file to read",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "write_file",
+			Description: "Write content to a file at the given path. Creates the file if it doesn't exist, overwrites if it does.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Absolute or relative path to the file to write",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "Content to write to the file",
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "edit",
+			Description: "Apply a targeted find/replace edit to a file. More efficient than rewriting the entire file with write_file.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file_path": map[string]any{
+						"type":        "string",
+						"description": "Absolute or relative path to the file to edit",
+					},
+					"old_string": map[string]any{
+						"type":        "string",
+						"description": "The exact text to find and replace. Must match the file content exactly.",
+					},
+					"new_string": map[string]any{
+						"type":        "string",
+						"description": "The text to replace old_string with. Must be different from old_string.",
+					},
+					"replace_all": map[string]any{
+						"type":        "boolean",
+						"description": "If true, replace all occurrences. If false (default), old_string must be unique in the file.",
+					},
+				},
+				"required": []string{"file_path", "old_string", "new_string"},
+			},
+		},
+		{
+			Name:        "list_directory",
+			Description: "List the files and directories at the given path. Returns one entry per line.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Absolute or relative path to the directory to list",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "bash",
+			Description: "Execute a shell command and return its combined stdout/stderr output. Use this for running tests, builds, git commands, etc.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command": map[string]any{
+						"type":        "string",
+						"description": "The shell command to execute",
+					},
+				},
+				"required": []string{"command"},
+			},
+		},
+		{
+			Name:        "glob",
+			Description: "Find files matching a glob pattern. Returns matching file paths sorted by modification time (newest first).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching.",
+					},
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Base directory to search in. Defaults to working directory.",
+					},
+				},
+				"required": []string{"pattern"},
+			},
+		},
+		{
+			Name:        "web_fetch",
+			Description: "Fetch the contents of a URL. Returns the page content as text. For HTML pages, extracts readable text content.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{
+						"type":        "string",
+						"description": "The URL to fetch",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "web_search",
+			Description: "Search the web for a query. Returns a list of search results with titles, URLs, and snippets.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The search query",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			Name:        "ask_user",
+			Description: "Ask the user a clarifying question when you need more information to proceed. Pauses execution until the user responds.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{
+						"type":        "string",
+						"description": "The question to ask the user",
+					},
+				},
+				"required": []string{"question"},
+			},
+		},
+		{
+			Name:        "grep",
+			Description: "Search for a pattern in files. Returns matching lines with file paths and line numbers.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "Regular expression pattern to search for",
+					},
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Directory or file to search in",
+					},
+					"include": map[string]any{
+						"type":        "string",
+						"description": "Glob pattern to filter files (e.g. *.go)",
+					},
+				},
+				"required": []string{"pattern"},
+			},
+		},
+	}
+}
+
+// ToAPITools converts tool definitions to the Anthropic API format.
+func ToAPITools(defs []ToolDef) []anthropic.ToolUnionParam {
+	tools := make([]anthropic.ToolUnionParam, len(defs))
+	for i, d := range defs {
+		tools[i] = anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        d.Name,
+				Description: anthropic.String(d.Description),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: d.InputSchema["properties"],
+					Required:   toStringSlice(d.InputSchema["required"]),
+				},
+			},
+		}
+	}
+	return tools
+}
+
+func toStringSlice(v any) []string {
+	if v == nil {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []any:
+		result := make([]string, len(s))
+		for i, item := range s {
+			result[i] = fmt.Sprint(item)
+		}
+		return result
+	}
+	return nil
+}
+
+// DefaultExecutor returns an ExecutorFn that dispatches to the
+// built-in tool implementations, using askFn for the ask_user tool.
+func DefaultExecutor(askFn AskUserFn) ExecutorFn {
+	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+		return execute(ctx, workDir, name, input, askFn)
+	}
+}
+
+// Execute runs a tool by name using the default executor with no ask_user support.
+func Execute(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
+	return execute(ctx, workDir, name, input, nil)
+}
+
+func execute(ctx context.Context, workDir string, name string, input json.RawMessage, askFn AskUserFn) (string, error) {
+	slog.Debug("executing tool", "tool", name, "workDir", workDir)
+
+	switch name {
+	case "read_file":
+		return execReadFile(workDir, input)
+	case "write_file":
+		return execWriteFile(workDir, input)
+	case "edit":
+		return execEdit(workDir, input)
+	case "list_directory":
+		return execListDirectory(workDir, input)
+	case "bash":
+		return execBash(ctx, workDir, input)
+	case "glob":
+		return execGlob(workDir, input)
+	case "grep":
+		return execGrep(ctx, workDir, input)
+	case "web_fetch":
+		return execWebFetch(ctx, input)
+	case "web_search":
+		return execWebSearch(ctx, input)
+	case "ask_user":
+		return execAskUser(ctx, input, askFn)
+	default:
+		return "", fmt.Errorf("unknown tool: %s", name)
+	}
+}
+
+// parseInput unmarshals JSON tool input into the given struct pointer.
+func parseInput[T any](input json.RawMessage) (T, string) {
+	var params T
+	if err := json.Unmarshal(input, &params); err != nil {
+		return params, "invalid input: " + err.Error()
+	}
+	return params, ""
+}
+
+func resolvePath(workDir, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(workDir, path)
+}

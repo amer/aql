@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,15 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // AskUserFn is the signature for a function that asks the user a question.
-type AskUserFn func(ctx context.Context, q UserQuestion) (string, error)
+// Canonical definition lives in the tools sub-package.
+type AskUserFn = tools.AskUserFn
 
 // ToolExecutorFn is the signature for a function that executes a tool by name.
-type ToolExecutorFn func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error)
+// Canonical definition lives in the tools sub-package.
+type ToolExecutorFn = tools.ExecutorFn
 
 // Agent represents a single coding agent with its config and context.
 type Agent struct {
