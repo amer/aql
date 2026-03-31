@@ -27,6 +27,7 @@ package tui
 // ──────────────────────────────────────────────────────────────────
 
 import (
+	"github.com/amer/aql/internal/diff"
 	"github.com/amer/aql/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -139,6 +140,13 @@ type TokenUsageMsg = domain.TokenUsageEvent
 // TokenCountMsg updates the token count in the status bar.
 type TokenCountMsg struct {
 	Count int
+}
+
+// DiffResultMsg is sent when the diff runner completes.
+type DiffResultMsg struct {
+	Files []diff.DiffFile
+	Stats diff.DiffStats
+	Err   error
 }
 
 // BashFunc executes a shell command and returns a tea.Cmd with the result.

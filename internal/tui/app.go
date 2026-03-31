@@ -106,6 +106,7 @@ type Model struct {
 	onModelSelected func(modelID string)
 	onClear         func()         // called on /clear to reset agent context
 	onCompact       func() tea.Cmd // called on /compact to summarize context
+	onDiff          func() tea.Cmd // called on /diff to fetch git diff
 }
 
 // NewModel creates the initial TUI model.
@@ -173,6 +174,11 @@ func (m *Model) SetOnCompact(fn func() tea.Cmd) {
 	m.onCompact = fn
 }
 
+// SetOnDiff sets the callback for fetching git diff data.
+func (m *Model) SetOnDiff(fn func() tea.Cmd) {
+	m.onDiff = fn
+}
+
 // SetOnModelSelected sets a callback invoked when the user switches models.
 func (m *Model) SetOnModelSelected(fn func(modelID string)) {
 	m.onModelSelected = fn
@@ -227,6 +233,9 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.diffPanel.visible {
+			return m.handleDiffKey(msg)
+		}
 		if m.picker.visible {
 			return m.handleModelPickerKey(msg)
 		}
@@ -436,6 +445,14 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			m.addStatusChat("Task panel hidden (ctrl+t to toggle)", AgentActive)
 		}
 		return "tasks", nil
+	case "/diff":
+		if m.onDiff == nil {
+			m.addStatusChat("Diff is not available", AgentError)
+			return "diff", nil
+		}
+		m.diffPanel.loading = true
+		m.inputBuf.Clear()
+		return "diff", m.onDiff()
 	case "/spinner":
 		types := SpinnerTypes()
 		next := SpinnerBraille
@@ -455,6 +472,11 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 
 // View implements tea.Model.
 func (m Model) View() string {
+	// Diff overlay takes over the full screen when visible.
+	if m.diffPanel.visible {
+		return m.renderDiffOverlay()
+	}
+
 	var b strings.Builder
 
 	// Render chat as transcript blocks, with welcome banner at top

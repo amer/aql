@@ -1,14 +1,71 @@
 package tui_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/amer/aql/internal/diff"
 	"github.com/amer/aql/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDiffOverlay_navigation(t *testing.T) {
+	onSubmit := func(input string) tea.Cmd { return nil }
+	m := tui.NewModel("test", []string{"agent"}, onSubmit)
+
+	// Simulate DiffResultMsg
+	files := []diff.DiffFile{
+		{Path: "a.go", LinesAdded: 5, LinesRemoved: 2, Hunks: []diff.DiffHunk{
+			{OldStart: 1, OldCount: 3, NewStart: 1, NewCount: 4, Lines: []diff.DiffLine{
+				{Type: diff.DiffContext, Content: "line1"},
+				{Type: diff.DiffAdded, Content: "line2"},
+			}},
+		}},
+		{Path: "b.go", LinesAdded: 3, LinesRemoved: 0},
+	}
+	msg := tui.DiffResultMsg{
+		Files: files,
+		Stats: diff.DiffStats{FilesChanged: 2, Additions: 8, Deletions: 2},
+	}
+
+	result, _ := m.Update(msg)
+	m = result.(tui.Model)
+	assert.True(t, m.DiffVisible(), "diff should be visible after DiffResultMsg")
+	assert.Len(t, m.DiffFiles(), 2)
+
+	// Navigate down
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(tui.Model)
+
+	// Enter detail view
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(tui.Model)
+
+	// Back to list (esc)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = result.(tui.Model)
+	assert.True(t, m.DiffVisible(), "should still be visible after esc from detail")
+
+	// Close overlay (esc from list)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = result.(tui.Model)
+	assert.False(t, m.DiffVisible(), "should be closed after esc from list")
+}
+
+func TestDiffOverlay_error(t *testing.T) {
+	onSubmit := func(input string) tea.Cmd { return nil }
+	m := tui.NewModel("test", []string{"agent"}, onSubmit)
+
+	msg := tui.DiffResultMsg{
+		Err: errors.New("git not found"),
+	}
+	result, _ := m.Update(msg)
+	m = result.(tui.Model)
+	assert.False(t, m.DiffVisible(), "diff should not be visible on error")
+}
 
 func TestRenderDiffFileList(t *testing.T) {
 	tests := []struct {

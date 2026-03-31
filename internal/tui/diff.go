@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/amer/aql/internal/diff"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // diffMode identifies which view the diff overlay is showing.
@@ -53,6 +54,75 @@ func (m Model) DiffVisible() bool {
 // DiffFiles returns the current diff file list (for testing).
 func (m Model) DiffFiles() []diff.DiffFile {
 	return m.diffPanel.files
+}
+
+// --- Key handling ---
+
+// handleDiffKey handles keyboard input when the diff overlay is visible.
+func (m Model) handleDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		if m.diffPanel.mode == diffModeDetail {
+			m.diffPanel.mode = diffModeList
+			m.diffPanel.scrollTop = 0
+		} else {
+			m.diffPanel.visible = false
+			m.diffPanel.files = nil
+			m.diffPanel.stats = diff.DiffStats{}
+			m.diffPanel.selected = 0
+		}
+	case "up":
+		if m.diffPanel.mode == diffModeList {
+			if m.diffPanel.selected > 0 {
+				m.diffPanel.selected--
+			}
+		} else {
+			if m.diffPanel.scrollTop > 0 {
+				m.diffPanel.scrollTop--
+			}
+		}
+	case "down":
+		if m.diffPanel.mode == diffModeList {
+			if m.diffPanel.selected < len(m.diffPanel.files)-1 {
+				m.diffPanel.selected++
+			}
+		} else {
+			m.diffPanel.scrollTop++
+		}
+	case "enter":
+		if m.diffPanel.mode == diffModeList && len(m.diffPanel.files) > 0 {
+			m.diffPanel.mode = diffModeDetail
+			m.diffPanel.scrollTop = 0
+		}
+	case "left":
+		if m.diffPanel.mode == diffModeDetail {
+			m.diffPanel.mode = diffModeList
+			m.diffPanel.scrollTop = 0
+		}
+	}
+	return m, nil
+}
+
+// --- Overlay ---
+
+// renderDiffOverlay renders the full-screen diff overlay.
+func (m Model) renderDiffOverlay() string {
+	if m.diffPanel.loading {
+		return DimStyle.Render("  Loading diff…")
+	}
+
+	switch m.diffPanel.mode {
+	case diffModeDetail:
+		if m.diffPanel.selected < len(m.diffPanel.files) {
+			file := m.diffPanel.files[m.diffPanel.selected]
+			return RenderDiffDetail(file, m.diffPanel.scrollTop, m.height-4, m.width)
+		}
+		return DimStyle.Render("  No file selected")
+	default:
+		return RenderDiffFileList(m.diffPanel.files, m.diffPanel.stats, m.diffPanel.selected, m.width)
+	}
 }
 
 // --- Rendering ---

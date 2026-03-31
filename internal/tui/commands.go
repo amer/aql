@@ -45,6 +45,7 @@ func SlashCommands() []Command {
 		{Name: "/compact", Description: "Compact conversation context", Action: "compact"},
 		{Name: "/spinner", Description: "Cycle spinner animation style", Action: "spinner"},
 		{Name: "/tasks", Description: "Show/hide task tracking panel", Action: "tasks"},
+		{Name: "/diff", Description: "Show uncommitted changes (git diff)", Action: "diff"},
 	}
 }
 

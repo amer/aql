@@ -45,6 +45,7 @@ import (
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/auth"
+	"github.com/amer/aql/internal/diff"
 	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/llm"
 	"github.com/amer/aql/internal/models"
@@ -209,6 +210,15 @@ func configureTUI(
 	model.SetCancelStream(func() {
 		if *streamCancel != nil {
 			(*streamCancel)()
+		}
+	})
+	diffRunner := diff.NewDefaultRunner()
+	model.SetOnDiff(func() tea.Cmd {
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			files, stats, err := diffRunner.Run(ctx, workDir)
+			return tui.DiffResultMsg{Files: files, Stats: stats, Err: err}
 		}
 	})
 	model.SetOnModelSelected(func(modelID string) {

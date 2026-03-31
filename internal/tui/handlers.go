@@ -348,6 +348,18 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleToolCall(msg)
 	case AgentAskUserMsg:
 		m.handleAskUser(msg)
+	case DiffResultMsg:
+		m.diffPanel.loading = false
+		if msg.Err != nil {
+			m.addStatusChat("Diff error: "+msg.Err.Error(), AgentError)
+		} else {
+			m.diffPanel.files = msg.Files
+			m.diffPanel.stats = msg.Stats
+			m.diffPanel.visible = true
+			m.diffPanel.mode = diffModeList
+			m.diffPanel.selected = 0
+			m.diffPanel.scrollTop = 0
+		}
 	}
 	return m, nil
 }
