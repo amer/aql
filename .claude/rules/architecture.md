@@ -1,3 +1,9 @@
+---
+paths:
+  - "internal/**"
+  - "cmd/**"
+---
+
 # Architecture Rules
 
 Unwritten rules derived from the codebase. These are patterns consistently followed across the project — not aspirational goals, but the actual constraints that keep the system coherent. Violating any of them will break something (a test, a race detector, a dependency boundary).
@@ -6,7 +12,7 @@ Unwritten rules derived from the codebase. These are patterns consistently follo
 
 | #   | Rule                                                                              | Enforced By                             |
 | --- | --------------------------------------------------------------------------------- | --------------------------------------- |
-| 1   | **Dependency direction**: domain ← agent ← stream → tui. TUI never imports agent. | Import graph                            |
+| 1   | **Dependency direction**: domain <- agent <- stream -> tui. TUI never imports agent. | Import graph                            |
 | 2   | **History ownership**: Run() emits events, never writes `a.history`               | Race detector                           |
 | 3   | **Event channel protocol**: buffered, closed on exit, terminal = Done/Error       | Deadlock if violated                    |
 | 4   | **Tool errors are strings**, not Go errors                                        | Runner marks `isError` wrong otherwise  |
@@ -26,16 +32,16 @@ Unwritten rules derived from the codebase. These are patterns consistently follo
 
 ```
 cmd/aql/main.go
-    ↓
-internal/agent      ← owns Agent, Config, Spawner
-    ↓
-internal/agent/tools ← owns ToolDef, ExecutorFn, TaskStore
-    ↓
-internal/domain      ← pure types, zero internal imports
-    ↑
-internal/stream      ← anti-corruption layer (imports domain + tui)
-    ↓
-internal/tui         ← imports domain only, never agent
+    |
+internal/agent      <- owns Agent, Config, Spawner
+    |
+internal/agent/tools <- owns ToolDef, ExecutorFn, TaskStore
+    |
+internal/domain      <- pure types, zero internal imports
+    ^
+internal/stream      <- anti-corruption layer (imports domain + tui)
+    |
+internal/tui         <- imports domain only, never agent
 ```
 
 **Rules:**
@@ -135,8 +141,8 @@ type AgentToolCallMsg struct {
 
 Chat entries flow through a two-phase rendering pipeline:
 
-1. **Grouping:** `BuildTranscriptBlocks([]ChatEntry) → []TranscriptBlock` — flat entries become semantic blocks (user turn, assistant turn with text + tools, status).
-2. **Rendering:** `RenderTranscriptBlock(block, width, expanded) → string` — each block renders to styled terminal output.
+1. **Grouping:** `BuildTranscriptBlocks([]ChatEntry) -> []TranscriptBlock` — flat entries become semantic blocks (user turn, assistant turn with text + tools, status).
+2. **Rendering:** `RenderTranscriptBlock(block, width, expanded) -> string` — each block renders to styled terminal output.
 
 Tool calls appear twice as `ChatEntry` items — once as `ToolRunning` (with input JSON), once as `ToolDone` (with output). `BuildTranscriptBlocks` merges them into a single `ToolEntry{Call, Result}` by matching `ToolID`.
 
