@@ -52,7 +52,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		slog.Debug("starting API call", "agent", a.config.Name, "model", model, "historyLength", len(a.history), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
-		for iteration := 0; iteration < maxToolIterations; iteration++ {
+		for iteration := range maxToolIterations {
 			params := a.buildChatParams(model)
 
 			resp, err := a.streamWithRetry(ctx, ch, params)

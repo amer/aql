@@ -7,18 +7,22 @@ Date: 2026-03-31
 ```
 cmd/aql/main.go          — ~200 lines, wires everything together (split into setupLogging, configureTUI, startBackgroundModelProbe)
 internal/
-  agent/                  — 13 files, ~2800 lines (core)
-    agent.go              — Agent struct, New(), system prompt building
-    runner.go             — Run() orchestrator, streamWithRetry(), consumeStream(), executeTools()
-    model.go              — ResolveModel, SaveModel (FetchModels/ProbeUsableModels moved to models package)
-    model_cache.go        — SaveModelCache, LoadModelCache
+  domain/                 — pure types, zero dependencies
+    types.go              — ChatClient (port), Message, ContentBlock, ChatParams, ChatResponse, StreamEvent, ToolDef
+  llm/                    — Anthropic SDK adapter (implements domain.ChatClient)
+    anthropic.go          — AnthropicClient, StreamMessage, SendMessage, SDK type conversions
+  agent/                  — core agent logic (SDK-free)
+    agent.go              — Agent struct, New(), WithChatClient(), system prompt building
+    runner.go             — Run() orchestrator, streamWithRetry(), executeTools(), buildChatParams()
+    compact.go            — CompactHistory, FormatHistoryForCompaction (uses domain.ChatClient)
+    errors.go             — isRetryableError, enrichAPIError (SDK error inspection)
     config.go             — Config struct (YAML), MemoryConfig, EventsConfig
     context.go            — LoadClaudeMD, CollectClaudeMD
-    compact.go            — CompactHistory, FormatHistoryForCompaction
     env.go                — CheckEnv, EnvironmentInfo, GitStatus
-    tools.go              — ToolDef, ToolDefinitions(), ExecuteTool, file/bash/ask_user impls
-    tools_glob.go         — execGlob
-    tools_web.go          — execWebFetch, execWebSearch, HTML parsing
+    tools/                — tool definitions and executors (sub-package)
+      defs.go             — ToolDef, Definitions(), DefaultExecutor, Execute
+      tools_glob.go       — execGlob
+      tools_web.go        — execWebFetch, execWebSearch, HTML parsing
   tui/                    — 27 files, ~5000 lines (UI)
     app.go                — Model struct, Update(), all Msg types, callbacks
     handlers.go           — handleKey/handleMsg/handleSubmit dispatchers + focused handler methods
@@ -61,25 +65,35 @@ internal/
 
 ```
 cmd/aql/main.go
-  ├── agent   (Config, Agent, New, Run)
+  ├── agent   (Config, Agent, New, Run, WithChatClient, WithOAuth)
+  ├── llm     (NewAnthropicClient, WithAPIKey, WithBaseURL)
+  ├── domain  (ChatClient, StreamEvent, ModelInfo)
   ├── models  (ClientConfig, FetchModels, ProbeUsableModels, ProbeAndUpdate)
   ├── auth    (LoadTokens, Login, SaveTokens)
   └── tui     (Model, NewModel, all Msg types, ModelTier)
 
 agent
-  └── memory  (Manager, NewManager)
+  ├── domain  (ChatClient, ChatParams, ChatResponse, Message, ContentBlock)
+  ├── tools   (Definitions, ExecutorFn, AskUserFn)
+  └── models  (ResolveModel)
 
-orchestrator
-  ├── agent   (Agent)
-  └── events  (Bus)
+llm (adapter)
+  ├── domain  (ChatClient, ChatParams, ChatResponse — implements the port)
+  └── anthropic-sdk-go (SDK types, streaming)
 
+domain      — imports NOTHING (pure types + interfaces)
 tui         — imports NOTHING from internal (standalone)
 events      — imports NOTHING from internal (standalone)
 memory      — imports NOTHING from internal (standalone)
 auth        — imports NOTHING from internal (standalone)
 ```
 
-**Key observation**: `tui` and `agent` never import each other. All wiring is in `main.go`.
+**Key observations**:
+
+- `tui` and `agent` never import each other. All wiring is in `main.go`.
+- `agent` depends on `domain.ChatClient` (port), never on `llm` (adapter) or `anthropic-sdk-go`.
+- `domain` is the innermost layer with zero dependencies.
+- SDK imports are confined to: `llm/` (adapter), `agent/errors.go` (error inspection), `models/` (API probing).
 
 ## 3. Data Flow
 

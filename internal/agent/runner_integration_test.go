@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,12 +86,12 @@ func TestRunnerLive_StreamsFromAPI(t *testing.T) {
 	assert.True(t, gotDone, "should receive Done event")
 	assert.True(t, len(chunks) > 0, "should receive at least one text chunk")
 
-	var full string
+	var full strings.Builder
 	for _, c := range chunks {
-		full += c
+		full.WriteString(c)
 	}
-	assert.Contains(t, full, "hello")
-	t.Logf("received %d chunks, full response: %q", len(chunks), full)
+	assert.Contains(t, full.String(), "hello")
+	t.Logf("received %d chunks, full response: %q", len(chunks), full.String())
 }
 
 // TestRunnerLive_OAuthKeyAccessesOpus verifies that an OAuth-issued API key
@@ -135,7 +136,7 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 
 	var gotDone bool
 	var gotError error
-	var response string
+	var response strings.Builder
 
 	for evt := range ch {
 		if evt.Error != nil {
@@ -146,14 +147,14 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 			gotDone = true
 			break
 		}
-		response += evt.Text
+		response.WriteString(evt.Text)
 	}
 
 	require.NoError(t, gotError,
 		"OAuth-derived API key should access Opus without error")
 	assert.True(t, gotDone, "should complete successfully")
-	assert.NotEmpty(t, response, "Opus should produce a response")
-	t.Logf("Opus responded via OAuth API key: %q", response)
+	assert.NotEmpty(t, response.String(), "Opus should produce a response")
+	t.Logf("Opus responded via OAuth API key: %q", response.String())
 }
 
 // TestRunnerLive_AllModelTiers verifies that each model tier from the
@@ -197,7 +198,7 @@ func TestRunnerLive_AllModelTiers(t *testing.T) {
 
 			var gotDone bool
 			var gotError error
-			var response string
+			var response strings.Builder
 
 			for evt := range ch {
 				if evt.Error != nil {
@@ -208,7 +209,7 @@ func TestRunnerLive_AllModelTiers(t *testing.T) {
 					gotDone = true
 					break
 				}
-				response += evt.Text
+				response.WriteString(evt.Text)
 			}
 
 			if gotError != nil {
@@ -220,8 +221,8 @@ func TestRunnerLive_AllModelTiers(t *testing.T) {
 			}
 
 			assert.True(t, gotDone, "should complete without error")
-			assert.NotEmpty(t, response, "should produce a response")
-			t.Logf("model %s responded: %q", tier.modelID, response)
+			assert.NotEmpty(t, response.String(), "should produce a response")
+			t.Logf("model %s responded: %q", tier.modelID, response.String())
 		})
 	}
 }
