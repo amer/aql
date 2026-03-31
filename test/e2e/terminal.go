@@ -187,7 +187,9 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 
 	cmd := exec.Command(binary)
 	cmd.Dir = cfg.workDir
-	cmd.Env = append(os.Environ(), cfg.env...)
+	// CI=1 tells termenv to skip the OSC background-color query, which
+	// otherwise blocks for 5 s waiting for a response that vt10x never sends.
+	cmd.Env = append(os.Environ(), append([]string{"CI=1"}, cfg.env...)...)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(cfg.cols),
