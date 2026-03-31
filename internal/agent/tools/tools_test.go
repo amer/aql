@@ -412,11 +412,30 @@ func TestWebFetch_StripsScriptsAndStyles(t *testing.T) {
 
 // --- web_search ---
 
-func TestWebSearch_DoesNotError(t *testing.T) {
-	result, err := tools.Execute(context.Background(), ".", "web_search",
+func TestWebSearch_ParsesResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<html><body>
+			<a class="result__a" href="https://example.com/go-testing">Go Testing Guide</a>
+			<a class="result__snippet">Learn how to test in Go</a>
+		</body></html>`)
+	}))
+	defer srv.Close()
+
+	// Use a custom client that rewrites the DuckDuckGo URL to our test server
+	customClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			req.URL.Scheme = "http"
+			req.URL.Host = srv.Listener.Addr().String()
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	exec := tools.NewExecutor(tools.WithHTTPClient(customClient))
+	result, err := exec(context.Background(), ".", "web_search",
 		json.RawMessage(`{"query":"golang testing"}`))
 	require.NoError(t, err)
-	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "Go Testing Guide")
 }
 
 // --- ask_user ---
