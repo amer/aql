@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
@@ -19,7 +20,7 @@ const (
 	// maxToolIterations is the maximum number of tool use loops before giving up.
 	maxToolIterations = 25
 
-	// streamEventBufSize is the buffer size for the StreamEvent channel.
+	// streamEventBufSize is the buffer size for the domain.StreamEvent channel.
 	streamEventBufSize = 64
 
 	// defaultMaxTokens is the max tokens for non-OAuth API requests.
@@ -27,46 +28,20 @@ const (
 
 	// oauthMaxTokens is the max tokens for OAuth-authenticated API requests.
 	oauthMaxTokens = 16384
+
+	// maxStreamRetries is the number of retry attempts for transient API errors (500, 529).
+	maxStreamRetries = 2
+
+	// streamRetryBaseDelay is the base delay between retries (doubled each attempt).
+	streamRetryBaseDelay = 500 * time.Millisecond
 )
-
-// StreamEvent represents a chunk of output from the agent.
-type StreamEvent struct {
-	AgentName  string
-	Text       string
-	Done       bool
-	Error      error
-	ToolCall   *ToolCallEvent   // non-nil when agent invokes a tool
-	ToolDone   *ToolDoneEvent   // non-nil when a tool finishes
-	TokenUsage *TokenUsageEvent // non-nil after each API response with precise token counts
-}
-
-// TokenUsageEvent carries precise token counts from the API response.
-type TokenUsageEvent struct {
-	InputTokens  int
-	OutputTokens int
-}
-
-// ToolCallEvent is emitted when the agent starts a tool call.
-type ToolCallEvent struct {
-	ToolName string
-	ToolID   string
-	Input    string
-}
-
-// ToolDoneEvent is emitted when a tool call completes.
-type ToolDoneEvent struct {
-	ToolName string
-	ToolID   string
-	Output   string
-	IsError  bool
-}
 
 // Run sends a user message to Claude and streams responses back on the
 // returned channel. Implements a tool use loop: if Claude responds with
 // tool_use blocks, the tools are executed and results sent back until
 // Claude produces a final text response.
-func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent {
-	ch := make(chan StreamEvent, streamEventBufSize)
+func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.StreamEvent {
+	ch := make(chan domain.StreamEvent, streamEventBufSize)
 
 	go func() {
 		defer close(ch)
@@ -85,10 +60,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		for iteration := 0; iteration < maxToolIterations; iteration++ {
 			params, reqOpts := a.buildMessageParams(model)
 
-			stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
-			defer stream.Close()
-
-			// Accumulate content blocks from the stream
+			// Retry loop for transient API errors
 			var assistantBlocks []anthropic.ContentBlockParamUnion
 			type pendingToolUse struct {
 				id       string
@@ -97,73 +69,119 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			}
 			var toolUses []pendingToolUse
 			var stopReason anthropic.StopReason
-
-			// Track active block by index
-			activeBlocks := map[int64]*pendingToolUse{}
-			textBlocks := map[int64]*strings.Builder{}
 			var inputTokens, outputTokens int64
 
-			for stream.Next() {
-				evt := stream.Current()
+			streamOK := false
+			for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+				stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
 
-				switch v := evt.AsAny().(type) {
-				case anthropic.ContentBlockStartEvent:
-					cb := v.ContentBlock
-					switch cb.Type {
-					case "text":
-						textBlocks[v.Index] = &strings.Builder{}
-					case "tool_use":
-						tu := &pendingToolUse{id: cb.ID, name: cb.Name}
-						activeBlocks[v.Index] = tu
-						toolUses = append(toolUses, *tu)
-					}
+				// Reset accumulators for each attempt
+				assistantBlocks = nil
+				toolUses = nil
+				stopReason = ""
+				inputTokens = 0
+				outputTokens = 0
+				activeBlocks := map[int64]*pendingToolUse{}
+				textBlocks := map[int64]*strings.Builder{}
 
-				case anthropic.ContentBlockDeltaEvent:
-					switch d := v.Delta.AsAny().(type) {
-					case anthropic.TextDelta:
-						if d.Text != "" {
-							ch <- StreamEvent{AgentName: a.config.Name, Text: d.Text}
-							if sb, ok := textBlocks[v.Index]; ok {
-								sb.WriteString(d.Text)
-							}
+				for stream.Next() {
+					evt := stream.Current()
+
+					switch v := evt.AsAny().(type) {
+					case anthropic.ContentBlockStartEvent:
+						cb := v.ContentBlock
+						switch cb.Type {
+						case "text":
+							textBlocks[v.Index] = &strings.Builder{}
+						case "tool_use":
+							tu := &pendingToolUse{id: cb.ID, name: cb.Name}
+							activeBlocks[v.Index] = tu
+							toolUses = append(toolUses, *tu)
 						}
-					case anthropic.InputJSONDelta:
-						if tu, ok := activeBlocks[v.Index]; ok {
-							tu.inputBuf.WriteString(d.PartialJSON)
-							// Update the last toolUses entry for this block
-							for i := range toolUses {
-								if toolUses[i].id == tu.id {
-									toolUses[i].inputBuf = tu.inputBuf
+
+					case anthropic.ContentBlockDeltaEvent:
+						switch d := v.Delta.AsAny().(type) {
+						case anthropic.TextDelta:
+							if d.Text != "" {
+								ch <- domain.StreamEvent{AgentName: a.config.Name, Text: d.Text}
+								if sb, ok := textBlocks[v.Index]; ok {
+									sb.WriteString(d.Text)
+								}
+							}
+						case anthropic.InputJSONDelta:
+							if tu, ok := activeBlocks[v.Index]; ok {
+								tu.inputBuf.WriteString(d.PartialJSON)
+								// Update the last toolUses entry for this block
+								for i := range toolUses {
+									if toolUses[i].id == tu.id {
+										toolUses[i].inputBuf = tu.inputBuf
+									}
 								}
 							}
 						}
-					}
 
-				case anthropic.MessageDeltaEvent:
-					stopReason = v.Delta.StopReason
-					if v.Usage.OutputTokens > 0 {
-						outputTokens = v.Usage.OutputTokens
+					case anthropic.MessageDeltaEvent:
+						stopReason = v.Delta.StopReason
+						if v.Usage.OutputTokens > 0 {
+							outputTokens = v.Usage.OutputTokens
+						}
+						if v.Usage.InputTokens > 0 {
+							inputTokens = v.Usage.InputTokens
+						}
 					}
-					if v.Usage.InputTokens > 0 {
-						inputTokens = v.Usage.InputTokens
+				}
+
+				streamErr := stream.Err()
+				stream.Close()
+
+				if streamErr == nil {
+					// Build text blocks from this attempt
+					textIndices := make([]int64, 0, len(textBlocks))
+					for idx := range textBlocks {
+						textIndices = append(textIndices, idx)
 					}
+					sort.Slice(textIndices, func(i, j int) bool { return textIndices[i] < textIndices[j] })
+					for _, idx := range textIndices {
+						text := textBlocks[idx].String()
+						if text != "" {
+							assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(text))
+						}
+					}
+					streamOK = true
+					break
+				}
+
+				// Check if error is retryable (transient server errors)
+				if !isRetryableError(streamErr) || attempt == maxStreamRetries {
+					slog.Error("API error", "agent", a.config.Name, "error", streamErr, "duration", time.Since(start), "iteration", iteration, "attempt", attempt)
+					ch <- domain.StreamEvent{
+						AgentName: a.config.Name,
+						Error:     enrichAPIError(streamErr, string(model)),
+					}
+					return
+				}
+
+				delay := streamRetryBaseDelay * time.Duration(1<<attempt)
+				slog.Warn("transient API error, retrying",
+					"agent", a.config.Name, "error", streamErr, "attempt", attempt+1, "maxRetries", maxStreamRetries, "delay", delay)
+
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					ch <- domain.StreamEvent{AgentName: a.config.Name, Error: ctx.Err()}
+					return
 				}
 			}
 
-			if err := stream.Err(); err != nil {
-				slog.Error("API error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "iteration", iteration)
-				ch <- StreamEvent{
-					AgentName: a.config.Name,
-					Error:     enrichAPIError(err, string(model)),
-				}
+			if !streamOK {
 				return
 			}
 
 			// Emit precise token counts from this API call
 			if inputTokens > 0 || outputTokens > 0 {
-				ch <- StreamEvent{
+				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
-					TokenUsage: &TokenUsageEvent{
+					TokenUsage: &domain.TokenUsageEvent{
 						InputTokens:  int(inputTokens),
 						OutputTokens: int(outputTokens),
 					},
@@ -171,18 +189,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 				slog.Debug("token usage", "agent", a.config.Name, "input", inputTokens, "output", outputTokens)
 			}
 
-			// Build assistant message from accumulated blocks (sorted by index)
-			textIndices := make([]int64, 0, len(textBlocks))
-			for idx := range textBlocks {
-				textIndices = append(textIndices, idx)
-			}
-			sort.Slice(textIndices, func(i, j int) bool { return textIndices[i] < textIndices[j] })
-			for _, idx := range textIndices {
-				text := textBlocks[idx].String()
-				if text != "" {
-					assistantBlocks = append(assistantBlocks, anthropic.NewTextBlock(text))
-				}
-			}
+			// Append tool_use blocks to assistant message
 			for _, tu := range toolUses {
 				var input json.RawMessage
 				if tu.inputBuf.Len() > 0 {
@@ -213,9 +220,9 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 					if compactErr != nil {
 						slog.Warn("auto-compact failed", "error", compactErr)
 					} else {
-						ch <- StreamEvent{
+						ch <- domain.StreamEvent{
 							AgentName: a.config.Name,
-							TokenUsage: &TokenUsageEvent{
+							TokenUsage: &domain.TokenUsageEvent{
 								InputTokens:  len(summary) / 4, // rough estimate after compaction
 								OutputTokens: 0,
 							},
@@ -223,15 +230,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 					}
 				}
 
-				ch <- StreamEvent{AgentName: a.config.Name, Done: true}
+				ch <- domain.StreamEvent{AgentName: a.config.Name, Done: true}
 				return
 			}
 
 			// Notify TUI of all tool calls up front
 			for _, tu := range toolUses {
-				ch <- StreamEvent{
+				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
-					ToolCall: &ToolCallEvent{
+					ToolCall: &domain.ToolCallEvent{
 						ToolName: tu.name,
 						ToolID:   tu.id,
 						Input:    tu.inputBuf.String(),
@@ -266,9 +273,9 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			var toolResultBlocks []anthropic.ContentBlockParamUnion
 			for i, tu := range toolUses {
 				r := results[i]
-				ch <- StreamEvent{
+				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
-					ToolDone: &ToolDoneEvent{
+					ToolDone: &domain.ToolDoneEvent{
 						ToolName: tu.name,
 						ToolID:   tu.id,
 						Output:   r.output,
@@ -290,7 +297,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 		}
 
 		slog.Warn("agent hit tool use iteration limit", "agent", a.config.Name)
-		ch <- StreamEvent{AgentName: a.config.Name, Done: true}
+		ch <- domain.StreamEvent{AgentName: a.config.Name, Done: true}
 	}()
 
 	return ch
@@ -358,6 +365,25 @@ func (a *Agent) WorkDir() string {
 	return "."
 }
 
+// isRetryableError returns true for transient server errors that are safe to retry.
+// This includes 500 (Internal Server Error), 502, 503, 529 (Overloaded), and
+// streaming errors that contain "api_error" or "overloaded_error".
+func isRetryableError(err error) bool {
+	var apiErr *anthropic.Error
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case 500, 502, 503, 529:
+			return true
+		}
+		return false
+	}
+	// Streaming errors aren't typed — check the error message
+	msg := err.Error()
+	return strings.Contains(msg, "api_error") ||
+		strings.Contains(msg, "overloaded_error") ||
+		strings.Contains(msg, "Internal server error")
+}
+
 // enrichAPIError adds actionable context to common API errors.
 // Uses the SDK's typed error to inspect HTTP status codes directly
 // rather than fragile string matching.
@@ -373,6 +399,10 @@ func enrichAPIError(err error, model string) error {
 			"or /model to switch models", err, model)
 	case 404:
 		return fmt.Errorf("%w — model %q not found. Try /model to pick a valid model", err, model)
+	case 500, 502, 503:
+		return fmt.Errorf("%w — API server error. This is usually transient, try again", err)
+	case 529:
+		return fmt.Errorf("%w — API is overloaded, try again in a moment", err)
 	default:
 		return err
 	}

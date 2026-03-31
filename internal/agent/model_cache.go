@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/amer/aql/internal/domain"
 )
 
 const (
@@ -14,17 +16,17 @@ const (
 )
 
 type modelCache struct {
-	Models    []ModelInfo `json:"models"`
-	ExpiresAt time.Time   `json:"expires_at"`
+	Models    []domain.ModelInfo `json:"models"`
+	ExpiresAt time.Time          `json:"expires_at"`
 }
 
 // SaveModelCache persists the probed model list with the default TTL.
-func SaveModelCache(dir string, models []ModelInfo) error {
+func SaveModelCache(dir string, models []domain.ModelInfo) error {
 	return SaveModelCacheWithTTL(dir, models, modelCacheTTL)
 }
 
 // SaveModelCacheWithTTL persists the probed model list with a custom TTL.
-func SaveModelCacheWithTTL(dir string, models []ModelInfo, ttl time.Duration) error {
+func SaveModelCacheWithTTL(dir string, models []domain.ModelInfo, ttl time.Duration) error {
 	cache := modelCache{
 		Models:    models,
 		ExpiresAt: time.Now().Add(ttl),
@@ -40,7 +42,7 @@ func SaveModelCacheWithTTL(dir string, models []ModelInfo, ttl time.Duration) er
 
 // LoadModelCache loads the cached model list. Returns nil if no cache exists
 // or if the cache has expired.
-func LoadModelCache(dir string) ([]ModelInfo, error) {
+func LoadModelCache(dir string) ([]domain.ModelInfo, error) {
 	path := filepath.Join(dir, modelCacheFile)
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

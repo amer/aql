@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +13,7 @@ import (
 func TestSaveAndLoadModelCache(t *testing.T) {
 	dir := t.TempDir()
 
-	models := []agent.ModelInfo{
+	models := []domain.ModelInfo{
 		{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", MaxInputTokens: 1000000},
 		{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6", MaxInputTokens: 200000},
 	}
@@ -40,7 +41,7 @@ func TestLoadModelCacheEmpty(t *testing.T) {
 func TestLoadModelCacheExpired(t *testing.T) {
 	dir := t.TempDir()
 
-	models := []agent.ModelInfo{
+	models := []domain.ModelInfo{
 		{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", MaxInputTokens: 1000000},
 	}
 
@@ -56,7 +57,7 @@ func TestLoadModelCacheExpired(t *testing.T) {
 func TestLoadModelCacheValid(t *testing.T) {
 	dir := t.TempDir()
 
-	models := []agent.ModelInfo{
+	models := []domain.ModelInfo{
 		{ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5", MaxInputTokens: 200000},
 	}
 

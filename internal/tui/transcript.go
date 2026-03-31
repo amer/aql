@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/amer/aql/internal/domain"
 )
 
 // toolDisplayNames maps internal tool names to display-friendly names.
@@ -180,8 +182,8 @@ const (
 
 // ToolEntry holds a tool call paired with its result.
 type ToolEntry struct {
-	Call   ToolCall  // The Running-phase entry (Name, ToolID, Input JSON)
-	Result *ToolCall // The Done/Error-phase entry (nil if still running)
+	Call   domain.ToolCall  // The Running-phase entry (Name, ToolID, Input JSON)
+	Result *domain.ToolCall // The Done/Error-phase entry (nil if still running)
 }
 
 // TranscriptBlock represents a top-level block in the transcript.
@@ -226,7 +228,7 @@ func BuildTranscriptBlocks(entries []ChatEntry) []TranscriptBlock {
 			tc := *entry.ToolCall
 			// Try to merge with an existing running tool with the same ToolID
 			cur := currentAssistantBlock(&blocks, entry.AgentName)
-			if tc.ToolID != "" && tc.Status != ToolRunning {
+			if tc.ToolID != "" && tc.Status != domain.ToolRunning {
 				if merged := mergeToolResult(cur, tc); merged {
 					continue
 				}
@@ -269,7 +271,7 @@ func currentAssistantBlock(blocks *[]TranscriptBlock, agentName string) *Transcr
 }
 
 // mergeToolResult finds a running tool with matching ToolID and sets its result.
-func mergeToolResult(block *TranscriptBlock, done ToolCall) bool {
+func mergeToolResult(block *TranscriptBlock, done domain.ToolCall) bool {
 	for i := len(block.Tools) - 1; i >= 0; i-- {
 		if block.Tools[i].Call.ToolID == done.ToolID && block.Tools[i].Result == nil {
 			block.Tools[i].Result = &done
@@ -313,7 +315,8 @@ func GroupConsecutiveTools(tools []ToolEntry) []ToolGroup {
 const (
 	transcriptMarker    = "⏺"
 	transcriptConnector = "⎿"
-	transcriptIndent    = "  "
+	transcriptPadding   = "    "   // space between marker and text
+	transcriptIndent    = "      " // align continuation lines with text after marker + padding
 )
 
 // MarkerState represents the visual state of a ⏺ marker.
@@ -356,7 +359,7 @@ func RenderTranscriptBlock(block TranscriptBlock, width int, expanded bool) stri
 
 func renderAssistantBlock(block TranscriptBlock, width int, expanded bool) string {
 	var b strings.Builder
-	contentWidth := width - 4 // account for marker + indent
+	contentWidth := width - len(transcriptIndent) // account for marker + padding
 
 	// Render text parts
 	for _, text := range block.TextParts {
@@ -365,7 +368,7 @@ func renderAssistantBlock(block TranscriptBlock, width int, expanded bool) strin
 			rendered = AgentBody.Render(text)
 		}
 		b.WriteString(StyledMarker(MarkerActive))
-		b.WriteString(" ")
+		b.WriteString(transcriptPadding)
 		// Indent continuation lines
 		lines := strings.Split(rendered, "\n")
 		for i, line := range lines {
@@ -479,7 +482,7 @@ func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
 	}
 
 	// Determine marker state from result
-	isError := entry.Result.Status == ToolError
+	isError := entry.Result.Status == domain.ToolError
 	if isError {
 		b.WriteString(StyledMarker(MarkerError))
 	} else {

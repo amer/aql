@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
@@ -165,7 +166,7 @@ func TestModelAgentToolCallMsg(t *testing.T) {
 
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "write_file", Content: "auth.go"},
+		ToolCall:  domain.ToolCall{Name: "write_file", Content: "auth.go"},
 	})
 
 	require.Len(t, m.Chat(), 1)
@@ -238,7 +239,7 @@ func TestRenderChatEntryTool(t *testing.T) {
 	entry := tui.ChatEntry{
 		Type:      tui.EntryAgentTool,
 		AgentName: "coder",
-		ToolCall:  &tui.ToolCall{Name: "bash", Content: "go test ./..."},
+		ToolCall:  &domain.ToolCall{Name: "bash", Content: "go test ./..."},
 	}
 	result := tui.RenderChatEntry(entry, 80)
 	assert.Contains(t, result, "bash")
@@ -677,7 +678,7 @@ func TestView_ToolFormattedHeader(t *testing.T) {
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning, ToolID: "t1"},
+		ToolCall:  domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning, ToolID: "t1"},
 	})
 
 	view := m.View()
@@ -691,11 +692,11 @@ func TestView_ToolConnector(t *testing.T) {
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning, ToolID: "t1"},
+		ToolCall:  domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning, ToolID: "t1"},
 	})
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "read_file", Content: "line1\nline2\n", Status: tui.ToolDone, ToolID: "t1"},
+		ToolCall:  domain.ToolCall{Name: "read_file", Content: "line1\nline2\n", Status: domain.ToolDone, ToolID: "t1"},
 	})
 
 	view := m.View()
@@ -722,11 +723,11 @@ func TestCtrlO_ExpandsTools(t *testing.T) {
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning, ToolID: "t1"},
+		ToolCall:  domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning, ToolID: "t1"},
 	})
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "read_file", Content: "package tui\nfunc main() {}\n", Status: tui.ToolDone, ToolID: "t1"},
+		ToolCall:  domain.ToolCall{Name: "read_file", Content: "package tui\nfunc main() {}\n", Status: domain.ToolDone, ToolID: "t1"},
 	})
 
 	// Normal mode: collapsed summary

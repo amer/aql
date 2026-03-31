@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
@@ -30,22 +31,14 @@ const (
 	probeMaxTokensBilling = 1024
 )
 
-// ModelInfo holds information about an available model from the API.
-type ModelInfo struct {
-	ID             string
-	DisplayName    string
-	MaxInputTokens int64
-	CreatedAt      time.Time
-}
-
 // FetchModels lists available models from the Anthropic API.
-func FetchModels(ctx context.Context) ([]ModelInfo, error) {
+func FetchModels(ctx context.Context) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient()
 	return fetchModelsWithClient(ctx, client)
 }
 
 // FetchModelsWithBaseURL lists available models using a custom API base URL.
-func FetchModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelInfo, error) {
+func FetchModelsWithBaseURL(ctx context.Context, baseURL string) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient(
 		option.WithBaseURL(baseURL),
 		option.WithAPIKey("test-key"),
@@ -53,17 +46,17 @@ func FetchModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelInfo, e
 	return fetchModelsWithClient(ctx, client)
 }
 
-func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]ModelInfo, error) {
+func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]domain.ModelInfo, error) {
 	slog.Debug("fetching available models from API")
 
 	pager := client.Models.ListAutoPaging(ctx, anthropic.ModelListParams{
 		Limit: param.NewOpt[int64](modelListLimit),
 	})
 
-	var models []ModelInfo
+	var models []domain.ModelInfo
 	for pager.Next() {
 		m := pager.Current()
-		models = append(models, ModelInfo{
+		models = append(models, domain.ModelInfo{
 			ID:             m.ID,
 			DisplayName:    m.DisplayName,
 			MaxInputTokens: m.MaxInputTokens,
@@ -86,13 +79,13 @@ func fetchModelsWithClient(ctx context.Context, client anthropic.Client) ([]Mode
 // ProbeUsableModels fetches the model list and probes each one with a minimal
 // request to determine which models the API key can actually use. Models that
 // return 400/403 are filtered out.
-func ProbeUsableModels(ctx context.Context) ([]ModelInfo, error) {
+func ProbeUsableModels(ctx context.Context) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient()
 	return probeUsableModelsWithClient(ctx, client, false)
 }
 
 // ProbeUsableModelsWithBaseURL is like ProbeUsableModels but uses a custom base URL.
-func ProbeUsableModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelInfo, error) {
+func ProbeUsableModelsWithBaseURL(ctx context.Context, baseURL string) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient(
 		option.WithBaseURL(baseURL),
 		option.WithAPIKey("test-key"),
@@ -101,14 +94,14 @@ func ProbeUsableModelsWithBaseURL(ctx context.Context, baseURL string) ([]ModelI
 }
 
 // ProbeUsableModelsWithAPIKey probes models using a specific API key.
-func ProbeUsableModelsWithAPIKey(ctx context.Context, apiKey string) ([]ModelInfo, error) {
+func ProbeUsableModelsWithAPIKey(ctx context.Context, apiKey string) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	return probeUsableModelsWithClient(ctx, client, false)
 }
 
 // ProbeUsableModelsWithBilling probes models with the Claude Code billing header.
 // This unlocks Opus/Sonnet for OAuth Console users.
-func ProbeUsableModelsWithBilling(ctx context.Context, baseURL string, apiKey string) ([]ModelInfo, error) {
+func ProbeUsableModelsWithBilling(ctx context.Context, baseURL string, apiKey string) ([]domain.ModelInfo, error) {
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
@@ -118,7 +111,7 @@ func ProbeUsableModelsWithBilling(ctx context.Context, baseURL string, apiKey st
 }
 
 // ProbeUsableModelsWithOAuthKey probes models using an OAuth API key with billing header.
-func ProbeUsableModelsWithOAuthKey(ctx context.Context, apiKey string) ([]ModelInfo, error) {
+func ProbeUsableModelsWithOAuthKey(ctx context.Context, apiKey string) ([]domain.ModelInfo, error) {
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	return probeUsableModelsWithClient(ctx, client, true)
 }
@@ -140,14 +133,14 @@ func isRelevantModel(id string) bool {
 	return false
 }
 
-func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, withBilling bool) ([]ModelInfo, error) {
+func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, withBilling bool) ([]domain.ModelInfo, error) {
 	models, err := fetchModelsWithClient(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter to relevant models before probing
-	var candidates []ModelInfo
+	var candidates []domain.ModelInfo
 	for _, m := range models {
 		if isRelevantModel(m.ID) {
 			candidates = append(candidates, m)
@@ -158,14 +151,14 @@ func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, w
 
 	// Probe in parallel
 	type result struct {
-		model ModelInfo
+		model domain.ModelInfo
 		ok    bool
 	}
 	results := make([]result, len(candidates))
 	var wg sync.WaitGroup
 	for i, m := range candidates {
 		wg.Add(1)
-		go func(idx int, model ModelInfo) {
+		go func(idx int, model domain.ModelInfo) {
 			defer wg.Done()
 			ok := probeModel(ctx, client, model.ID, withBilling)
 			results[idx] = result{model: model, ok: ok}
@@ -178,7 +171,7 @@ func probeUsableModelsWithClient(ctx context.Context, client anthropic.Client, w
 	}
 	wg.Wait()
 
-	var usable []ModelInfo
+	var usable []domain.ModelInfo
 	for _, r := range results {
 		if r.ok {
 			usable = append(usable, r.model)

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
@@ -44,10 +45,10 @@ func TestIntegration_FullConversation(t *testing.T) {
 	// 3. Agent uses a tool
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall: tui.ToolCall{
+		ToolCall: domain.ToolCall{
 			Name:    "write_file",
 			Content: "internal/auth/auth_test.go",
-			Status:  tui.ToolDone,
+			Status:  domain.ToolDone,
 		},
 	})
 	require.Len(t, m.Chat(), 3)
@@ -555,19 +556,19 @@ func TestIntegration_ToolCallStatuses(t *testing.T) {
 	// Running tool
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "bash", Content: "go test ./...", Status: tui.ToolRunning},
+		ToolCall:  domain.ToolCall{Name: "bash", Content: "go test ./...", Status: domain.ToolRunning},
 	})
 
 	// Done tool
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "write_file", Content: "auth.go", Status: tui.ToolDone},
+		ToolCall:  domain.ToolCall{Name: "write_file", Content: "auth.go", Status: domain.ToolDone},
 	})
 
 	// Error tool
 	m = applyMsg(m, tui.AgentToolCallMsg{
 		AgentName: "coder",
-		ToolCall:  tui.ToolCall{Name: "bash", Content: "exit 1", Status: tui.ToolError},
+		ToolCall:  domain.ToolCall{Name: "bash", Content: "exit 1", Status: domain.ToolError},
 	})
 
 	require.Len(t, m.Chat(), 3)
@@ -1109,16 +1110,16 @@ func TestIntegration_SelectionHighlightInView(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
 
-	// Start selection on the agent header line (● coder)
+	// Start selection on the agent output line (⏺ hello world)
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 4,
+		X:      0, Y: 3,
 	})
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 4,
+		X:      10, Y: 3,
 	})
 
 	view := m.View()
@@ -1139,25 +1140,25 @@ func TestIntegration_SelectionReleaseCopiesText(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
 
-	// Press starts selection on the agent header line
+	// Press starts selection on the agent output line
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 4,
+		X:      0, Y: 3,
 	})
 
 	// Drag
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 4,
+		X:      10, Y: 3,
 	})
 
 	// Release should produce a clipboard command
 	_, cmd := applyMsgCmd(m, tea.MouseMsg{
 		Button: tea.MouseButtonNone,
 		Action: tea.MouseActionRelease,
-		X:      10, Y: 4,
+		X:      10, Y: 3,
 	})
 
 	// The command should not be nil if text was extracted

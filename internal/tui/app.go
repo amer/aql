@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amer/aql/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -17,7 +18,7 @@ type ChatEntry struct {
 	Type      ChatEntryType
 	AgentName string
 	Content   string
-	ToolCall  *ToolCall
+	ToolCall  *domain.ToolCall
 	Status    AgentStatus
 }
 
@@ -69,7 +70,7 @@ type AgentStatusMsg struct {
 // AgentToolCallMsg is sent when an agent invokes a tool.
 type AgentToolCallMsg struct {
 	AgentName string
-	ToolCall  ToolCall
+	ToolCall  domain.ToolCall
 }
 
 // AgentAskUserMsg is sent when the agent uses ask_user to request user input.
@@ -105,10 +106,7 @@ type CompactDoneMsg struct {
 }
 
 // TokenUsageMsg is sent with precise token counts from the API response.
-type TokenUsageMsg struct {
-	InputTokens  int
-	OutputTokens int
-}
+type TokenUsageMsg = domain.TokenUsageEvent
 
 // BashFunc executes a shell command and returns a tea.Cmd with the result.
 // Set by the main app to provide actual shell execution.

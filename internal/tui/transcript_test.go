@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/tui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,8 +114,8 @@ func TestBuildBlocks_UserEntry(t *testing.T) {
 func TestBuildBlocks_TextAndTool(t *testing.T) {
 	entries := []tui.ChatEntry{
 		{Type: tui.EntryAgentText, AgentName: "coder", Content: "Let me read that file."},
-		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &tui.ToolCall{
-			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: tui.ToolRunning,
+		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &domain.ToolCall{
+			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: domain.ToolRunning,
 		}},
 	}
 	blocks := tui.BuildTranscriptBlocks(entries)
@@ -129,19 +130,19 @@ func TestBuildBlocks_TextAndTool(t *testing.T) {
 
 func TestBuildBlocks_TwoPhaseToolMerge(t *testing.T) {
 	entries := []tui.ChatEntry{
-		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &tui.ToolCall{
-			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: tui.ToolRunning,
+		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &domain.ToolCall{
+			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: domain.ToolRunning,
 		}},
-		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &tui.ToolCall{
-			Name: "read_file", ToolID: "t1", Content: "file contents here", Status: tui.ToolDone,
+		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &domain.ToolCall{
+			Name: "read_file", ToolID: "t1", Content: "file contents here", Status: domain.ToolDone,
 		}},
 	}
 	blocks := tui.BuildTranscriptBlocks(entries)
 	require.Len(t, blocks, 1)
 	require.Len(t, blocks[0].Tools, 1)
-	assert.Equal(t, tui.ToolRunning, blocks[0].Tools[0].Call.Status)
+	assert.Equal(t, domain.ToolRunning, blocks[0].Tools[0].Call.Status)
 	require.NotNil(t, blocks[0].Tools[0].Result)
-	assert.Equal(t, tui.ToolDone, blocks[0].Tools[0].Result.Status)
+	assert.Equal(t, domain.ToolDone, blocks[0].Tools[0].Result.Status)
 	assert.Equal(t, "file contents here", blocks[0].Tools[0].Result.Content)
 }
 
@@ -186,11 +187,11 @@ func TestBuildBlocks_ComplexConversation(t *testing.T) {
 	entries := []tui.ChatEntry{
 		{Type: tui.EntryUserInput, Content: "read the file"},
 		{Type: tui.EntryAgentText, AgentName: "coder", Content: "Let me read it."},
-		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &tui.ToolCall{
-			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: tui.ToolRunning,
+		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &domain.ToolCall{
+			Name: "read_file", ToolID: "t1", Content: `{"path":"app.go"}`, Status: domain.ToolRunning,
 		}},
-		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &tui.ToolCall{
-			Name: "read_file", ToolID: "t1", Content: "contents", Status: tui.ToolDone,
+		{Type: tui.EntryAgentTool, AgentName: "coder", ToolCall: &domain.ToolCall{
+			Name: "read_file", ToolID: "t1", Content: "contents", Status: domain.ToolDone,
 		}},
 		{Type: tui.EntryAgentText, AgentName: "coder", Content: "Here's what I found."},
 		{Type: tui.EntryAgentStatus, AgentName: "coder", Content: "✻ Done", Status: tui.AgentDone},
@@ -211,7 +212,7 @@ func TestBuildBlocks_ComplexConversation(t *testing.T) {
 
 func TestGroupTools_Single(t *testing.T) {
 	tools := []tui.ToolEntry{
-		{Call: tui.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
 	}
 	groups := tui.GroupConsecutiveTools(tools)
 	require.Len(t, groups, 1)
@@ -221,10 +222,10 @@ func TestGroupTools_Single(t *testing.T) {
 
 func TestGroupTools_ConsecutiveReads(t *testing.T) {
 	tools := []tui.ToolEntry{
-		{Call: tui.ToolCall{Name: "read_file"}},
-		{Call: tui.ToolCall{Name: "read_file"}},
-		{Call: tui.ToolCall{Name: "read_file"}},
-		{Call: tui.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
 	}
 	groups := tui.GroupConsecutiveTools(tools)
 	require.Len(t, groups, 1)
@@ -234,10 +235,10 @@ func TestGroupTools_ConsecutiveReads(t *testing.T) {
 
 func TestGroupTools_Mixed(t *testing.T) {
 	tools := []tui.ToolEntry{
-		{Call: tui.ToolCall{Name: "read_file"}},
-		{Call: tui.ToolCall{Name: "read_file"}},
-		{Call: tui.ToolCall{Name: "bash"}},
-		{Call: tui.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
+		{Call: domain.ToolCall{Name: "bash"}},
+		{Call: domain.ToolCall{Name: "read_file"}},
 	}
 	groups := tui.GroupConsecutiveTools(tools)
 	require.Len(t, groups, 3)
@@ -280,8 +281,8 @@ func TestRenderBlock_ToolCollapsed(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "read_file", Content: "line1\nline2\nline3\n", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "read_file", Content: "line1\nline2\nline3\n", Status: domain.ToolDone},
 			},
 		},
 	}
@@ -299,8 +300,8 @@ func TestRenderBlock_ToolExpanded(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "read_file", Content: "package tui\n\nfunc main() {}\n", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "read_file", Content: "package tui\n\nfunc main() {}\n", Status: domain.ToolDone},
 			},
 		},
 	}
@@ -317,7 +318,7 @@ func TestRenderBlock_ToolRunning(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call: tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning},
+				Call: domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning},
 			},
 		},
 	}
@@ -333,16 +334,16 @@ func TestRenderBlock_ToolGroup(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"a.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "read_file", Content: "x", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"a.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "read_file", Content: "x", Status: domain.ToolDone},
 			},
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"b.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "read_file", Content: "y", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"b.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "read_file", Content: "y", Status: domain.ToolDone},
 			},
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"c.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "read_file", Content: "z", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"c.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "read_file", Content: "z", Status: domain.ToolDone},
 			},
 		},
 	}
@@ -388,8 +389,8 @@ func TestRenderBlock_ToolError(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "bash", Content: `{"command":"exit 1"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Name: "bash", Content: "exit status 1", Status: tui.ToolError},
+				Call:   domain.ToolCall{Name: "bash", Content: `{"command":"exit 1"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Name: "bash", Content: "exit status 1", Status: domain.ToolError},
 			},
 		},
 	}
@@ -415,7 +416,7 @@ func TestRenderBlock_RunningMarkerIsYellow(t *testing.T) {
 		Type:      tui.BlockAssistant,
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
-			{Call: tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning}},
+			{Call: domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning}},
 		},
 	}
 	result := tui.RenderTranscriptBlock(block, 80, false)
@@ -428,8 +429,8 @@ func TestRenderBlock_DoneMarkerIsGreen(t *testing.T) {
 		AgentName: "coder",
 		Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning},
-				Result: &tui.ToolCall{Content: "contents", Status: tui.ToolDone},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: domain.ToolRunning},
+				Result: &domain.ToolCall{Content: "contents", Status: domain.ToolDone},
 			},
 		},
 	}
@@ -463,8 +464,8 @@ func TestSearchBlocks_SearchesToolContent(t *testing.T) {
 	blocks := []tui.TranscriptBlock{
 		{Type: tui.BlockAssistant, AgentName: "coder", Tools: []tui.ToolEntry{
 			{
-				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"auth.go"}`},
-				Result: &tui.ToolCall{Content: "package auth\nfunc Login() {}"},
+				Call:   domain.ToolCall{Name: "read_file", Content: `{"path":"auth.go"}`},
+				Result: &domain.ToolCall{Content: "package auth\nfunc Login() {}"},
 			},
 		}},
 	}

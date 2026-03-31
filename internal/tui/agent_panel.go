@@ -1,22 +1,9 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
 
-// ToolCall represents a tool invocation to display.
-type ToolCall struct {
-	Name    string
-	Content string
-	Status  ToolStatus
-	ToolID  string
-}
-
-// ToolStatus represents the execution state of a tool call.
-type ToolStatus int
-
-const (
-	ToolRunning ToolStatus = iota
-	ToolDone
-	ToolError
+	"github.com/amer/aql/internal/domain"
 )
 
 // AgentPanelData holds the data needed to render an agent panel.
@@ -24,7 +11,7 @@ type AgentPanelData struct {
 	Name      string
 	Status    AgentStatus
 	Output    string
-	ToolCalls []ToolCall
+	ToolCalls []domain.ToolCall
 	StatusMsg string
 }
 
@@ -52,15 +39,15 @@ func RenderAgentHeader(name string, status AgentStatus) string {
 }
 
 // RenderToolBlock renders a tool call as a Claude Code-style bordered block.
-func RenderToolBlock(tc ToolCall) string {
+func RenderToolBlock(tc domain.ToolCall) string {
 	// Status indicator
 	var statusIndicator string
 	switch tc.Status {
-	case ToolRunning:
+	case domain.ToolRunning:
 		statusIndicator = ToolStatusRunning.Render("⟳ ")
-	case ToolDone:
+	case domain.ToolDone:
 		statusIndicator = ToolStatusDone.Render("✓ ")
-	case ToolError:
+	case domain.ToolError:
 		statusIndicator = ToolStatusError.Render("✗ ")
 	default:
 		statusIndicator = ToolStatusDone.Render("✓ ")

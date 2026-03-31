@@ -13,6 +13,7 @@ import (
 
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/auth"
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/tui"
 )
 
@@ -173,10 +174,10 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 							if evt.ToolCall.ToolName != "ask_user" {
 								program.Send(tui.AgentToolCallMsg{
 									AgentName: evt.AgentName,
-									ToolCall: tui.ToolCall{
+									ToolCall: domain.ToolCall{
 										Name:    evt.ToolCall.ToolName,
 										Content: evt.ToolCall.Input,
-										Status:  tui.ToolRunning,
+										Status:  domain.ToolRunning,
 										ToolID:  evt.ToolCall.ToolID,
 									},
 								})
@@ -188,13 +189,13 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 							if evt.ToolDone.ToolName == "ask_user" {
 								continue
 							}
-							status := tui.ToolDone
+							status := domain.ToolDone
 							if evt.ToolDone.IsError {
-								status = tui.ToolError
+								status = domain.ToolError
 							}
 							program.Send(tui.AgentToolCallMsg{
 								AgentName: evt.AgentName,
-								ToolCall: tui.ToolCall{
+								ToolCall: domain.ToolCall{
 									Name:    evt.ToolDone.ToolName,
 									Content: evt.ToolDone.Output,
 									Status:  status,
@@ -300,7 +301,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		ctx, cancel := context.WithTimeout(bgCtx, modelProbeTimeout)
 		defer cancel()
 
-		var usableModels []agent.ModelInfo
+		var usableModels []domain.ModelInfo
 		var probeErr error
 		if useOAuth {
 			usableModels, probeErr = agent.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
@@ -368,7 +369,7 @@ func runLogin() error {
 	return nil
 }
 
-func isModelUsable(modelID string, usable []agent.ModelInfo) bool {
+func isModelUsable(modelID string, usable []domain.ModelInfo) bool {
 	for _, m := range usable {
 		if m.ID == modelID {
 			return true
@@ -377,7 +378,7 @@ func isModelUsable(modelID string, usable []agent.ModelInfo) bool {
 	return false
 }
 
-func modelsToTiers(models []agent.ModelInfo) []tui.ModelTier {
+func modelsToTiers(models []domain.ModelInfo) []tui.ModelTier {
 	tiers := make([]tui.ModelTier, len(models))
 	for i, m := range models {
 		ctx := fmt.Sprintf("%dk context", m.MaxInputTokens/1000)

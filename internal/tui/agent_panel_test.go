@@ -3,6 +3,7 @@ package tui_test
 import (
 	"testing"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/tui"
 	"github.com/stretchr/testify/assert"
 )
@@ -30,7 +31,7 @@ func TestRenderAgentHeaderError(t *testing.T) {
 }
 
 func TestRenderToolBlockDone(t *testing.T) {
-	tc := tui.ToolCall{Name: "write_file", Content: "internal/auth/auth.go", Status: tui.ToolDone}
+	tc := domain.ToolCall{Name: "write_file", Content: "internal/auth/auth.go", Status: domain.ToolDone}
 	result := tui.RenderToolBlock(tc)
 	assert.Contains(t, result, "write_file")
 	assert.Contains(t, result, "auth.go")
@@ -38,20 +39,20 @@ func TestRenderToolBlockDone(t *testing.T) {
 }
 
 func TestRenderToolBlockRunning(t *testing.T) {
-	tc := tui.ToolCall{Name: "bash", Content: "go test ./...", Status: tui.ToolRunning}
+	tc := domain.ToolCall{Name: "bash", Content: "go test ./...", Status: domain.ToolRunning}
 	result := tui.RenderToolBlock(tc)
 	assert.Contains(t, result, "bash")
 	assert.Contains(t, result, "⟳")
 }
 
 func TestRenderToolBlockError(t *testing.T) {
-	tc := tui.ToolCall{Name: "bash", Content: "exit 1", Status: tui.ToolError}
+	tc := domain.ToolCall{Name: "bash", Content: "exit 1", Status: domain.ToolError}
 	result := tui.RenderToolBlock(tc)
 	assert.Contains(t, result, "✗")
 }
 
 func TestRenderToolBlockEmpty(t *testing.T) {
-	tc := tui.ToolCall{Name: "bash", Content: ""}
+	tc := domain.ToolCall{Name: "bash", Content: ""}
 	result := tui.RenderToolBlock(tc)
 	assert.Contains(t, result, "(no output)")
 }
@@ -61,8 +62,8 @@ func TestRenderAgentPanel(t *testing.T) {
 		Name:   "coder",
 		Status: tui.AgentActive,
 		Output: "Writing test for user auth...",
-		ToolCalls: []tui.ToolCall{
-			{Name: "write_file", Content: "auth_test.go", Status: tui.ToolDone},
+		ToolCalls: []domain.ToolCall{
+			{Name: "write_file", Content: "auth_test.go", Status: domain.ToolDone},
 		},
 	}
 
@@ -79,10 +80,10 @@ func TestRenderUserMessage(t *testing.T) {
 }
 
 func TestToolCall_ToolIDField(t *testing.T) {
-	tc := tui.ToolCall{
+	tc := domain.ToolCall{
 		Name:    "read_file",
 		Content: `{"path":"foo.go"}`,
-		Status:  tui.ToolRunning,
+		Status:  domain.ToolRunning,
 		ToolID:  "toolu_abc123",
 	}
 	assert.Equal(t, "toolu_abc123", tc.ToolID)
