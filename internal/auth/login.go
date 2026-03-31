@@ -131,7 +131,7 @@ func openAuthURL(authURL string, opener func(string) error) {
 // exchangeAndCreateKey exchanges the authorization code for tokens, then creates an API key.
 func exchangeAndCreateKey(tokenURL, code, verifier, state string, port int) (*Tokens, error) {
 	slog.Debug("received authorization code")
-	tokens, err := ExchangeCode(tokenURL, code, verifier, state, port)
+	tokens, err := ExchangeCode(http.DefaultClient, tokenURL, code, verifier, state, port)
 	if err != nil {
 		return nil, fmt.Errorf("exchange code: %w", err)
 	}
@@ -139,7 +139,7 @@ func exchangeAndCreateKey(tokenURL, code, verifier, state string, port int) (*To
 	// Create an API key from the OAuth token — the Messages API requires
 	// a real API key, not the OAuth Bearer token directly.
 	slog.Debug("creating API key from OAuth token")
-	apiKey, err := CreateAPIKey(CreateAPIKeyURL, tokens.AccessToken)
+	apiKey, err := CreateAPIKey(http.DefaultClient, CreateAPIKeyURL, tokens.AccessToken)
 	if err != nil {
 		return nil, fmt.Errorf("create API key: %w", err)
 	}

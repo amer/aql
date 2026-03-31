@@ -53,8 +53,7 @@ func ModelToTier(m domain.ModelInfo) (label, modelID, description string) {
 
 // ProbeAndUpdate probes usable models in the background, updates the cache,
 // and calls onUpdate with the results. Designed to run in a goroutine.
-func ProbeAndUpdate(ctx context.Context, apiKey string, isOAuth bool, workDir string, onUpdate func([]domain.ModelInfo)) {
-	cfg := ClientConfig{APIKey: apiKey, WithBilling: isOAuth}
+func ProbeAndUpdate(ctx context.Context, cfg ClientConfig, workDir string, onUpdate func([]domain.ModelInfo)) {
 	usableModels, probeErr := ProbeUsableModels(ctx, cfg)
 	if probeErr != nil {
 		slog.Warn("background model probe failed", "error", probeErr)

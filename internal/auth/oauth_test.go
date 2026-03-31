@@ -91,7 +91,7 @@ func TestExchangeCode_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tokens, err := auth.ExchangeCode(server.URL, "test-code", "test-verifier", "st", 8080)
+	tokens, err := auth.ExchangeCode(http.DefaultClient, server.URL, "test-code", "test-verifier", "st", 8080)
 	require.NoError(t, err)
 	assert.Equal(t, "access-123", tokens.AccessToken)
 	assert.Equal(t, "refresh-456", tokens.RefreshToken)
@@ -104,7 +104,7 @@ func TestExchangeCode_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := auth.ExchangeCode(server.URL, "code", "verifier", "st", 8080)
+	_, err := auth.ExchangeCode(http.DefaultClient, server.URL, "code", "verifier", "st", 8080)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "400")
 }
@@ -125,7 +125,7 @@ func TestRefreshAccessToken_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tokens, err := auth.RefreshAccessToken(server.URL, "old-refresh")
+	tokens, err := auth.RefreshAccessToken(http.DefaultClient, server.URL, "old-refresh")
 	require.NoError(t, err)
 	assert.Equal(t, "new-access", tokens.AccessToken)
 	assert.Equal(t, "new-refresh", tokens.RefreshToken)
@@ -185,7 +185,7 @@ func TestCreateAPIKey_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiKey, err := auth.CreateAPIKey(server.URL, "test-oauth-token")
+	apiKey, err := auth.CreateAPIKey(http.DefaultClient, server.URL, "test-oauth-token")
 	require.NoError(t, err)
 	assert.Equal(t, "sk-ant-api03-real-key-for-messages", apiKey)
 }
@@ -197,7 +197,7 @@ func TestCreateAPIKey_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := auth.CreateAPIKey(server.URL, "bad-token")
+	_, err := auth.CreateAPIKey(http.DefaultClient, server.URL, "bad-token")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "403")
 }

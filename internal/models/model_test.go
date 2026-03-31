@@ -52,6 +52,41 @@ func TestResolveModelShortcuts(t *testing.T) {
 	assert.Equal(t, anthropic.ModelClaudeOpus4_6, models.ResolveModel("opus"))
 }
 
+func TestClientConfig_HTTPClient_UsesInjectedTransport(t *testing.T) {
+	var transportUsed bool
+
+	fixture, err := os.ReadFile("testdata/models_list.json")
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(fixture)
+	}))
+	defer server.Close()
+
+	customClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			transportUsed = true
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = models.FetchModels(ctx, models.ClientConfig{
+		BaseURL:    server.URL,
+		APIKey:     "test-key",
+		HTTPClient: customClient,
+	})
+	require.NoError(t, err)
+	assert.True(t, transportUsed, "custom HTTP transport should have been used")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func TestFetchModelsFromFixture(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/models_list.json")
 	require.NoError(t, err)

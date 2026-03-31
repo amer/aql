@@ -41,6 +41,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -83,6 +84,7 @@ type clientOptions struct {
 	apiKey      string
 	bearerToken string
 	baseURL     string
+	httpClient  *http.Client
 }
 
 // WithAPIKey sets the API key for authentication.
@@ -100,6 +102,12 @@ func WithBaseURL(url string) ClientOption {
 	return func(o *clientOptions) { o.baseURL = url }
 }
 
+// WithHTTPClient sets a custom HTTP client for all API requests.
+// Use this to inject a shared transport for recording, stubbing, or proxying.
+func WithHTTPClient(c *http.Client) ClientOption {
+	return func(o *clientOptions) { o.httpClient = c }
+}
+
 // NewAnthropicClient creates a new Anthropic adapter.
 func NewAnthropicClient(opts ...ClientOption) *AnthropicClient {
 	var o clientOptions
@@ -115,6 +123,9 @@ func NewAnthropicClient(opts ...ClientOption) *AnthropicClient {
 	}
 	if o.baseURL != "" {
 		sdkOpts = append(sdkOpts, option.WithBaseURL(o.baseURL))
+	}
+	if o.httpClient != nil {
+		sdkOpts = append(sdkOpts, option.WithHTTPClient(o.httpClient))
 	}
 
 	return &AnthropicClient{client: anthropic.NewClient(sdkOpts...)}

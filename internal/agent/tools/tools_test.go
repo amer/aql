@@ -305,6 +305,37 @@ func TestGrep_NoMatch(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+// --- WithHTTPClient ---
+
+func TestWithHTTPClient_UsedByWebFetch(t *testing.T) {
+	var transportUsed bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	customClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			transportUsed = true
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	exec := tools.NewExecutor(tools.WithHTTPClient(customClient))
+	result, err := exec(context.Background(), ".", "web_fetch",
+		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
+
+	require.NoError(t, err)
+	assert.Equal(t, "ok", result)
+	assert.True(t, transportUsed, "custom HTTP transport should have been used")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 // --- web_fetch ---
 
 func TestWebFetch_PlainText(t *testing.T) {

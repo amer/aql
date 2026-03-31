@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -64,6 +65,7 @@ type ClientConfig struct {
 	APIKey      string
 	BaseURL     string
 	WithBilling bool
+	HTTPClient  *http.Client
 }
 
 // buildClient constructs an anthropic.Client from the config.
@@ -74,6 +76,9 @@ func (c ClientConfig) buildClient() anthropic.Client {
 	}
 	if c.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(c.BaseURL))
+	}
+	if c.HTTPClient != nil {
+		opts = append(opts, option.WithHTTPClient(c.HTTPClient))
 	}
 	return anthropic.NewClient(opts...)
 }

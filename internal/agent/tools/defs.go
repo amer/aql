@@ -6,7 +6,7 @@ package tools
 // BELONGS HERE:
 //   - ToolDef type, Definitions() — all tool JSON schemas
 //   - buildRegistry() — tool name→handler mapping
-//   - ExecutorOption pattern (WithAskUser, WithTaskStore, WithAgentSpawner)
+//   - ExecutorOption pattern (WithAskUser, WithTaskStore, WithAgentSpawner, WithHTTPClient)
 //   - NewExecutor/DefaultExecutor/Execute
 //   - parseInput generic helper, resolvePath helper
 //   - toolHandler type, UserQuestion/AskUserFn/ExecutorFn types
@@ -36,7 +36,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
+	"time"
 )
 
 // ToolDef is the pure definition of a tool — name, description, and JSON Schema.
@@ -320,20 +322,14 @@ func Definitions() []ToolDef {
 // toolHandler is the uniform signature for all tool implementations.
 type toolHandler func(ctx context.Context, workDir string, input json.RawMessage) (string, error)
 
-// buildRegistry returns a tool name → handler map, binding askFn into ask_user.
-func buildRegistry(askFn AskUserFn) map[string]toolHandler {
+// buildRegistry returns a tool name → handler map, binding askFn and webClient into handlers.
+func buildRegistry(askFn AskUserFn, webClient *http.Client) map[string]toolHandler {
 	// Adapters for tools that don't need ctx or workDir
 	withDir := func(fn func(string, json.RawMessage) (string, error)) toolHandler {
 		return func(_ context.Context, workDir string, input json.RawMessage) (string, error) {
 			return fn(workDir, input)
 		}
 	}
-	withCtx := func(fn func(context.Context, json.RawMessage) (string, error)) toolHandler {
-		return func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
-			return fn(ctx, input)
-		}
-	}
-
 	return map[string]toolHandler{
 		"read_file":      withDir(execReadFile),
 		"write_file":     withDir(execWriteFile),
@@ -342,8 +338,12 @@ func buildRegistry(askFn AskUserFn) map[string]toolHandler {
 		"glob":           withDir(execGlob),
 		"bash":           execBash,
 		"grep":           execGrep,
-		"web_fetch":      withCtx(execWebFetch),
-		"web_search":     withCtx(execWebSearch),
+		"web_fetch": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
+			return execWebFetch(ctx, webClient, input)
+		},
+		"web_search": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
+			return execWebSearch(ctx, webClient, input)
+		},
 		"ask_user": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
 			return execAskUser(ctx, input, askFn)
 		},
@@ -358,6 +358,7 @@ type executorOpts struct {
 	askFn        AskUserFn
 	taskStore    *TaskStore
 	agentSpawner AgentSpawner
+	httpClient   *http.Client
 }
 
 // WithAskUser sets the function called when the agent uses ask_user.
@@ -375,13 +376,22 @@ func WithAgentSpawner(s AgentSpawner) ExecutorOption {
 	return func(o *executorOpts) { o.agentSpawner = s }
 }
 
+// WithHTTPClient sets the HTTP client used by web_fetch and web_search tools.
+func WithHTTPClient(c *http.Client) ExecutorOption {
+	return func(o *executorOpts) { o.httpClient = c }
+}
+
 // NewExecutor creates an ExecutorFn with the given options.
 func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 	var o executorOpts
 	for _, opt := range opts {
 		opt(&o)
 	}
-	registry := buildRegistry(o.askFn)
+	webClient := o.httpClient
+	if webClient == nil {
+		webClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	registry := buildRegistry(o.askFn, webClient)
 	if o.taskStore != nil {
 		registerTaskTools(registry, o.taskStore)
 	}

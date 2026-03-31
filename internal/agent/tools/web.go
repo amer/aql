@@ -8,7 +8,7 @@ package tools
 //   - execWebSearch — DuckDuckGo search
 //   - HTML parsing helpers (extractText, walkText, parseSearchResults,
 //     collectSearchResults)
-//   - httpClient and constants
+//   - Response size and search result constants
 //
 // MUST NOT GO HERE:
 //   - Tool definitions (defs.go)
@@ -29,15 +29,11 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"golang.org/x/net/html"
 )
 
 const (
-	// httpTimeout is the timeout for outbound HTTP requests.
-	httpTimeout = 30 * time.Second
-
 	// maxResponseBodyBytes is the max bytes read from HTTP response bodies.
 	maxResponseBodyBytes = 512 * 1024 // 512 KB
 
@@ -48,11 +44,7 @@ const (
 	maxSearchResults = 10
 )
 
-var httpClient = &http.Client{
-	Timeout: httpTimeout,
-}
-
-func execWebFetch(ctx context.Context, input json.RawMessage) (string, error) {
+func execWebFetch(ctx context.Context, client *http.Client, input json.RawMessage) (string, error) {
 	params, errMsg := parseInput[struct {
 		URL string `json:"url"`
 	}](input)
@@ -64,7 +56,7 @@ func execWebFetch(ctx context.Context, input json.RawMessage) (string, error) {
 		return "invalid URL: " + err.Error(), nil
 	}
 	req.Header.Set("User-Agent", "AQL-Agent/1.0")
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "fetch error: " + err.Error(), nil
 	}
@@ -125,7 +117,7 @@ func walkText(n *html.Node, sb *strings.Builder) {
 	}
 }
 
-func execWebSearch(ctx context.Context, input json.RawMessage) (string, error) {
+func execWebSearch(ctx context.Context, client *http.Client, input json.RawMessage) (string, error) {
 	params, errMsg := parseInput[struct {
 		Query string `json:"query"`
 	}](input)
@@ -138,7 +130,7 @@ func execWebSearch(ctx context.Context, input json.RawMessage) (string, error) {
 		return "search error: " + err.Error(), nil
 	}
 	req.Header.Set("User-Agent", "AQL-Agent/1.0")
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "search error: " + err.Error(), nil
 	}

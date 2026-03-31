@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"time"
@@ -85,6 +86,9 @@ func run() error {
 		return err
 	}
 
+	// Single HTTP client for all outbound network calls.
+	httpClient := &http.Client{Transport: http.DefaultTransport}
+
 	savedModel, cachedModels := models.LoadOrDefault(workDir)
 
 	cfg := agent.Config{
@@ -115,11 +119,21 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	// Build the LLM adapter — OAuth-derived keys are still API keys
 	// (sent via X-Api-Key header), the OAuth flag only controls billing headers
-	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey))
+	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey), llm.WithHTTPClient(httpClient))
+
+	// Build tool executor with the shared HTTP client
+	spawner := agent.NewSpawner(chatClient, cfg, workDir)
+	toolExec := tools.NewExecutor(
+		tools.WithTaskStore(tools.NewTaskStore()),
+		tools.WithAgentSpawner(spawner),
+		tools.WithAskUser(askUser),
+		tools.WithHTTPClient(httpClient),
+	)
 
 	opts := []agent.Option{
 		agent.WithChatClient(chatClient),
 		agent.WithAskUser(askUser),
+		agent.WithToolExecutor(toolExec),
 	}
 	if useOAuth {
 		opts = append(opts, agent.WithOAuth())
@@ -136,7 +150,8 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
-	startBackgroundModelProbe(apiKey, useOAuth, workDir, program)
+	probeCfg := models.ClientConfig{APIKey: apiKey, WithBilling: useOAuth, HTTPClient: httpClient}
+	startBackgroundModelProbe(probeCfg, workDir, program)
 
 	_, err = program.Run()
 	return err
@@ -239,11 +254,11 @@ func configureTUI(
 	return model
 }
 
-func startBackgroundModelProbe(apiKey string, useOAuth bool, workDir string, program *tea.Program) {
+func startBackgroundModelProbe(cfg models.ClientConfig, workDir string, program *tea.Program) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
 		defer cancel()
-		models.ProbeAndUpdate(ctx, apiKey, useOAuth, workDir, func(usable []domain.ModelInfo) {
+		models.ProbeAndUpdate(ctx, cfg, workDir, func(usable []domain.ModelInfo) {
 			program.Send(tui.ModelsLoadedMsg{Tiers: modelsToTiers(usable)})
 		})
 	}()

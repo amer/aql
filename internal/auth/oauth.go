@@ -136,7 +136,8 @@ func BuildAuthorizeURL(challenge, state string, port int, console bool) string {
 }
 
 // ExchangeCode exchanges an authorization code for tokens.
-func ExchangeCode(tokenURL, code, verifier, state string, port int) (*Tokens, error) {
+// The httpClient parameter controls which HTTP transport is used for the request.
+func ExchangeCode(httpClient *http.Client, tokenURL, code, verifier, state string, port int) (*Tokens, error) {
 	body := map[string]string{
 		"grant_type":    "authorization_code",
 		"code":          code,
@@ -148,7 +149,7 @@ func ExchangeCode(tokenURL, code, verifier, state string, port int) (*Tokens, er
 
 	jsonBody, _ := json.Marshal(body)
 	slog.Debug("exchanging auth code", "tokenURL", tokenURL)
-	resp, err := http.Post(tokenURL, "application/json", bytes.NewReader(jsonBody))
+	resp, err := httpClient.Post(tokenURL, "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("token exchange request: %w", err)
 	}
@@ -184,7 +185,7 @@ const CreateAPIKeyURL = "https://api.anthropic.com/api/oauth/claude_cli/create_a
 
 // CreateAPIKey uses an OAuth Bearer token to create an API key that can be used
 // with the Messages API. The OAuth token must have the org:create_api_key scope.
-func CreateAPIKey(createKeyURL, oauthToken string) (string, error) {
+func CreateAPIKey(httpClient *http.Client, createKeyURL, oauthToken string) (string, error) {
 	body := map[string]string{
 		"name": "aql",
 	}
@@ -198,7 +199,7 @@ func CreateAPIKey(createKeyURL, oauthToken string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+oauthToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("create API key request: %w", err)
 	}
@@ -226,7 +227,7 @@ func CreateAPIKey(createKeyURL, oauthToken string) (string, error) {
 }
 
 // RefreshAccessToken uses a refresh token to get new tokens.
-func RefreshAccessToken(tokenURL, refreshToken string) (*Tokens, error) {
+func RefreshAccessToken(httpClient *http.Client, tokenURL, refreshToken string) (*Tokens, error) {
 	body := map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
@@ -234,7 +235,7 @@ func RefreshAccessToken(tokenURL, refreshToken string) (*Tokens, error) {
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	resp, err := http.Post(tokenURL, "application/json", bytes.NewReader(jsonBody))
+	resp, err := httpClient.Post(tokenURL, "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("token refresh request: %w", err)
 	}

@@ -554,6 +554,48 @@ func TestAuth_APIKeySentAsHeader(t *testing.T) {
 	assert.Equal(t, "sk-test-key-123", capturedAPIKey)
 }
 
+func TestWithHTTPClient_UsesInjectedTransport(t *testing.T) {
+	var transportUsed bool
+
+	customTransport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		transportUsed = true
+		// Forward to a real test server
+		return http.DefaultTransport.RoundTrip(req)
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, sseTextResponse("ok"))
+	}))
+	defer server.Close()
+
+	customClient := &http.Client{Transport: customTransport}
+	client := llm.NewAnthropicClient(
+		llm.WithBaseURL(server.URL),
+		llm.WithAPIKey("test-key"),
+		llm.WithHTTPClient(customClient),
+	)
+
+	_, err := client.StreamMessage(
+		context.Background(),
+		domain.ChatParams{
+			Model:     "claude-sonnet-4-6",
+			System:    "test",
+			Messages:  []domain.Message{domain.NewUserMessage("hi")},
+			MaxTokens: 1024,
+		},
+		nil,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, transportUsed, "custom HTTP transport should have been used")
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func TestAuth_BearerTokenSentAsAuthorization(t *testing.T) {
 	var capturedAuth string
 	var capturedAPIKey string
