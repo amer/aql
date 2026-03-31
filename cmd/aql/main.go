@@ -20,14 +20,8 @@ import (
 )
 
 const (
-	// bashCommandTimeout is the timeout for user-initiated bash commands.
 	bashCommandTimeout = 5 * time.Minute
-
-	// modelProbeTimeout is the timeout for background model probing.
-	modelProbeTimeout = 30 * time.Second
-
-	// loginTimeout is the timeout for the OAuth login flow.
-	loginTimeout = 2 * time.Minute
+	modelProbeTimeout  = 30 * time.Second
 )
 
 func main() {
@@ -38,7 +32,6 @@ func main() {
 }
 
 func run() error {
-	// Redirect logs to file so they don't corrupt the TUI
 	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
@@ -49,7 +42,7 @@ func run() error {
 
 	// Handle `aql auth login` subcommand
 	if len(os.Args) > 2 && os.Args[1] == "auth" && os.Args[2] == "login" {
-		return runLogin()
+		return auth.RunLoginCLI(os.Args[3:])
 	}
 
 	workDir, err := os.Getwd()
@@ -57,48 +50,12 @@ func run() error {
 		return err
 	}
 
-	// Try OAuth tokens first, fall back to API key
-	tokens, tokenErr := auth.LoadTokens(workDir)
-	slog.Debug("OAuth token check", "workDir", workDir, "found", tokens != nil, "error", tokenErr)
-	if tokens == nil {
-		if homeDir, err := os.UserHomeDir(); err == nil {
-			tokens, _ = auth.LoadTokens(homeDir)
-		}
-	}
-
-	var useOAuth bool
-	if tokens != nil && !tokens.IsExpired() {
-		useOAuth = true
-		slog.Info("using OAuth authentication", "expiresAt", tokens.ExpiresAt)
-	} else if tokens != nil && tokens.IsExpired() {
-		slog.Warn("OAuth tokens expired, falling back to API key")
-	}
-
-	if !useOAuth {
-		if err := agent.CheckEnv(os.Getenv("ANTHROPIC_API_KEY")); err != nil {
-			return fmt.Errorf("%w\n\n  Or run: aql auth login --console", err)
-		}
-	}
-
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if useOAuth {
-		apiKey = tokens.APIKey
-	}
-
-	// Load saved model + cached model list for instant startup
-	savedModel, err := models.LoadModel(workDir)
+	apiKey, useOAuth, err := auth.ResolveAPIKey(workDir)
 	if err != nil {
-		slog.Warn("failed to load saved model", "error", err)
+		return err
 	}
 
-	cachedModels, _ := models.LoadModelCache(workDir)
-	if savedModel == "" && len(cachedModels) > 0 {
-		savedModel = cachedModels[0].ID
-		slog.Info("auto-selected model from cache", "model", savedModel)
-	}
-	if savedModel == "" {
-		savedModel = string(models.ResolveModel(""))
-	}
+	savedModel, cachedModels := models.LoadOrDefault(workDir)
 
 	cfg := agent.Config{
 		Name: "coder",
@@ -109,8 +66,6 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		Model: savedModel,
 	}
 
-	// program is declared early so askUser closure can capture it.
-	// It is assigned after NewModel below.
 	var program *tea.Program
 
 	askUser := func(ctx context.Context, q agent.UserQuestion) (string, error) {
@@ -130,7 +85,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	opts := []agent.Option{agent.WithAskUser(askUser)}
 	if useOAuth {
-		opts = append(opts, agent.WithOAuthKey(tokens.APIKey))
+		opts = append(opts, agent.WithOAuthKey(apiKey))
 	}
 
 	coder, err := agent.New(cfg, workDir, opts...)
@@ -144,12 +99,9 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		return func() tea.Msg {
 			ctx, cancel := context.WithCancel(context.Background())
 			streamCancel = cancel
-
 			program.Send(tui.AgentStreamStartMsg{AgentName: "coder"})
-
 			ch := coder.Run(ctx, input)
 			go stream.Forward(ctx, ch, func(msg any) { program.Send(msg) })
-
 			return nil
 		}
 	}
@@ -161,11 +113,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 			cmd := exec.CommandContext(ctx, "sh", "-c", command)
 			cmd.Dir = workDir
 			out, err := cmd.CombinedOutput()
-			return tui.BashResultMsg{
-				Command: command,
-				Output:  string(out),
-				Error:   err,
-			}
+			return tui.BashResultMsg{Command: command, Output: string(out), Error: err}
 		}
 	}
 
@@ -173,14 +121,10 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 	model.SetProjectPath(workDir)
 	model.SetModelName(savedModel)
 	model.SetOnBash(onBash)
-
-	// Use cached models for instant startup
 	if len(cachedModels) > 0 {
 		model.SetModelTiers(modelsToTiers(cachedModels))
 	}
-	model.SetOnClear(func() {
-		coder.ClearHistory()
-	})
+	model.SetOnClear(func() { coder.ClearHistory() })
 	model.SetOnCompact(func() tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -199,8 +143,6 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 			slog.Error("failed to save model selection", "error", err)
 			return
 		}
-		slog.Info("model selection saved", "model", modelID)
-
 		cfg.Model = modelID
 		newCoder, createErr := agent.New(cfg, workDir, opts...)
 		if createErr != nil {
@@ -208,107 +150,33 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 			return
 		}
 		coder = newCoder
-		slog.Info("agent recreated with new model", "model", modelID)
+		slog.Info("model switched", "model", modelID)
 	})
 
-	// Mouse tracking enabled for scroll wheel chat scrolling.
-	// Hold Shift to select and copy text (standard terminal behavior).
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
-	// Cancel background work when the TUI exits
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 
-	// Probe models in background — updates TUI and cache when done
 	go func() {
 		ctx, cancel := context.WithTimeout(bgCtx, modelProbeTimeout)
 		defer cancel()
-
-		var usableModels []domain.ModelInfo
-		var probeErr error
-		if useOAuth {
-			usableModels, probeErr = models.ProbeUsableModelsWithOAuthKey(ctx, apiKey)
-		} else {
-			usableModels, probeErr = models.ProbeUsableModelsWithAPIKey(ctx, apiKey)
-		}
-		if probeErr != nil {
-			slog.Warn("background model probe failed", "error", probeErr)
-			return
-		}
-		if len(usableModels) == 0 {
-			return
-		}
-
-		// Update cache
-		if err := models.SaveModelCache(workDir, usableModels); err != nil {
-			slog.Warn("failed to save model cache", "error", err)
-		}
-
-		// Update TUI model list
-		program.Send(tui.ModelsLoadedMsg{Tiers: modelsToTiers(usableModels)})
-
-		// If saved model isn't in the usable list, auto-select best
-		if savedModel != "" && !isModelUsable(savedModel, usableModels) {
-			slog.Warn("saved model not accessible, switching to best available",
-				"saved", savedModel, "usable", len(usableModels))
-		}
+		models.ProbeAndUpdate(ctx, apiKey, useOAuth, workDir, func(usable []domain.ModelInfo) {
+			program.Send(tui.ModelsLoadedMsg{Tiers: modelsToTiers(usable)})
+		})
 	}()
 
 	_, err = program.Run()
 	return err
 }
 
-func runLogin() error {
-	console := false
-	for _, arg := range os.Args[3:] {
-		if arg == "--console" {
-			console = true
-		}
-	}
-
-	fmt.Println("Logging in to Anthropic...")
-	if console {
-		fmt.Println("Using Console (API billing) login")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), loginTimeout)
-	defer cancel()
-
-	tokens, err := auth.Login(ctx, auth.LoginOptions{Console: console})
-	if err != nil {
-		return fmt.Errorf("login failed: %w", err)
-	}
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	if err := auth.SaveTokens(workDir, *tokens); err != nil {
-		return fmt.Errorf("save tokens: %w", err)
-	}
-
-	fmt.Printf("Login successful! Tokens saved to %s/.aql_tokens.json\n", workDir)
-	fmt.Printf("Token expires at: %s\n", tokens.ExpiresAt.Format("2006-01-02 15:04:05"))
-	return nil
-}
-
-func isModelUsable(modelID string, usable []domain.ModelInfo) bool {
-	for _, m := range usable {
-		if m.ID == modelID {
-			return true
-		}
-	}
-	return false
-}
-
-func modelsToTiers(models []domain.ModelInfo) []tui.ModelTier {
-	tiers := make([]tui.ModelTier, len(models))
-	for i, m := range models {
-		ctx := fmt.Sprintf("%dk context", m.MaxInputTokens/1000)
+func modelsToTiers(ms []domain.ModelInfo) []tui.ModelTier {
+	tiers := make([]tui.ModelTier, len(ms))
+	for i, m := range ms {
 		tiers[i] = tui.ModelTier{
 			Label:       m.DisplayName,
 			ModelID:     m.ID,
-			Description: ctx,
+			Description: fmt.Sprintf("%dk context", m.MaxInputTokens/1000),
 		}
 	}
 	return tiers
