@@ -26,7 +26,7 @@ func writeTestFile(t *testing.T, dir, name, content string) string {
 
 // --- Tool definitions ---
 
-func TestDefinitions_HasAll10Tools(t *testing.T) {
+func TestDefinitions_HasAllTools(t *testing.T) {
 	defs := tools.Definitions()
 	names := make(map[string]bool)
 	for _, d := range defs {
@@ -35,6 +35,8 @@ func TestDefinitions_HasAll10Tools(t *testing.T) {
 	expected := []string{
 		"read_file", "write_file", "edit", "list_directory", "bash",
 		"glob", "grep", "web_fetch", "web_search", "ask_user",
+		"agent", "task_create", "task_update", "task_list",
+		"notebook_edit",
 	}
 	for _, name := range expected {
 		assert.True(t, names[name], "missing tool: %s", name)

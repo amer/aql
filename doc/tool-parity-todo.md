@@ -19,13 +19,14 @@ Tools AQL needs to match Claude Code's agent capabilities.
 
 ### P1 — Important for complex workflows
 
-- [ ] **agent** — Spawn sub-agents for parallel/independent tasks
+- [x] **agent** — Spawn sub-agents for parallel/independent tasks
   - Input: `prompt`, `description`
   - Runs a child agent with its own conversation context
   - Returns the sub-agent's final result
   - Enables parallel research, search, and code exploration
+  - Depth-limited to 3 levels of nesting
 
-- [ ] **task** — Track progress on multi-step work
+- [x] **task** — Track progress on multi-step work
   - Sub-tools: `task_create`, `task_update`, `task_list`
   - Input (create): `description`, `status`
   - Input (update): `id`, `status`, `result`
@@ -34,10 +35,10 @@ Tools AQL needs to match Claude Code's agent capabilities.
 
 ### P2 — Nice to have
 
-- [ ] **notebook_edit** — Edit Jupyter notebook cells
+- [x] **notebook_edit** — Edit Jupyter notebook cells
   - Input: `path`, `cell_index`, `new_source`, `cell_type`
   - Parse and modify `.ipynb` JSON structure
-  - Low priority unless notebook workflows become common
+  - Splits source into line arrays per ipynb format
 
 - [ ] **lsp** — Language server protocol queries
   - Sub-tools: `go_to_definition`, `find_references`, `diagnostics`

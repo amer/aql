@@ -199,6 +199,90 @@ func Definitions() []ToolDef {
 				"required": []string{"pattern"},
 			},
 		},
+		{
+			Name:        "agent",
+			Description: "Spawn a sub-agent to handle a task independently. The sub-agent has its own conversation context and tool access. Use for parallel research, code exploration, or independent subtasks.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "The task for the sub-agent to perform",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "A short (3-5 word) description of the task",
+					},
+				},
+				"required": []string{"prompt"},
+			},
+		},
+		{
+			Name:        "task_create",
+			Description: "Create a new task to track a unit of work. Returns the created task with its ID.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"description": map[string]any{
+						"type":        "string",
+						"description": "A description of the task to create",
+					},
+				},
+				"required": []string{"description"},
+			},
+		},
+		{
+			Name:        "task_update",
+			Description: "Update the status of an existing task. Valid statuses: pending, in_progress, completed.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "integer",
+						"description": "The task ID to update",
+					},
+					"status": map[string]any{
+						"type":        "string",
+						"description": "New status: pending, in_progress, or completed",
+					},
+				},
+				"required": []string{"id", "status"},
+			},
+		},
+		{
+			Name:        "task_list",
+			Description: "List all tracked tasks with their current status.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "notebook_edit",
+			Description: "Edit a Jupyter notebook cell. Replaces the source of a cell at the given index, optionally changing the cell type.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Path to the .ipynb notebook file",
+					},
+					"cell_index": map[string]any{
+						"type":        "integer",
+						"description": "Zero-based index of the cell to edit",
+					},
+					"new_source": map[string]any{
+						"type":        "string",
+						"description": "New source content for the cell",
+					},
+					"cell_type": map[string]any{
+						"type":        "string",
+						"description": "Optional: change cell type (code or markdown)",
+					},
+				},
+				"required": []string{"path", "cell_index", "new_source"},
+			},
+		},
 	}
 }
 
@@ -232,22 +316,60 @@ func buildRegistry(askFn AskUserFn) map[string]toolHandler {
 		"ask_user": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
 			return execAskUser(ctx, input, askFn)
 		},
+		"notebook_edit": withDir(execNotebookEdit),
+	}
+}
+
+// ExecutorOption configures a tool executor.
+type ExecutorOption func(*executorOpts)
+
+type executorOpts struct {
+	askFn        AskUserFn
+	taskStore    *TaskStore
+	agentSpawner AgentSpawner
+}
+
+// WithAskUser sets the function called when the agent uses ask_user.
+func WithAskUser(fn AskUserFn) ExecutorOption {
+	return func(o *executorOpts) { o.askFn = fn }
+}
+
+// WithTaskStore sets the task store for task_create/task_update/task_list tools.
+func WithTaskStore(s *TaskStore) ExecutorOption {
+	return func(o *executorOpts) { o.taskStore = s }
+}
+
+// WithAgentSpawner sets the spawner for the agent tool (sub-agent creation).
+func WithAgentSpawner(s AgentSpawner) ExecutorOption {
+	return func(o *executorOpts) { o.agentSpawner = s }
+}
+
+// NewExecutor creates an ExecutorFn with the given options.
+func NewExecutor(opts ...ExecutorOption) ExecutorFn {
+	var o executorOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	registry := buildRegistry(o.askFn)
+	if o.taskStore != nil {
+		registerTaskTools(registry, o.taskStore)
+	}
+	registerAgentTool(registry, o.agentSpawner)
+	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+		return execute(ctx, workDir, name, input, registry)
 	}
 }
 
 // DefaultExecutor returns an ExecutorFn that dispatches to the
 // built-in tool implementations, using askFn for the ask_user tool.
 func DefaultExecutor(askFn AskUserFn) ExecutorFn {
-	registry := buildRegistry(askFn)
-	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
-		return execute(ctx, workDir, name, input, registry)
-	}
+	return NewExecutor(WithAskUser(askFn), WithTaskStore(NewTaskStore()))
 }
 
 // Execute runs a tool by name using the default executor with no ask_user support.
 func Execute(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
-	registry := buildRegistry(nil)
-	return execute(ctx, workDir, name, input, registry)
+	exec := NewExecutor(WithTaskStore(NewTaskStore()))
+	return exec(ctx, workDir, name, input)
 }
 
 func execute(ctx context.Context, workDir, name string, input json.RawMessage, registry map[string]toolHandler) (string, error) {

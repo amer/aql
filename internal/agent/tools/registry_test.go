@@ -75,6 +75,16 @@ func minimalInput(toolName, dir string) json.RawMessage {
 		return json.RawMessage(`{"query":"test"}`)
 	case "ask_user":
 		return json.RawMessage(`{"question":"hello?"}`)
+	case "task_create":
+		return json.RawMessage(`{"description":"test task"}`)
+	case "task_update":
+		return json.RawMessage(`{"id":1,"status":"pending"}`)
+	case "task_list":
+		return json.RawMessage(`{}`)
+	case "agent":
+		return json.RawMessage(`{"prompt":"hello","description":"test"}`)
+	case "notebook_edit":
+		return json.RawMessage(`{"path":"missing.ipynb","cell_index":0,"new_source":"x"}`)
 	default:
 		return json.RawMessage(`{}`)
 	}

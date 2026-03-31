@@ -86,7 +86,7 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 
 	toolExec := o.toolExecutor
 	if toolExec == nil {
-		toolExec = tools.DefaultExecutor(o.askUser)
+		toolExec = NewToolExecutor(cfg, o.chatClient, workDir, o.askUser)
 	}
 
 	a := &Agent{
