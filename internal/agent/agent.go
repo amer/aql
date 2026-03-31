@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +14,12 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
+// AskUserFn is the signature for a function that asks the user a question.
+type AskUserFn func(ctx context.Context, q UserQuestion) (string, error)
+
+// ToolExecutorFn is the signature for a function that executes a tool by name.
+type ToolExecutorFn func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error)
+
 // Agent represents a single coding agent with its config and context.
 type Agent struct {
 	config       Config
@@ -22,16 +30,20 @@ type Agent struct {
 	history      []anthropic.MessageParam
 	isOAuth      bool   // true when created via OAuth Console login (enables billing header for Opus)
 	dir          string // working directory for tool execution
+	askUser      AskUserFn
+	toolExecutor ToolExecutorFn
 }
 
 // Option configures agent creation.
 type Option func(*agentOptions)
 
 type agentOptions struct {
-	apiKey      string
-	bearerToken string
-	baseURL     string
-	isOAuth     bool
+	apiKey       string
+	bearerToken  string
+	baseURL      string
+	isOAuth      bool
+	askUser      AskUserFn
+	toolExecutor ToolExecutorFn
 }
 
 // WithAPIKey sets the API key for authentication.
@@ -54,6 +66,16 @@ func WithBaseURL(url string) Option {
 	return func(o *agentOptions) { o.baseURL = url }
 }
 
+// WithAskUser sets the function called when the agent uses ask_user.
+func WithAskUser(fn AskUserFn) Option {
+	return func(o *agentOptions) { o.askUser = fn }
+}
+
+// WithToolExecutor sets a custom tool executor (useful for testing).
+func WithToolExecutor(fn ToolExecutorFn) Option {
+	return func(o *agentOptions) { o.toolExecutor = fn }
+}
+
 // New creates an agent from config. It loads CLAUDE.md from workDir and initializes memory.
 func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 	var o agentOptions
@@ -72,6 +94,11 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 
 	client := buildClient(o)
 
+	toolExec := o.toolExecutor
+	if toolExec == nil {
+		toolExec = DefaultToolExecutor(o.askUser)
+	}
+
 	a := &Agent{
 		config:       cfg,
 		claudeMD:     claudeMD,
@@ -79,6 +106,8 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 		client:       client,
 		dir:          workDir,
 		isOAuth:      o.isOAuth,
+		askUser:      o.askUser,
+		toolExecutor: toolExec,
 	}
 	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD, workDir)
 

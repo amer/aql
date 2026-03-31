@@ -239,8 +239,7 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 	var currentConcurrent atomic.Int32
 
 	// Track actual concurrency in tool execution
-	origExecute := agent.ExecuteToolFunc
-	agent.ExecuteToolFunc = func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+	mockExecutor := func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
 		cur := currentConcurrent.Add(1)
 		for {
 			old := maxConcurrent.Load()
@@ -253,7 +252,6 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 		currentConcurrent.Add(-1)
 		return "ok", nil
 	}
-	defer func() { agent.ExecuteToolFunc = origExecute }()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -285,9 +283,9 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	coder, err := agent.NewWithBaseURL(agent.Config{
+	coder, err := agent.New(agent.Config{
 		Name: "test", Role: "assistant", SystemPrompt: "test",
-	}, t.TempDir(), server.URL)
+	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"), agent.WithToolExecutor(mockExecutor))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

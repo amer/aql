@@ -259,7 +259,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 				go func(idx int, tu pendingToolUse) {
 					defer wg.Done()
 					slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.name, "id", tu.id)
-					result, execErr := ExecuteTool(ctx, a.WorkDir(), tu.name, json.RawMessage(tu.inputBuf.String()))
+					result, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.name, json.RawMessage(tu.inputBuf.String()))
 					if execErr != nil {
 						results[idx] = toolResult{output: execErr.Error(), isError: true}
 					} else {

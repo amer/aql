@@ -27,11 +27,6 @@ type UserQuestion struct {
 	Response chan string `json:"-"`
 }
 
-// AskUserFunc is called when the agent needs to ask the user a question.
-// It blocks until the user responds. Set by the main app to bridge
-// between the runner goroutine and the TUI.
-var AskUserFunc func(ctx context.Context, q UserQuestion) (string, error)
-
 // ToolDefinitions returns the set of tools available to agents.
 func ToolDefinitions() []ToolDef {
 	return []ToolDef{
@@ -241,16 +236,21 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
-// ExecuteToolFunc is the function used to execute tools. Override in tests
-// to inject mocks. Default is executeTool.
-var ExecuteToolFunc = executeTool
-
-// ExecuteTool runs a tool by name with the given JSON input.
+// ExecuteTool runs a tool by name using the default executor with no ask_user support.
+// Primarily useful for tests that exercise individual tools.
 func ExecuteTool(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
-	return ExecuteToolFunc(ctx, workDir, name, input)
+	return executeTool(ctx, workDir, name, input, nil)
 }
 
-func executeTool(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
+// DefaultToolExecutor returns a ToolExecutorFn that dispatches to the
+// built-in tool implementations, using askFn for the ask_user tool.
+func DefaultToolExecutor(askFn AskUserFn) ToolExecutorFn {
+	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+		return executeTool(ctx, workDir, name, input, askFn)
+	}
+}
+
+func executeTool(ctx context.Context, workDir string, name string, input json.RawMessage, askFn AskUserFn) (string, error) {
 	slog.Debug("executing tool", "tool", name, "workDir", workDir)
 
 	switch name {
@@ -273,7 +273,7 @@ func executeTool(ctx context.Context, workDir string, name string, input json.Ra
 	case "web_search":
 		return execWebSearch(ctx, input)
 	case "ask_user":
-		return execAskUser(ctx, input)
+		return execAskUser(ctx, input, askFn)
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
@@ -440,21 +440,21 @@ func execGrep(ctx context.Context, workDir string, input json.RawMessage) (strin
 
 // --- Ask user tool ---
 
-func execAskUser(ctx context.Context, input json.RawMessage) (string, error) {
+func execAskUser(ctx context.Context, input json.RawMessage, askFn AskUserFn) (string, error) {
 	params, errMsg := parseInput[struct {
 		Question string `json:"question"`
 	}](input)
 	if errMsg != "" {
 		return errMsg, nil
 	}
-	if AskUserFunc == nil {
+	if askFn == nil {
 		return "ask_user is not available in this context", nil
 	}
 	q := UserQuestion{
 		Question: params.Question,
 		Response: make(chan string, 1),
 	}
-	answer, err := AskUserFunc(ctx, q)
+	answer, err := askFn(ctx, q)
 	if err != nil {
 		return "ask_user error: " + err.Error(), nil
 	}

@@ -107,20 +107,11 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		Model: savedModel,
 	}
 
-	var coder *agent.Agent
-	if useOAuth {
-		coder, err = agent.NewWithOAuthKey(cfg, workDir, tokens.APIKey)
-	} else {
-		coder, err = agent.New(cfg, workDir)
-	}
-	if err != nil {
-		return err
-	}
-
+	// program is declared early so askUser closure can capture it.
+	// It is assigned after NewModel below.
 	var program *tea.Program
 
-	// Wire up ask_user: bridge between agent goroutine and TUI
-	agent.AskUserFunc = func(ctx context.Context, q agent.UserQuestion) (string, error) {
+	askUser := func(ctx context.Context, q agent.UserQuestion) (string, error) {
 		responseCh := make(chan string, 1)
 		program.Send(tui.AgentAskUserMsg{
 			AgentName:  "coder",
@@ -133,6 +124,16 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
+	}
+
+	opts := []agent.Option{agent.WithAskUser(askUser)}
+	if useOAuth {
+		opts = append(opts, agent.WithOAuthKey(tokens.APIKey))
+	}
+
+	coder, err := agent.New(cfg, workDir, opts...)
+	if err != nil {
+		return err
 	}
 
 	var streamCancel context.CancelFunc
@@ -273,13 +274,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		slog.Info("model selection saved", "model", modelID)
 
 		cfg.Model = modelID
-		var newCoder *agent.Agent
-		var createErr error
-		if useOAuth {
-			newCoder, createErr = agent.NewWithOAuthKey(cfg, workDir, tokens.APIKey)
-		} else {
-			newCoder, createErr = agent.New(cfg, workDir)
-		}
+		newCoder, createErr := agent.New(cfg, workDir, opts...)
 		if createErr != nil {
 			slog.Error("failed to recreate agent with new model", "model", modelID, "error", createErr)
 			return

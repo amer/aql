@@ -350,25 +350,20 @@ func TestWebSearch_ParsesResults(t *testing.T) {
 // --- ask_user ---
 
 func TestAskUser_WithFunc(t *testing.T) {
-	oldFunc := agent.AskUserFunc
-	defer func() { agent.AskUserFunc = oldFunc }()
-
-	agent.AskUserFunc = func(ctx context.Context, q agent.UserQuestion) (string, error) {
+	askFn := func(ctx context.Context, q agent.UserQuestion) (string, error) {
 		assert.Equal(t, "What is your name?", q.Question)
 		return "Alice", nil
 	}
+	exec := agent.DefaultToolExecutor(askFn)
 
-	result, err := agent.ExecuteTool(context.Background(), ".", "ask_user",
+	result, err := exec(context.Background(), ".", "ask_user",
 		json.RawMessage(`{"question":"What is your name?"}`))
 	require.NoError(t, err)
 	assert.Equal(t, "Alice", result)
 }
 
 func TestAskUser_NoFunc(t *testing.T) {
-	oldFunc := agent.AskUserFunc
-	defer func() { agent.AskUserFunc = oldFunc }()
-	agent.AskUserFunc = nil
-
+	// ExecuteTool with no askUser returns "not available"
 	result, err := agent.ExecuteTool(context.Background(), ".", "ask_user",
 		json.RawMessage(`{"question":"hello?"}`))
 	require.NoError(t, err)
@@ -376,17 +371,15 @@ func TestAskUser_NoFunc(t *testing.T) {
 }
 
 func TestAskUser_ContextCanceled(t *testing.T) {
-	oldFunc := agent.AskUserFunc
-	defer func() { agent.AskUserFunc = oldFunc }()
-
-	agent.AskUserFunc = func(ctx context.Context, q agent.UserQuestion) (string, error) {
+	askFn := func(ctx context.Context, q agent.UserQuestion) (string, error) {
 		return "", ctx.Err()
 	}
+	exec := agent.DefaultToolExecutor(askFn)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, err := agent.ExecuteTool(ctx, ".", "ask_user",
+	result, err := exec(ctx, ".", "ask_user",
 		json.RawMessage(`{"question":"hello?"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "error")
