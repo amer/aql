@@ -181,18 +181,25 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 							return
 						}
 						if evt.ToolCall != nil {
-							program.Send(tui.AgentToolCallMsg{
-								AgentName: evt.AgentName,
-								ToolCall: tui.ToolCall{
-									Name:    evt.ToolCall.ToolName,
-									Content: evt.ToolCall.Input,
-									Status:  tui.ToolRunning,
-									ToolID:  evt.ToolCall.ToolID,
-								},
-							})
+							// ask_user is displayed via AgentAskUserMsg, not as a tool block
+							if evt.ToolCall.ToolName != "ask_user" {
+								program.Send(tui.AgentToolCallMsg{
+									AgentName: evt.AgentName,
+									ToolCall: tui.ToolCall{
+										Name:    evt.ToolCall.ToolName,
+										Content: evt.ToolCall.Input,
+										Status:  tui.ToolRunning,
+										ToolID:  evt.ToolCall.ToolID,
+									},
+								})
+							}
 							continue
 						}
 						if evt.ToolDone != nil {
+							// ask_user results are already shown inline
+							if evt.ToolDone.ToolName == "ask_user" {
+								continue
+							}
 							status := tui.ToolDone
 							if evt.ToolDone.IsError {
 								status = tui.ToolError
@@ -248,6 +255,14 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 	}
 	model.SetOnClear(func() {
 		coder.ClearHistory()
+	})
+	model.SetOnCompact(func() tea.Cmd {
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			summary, err := coder.CompactHistory(ctx)
+			return tui.CompactDoneMsg{Summary: summary, Err: err}
+		}
 	})
 	model.SetCancelStream(func() {
 		if streamCancel != nil {

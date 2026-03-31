@@ -98,6 +98,12 @@ type BashResultMsg struct {
 	Error   error
 }
 
+// CompactDoneMsg is sent when context compaction completes.
+type CompactDoneMsg struct {
+	Summary string
+	Err     error
+}
+
 // BashFunc executes a shell command and returns a tea.Cmd with the result.
 // Set by the main app to provide actual shell execution.
 type BashFunc func(command string) tea.Cmd
@@ -138,6 +144,7 @@ type Model struct {
 	modelTiers         []ModelTier      // dynamic model tiers from API; nil = use defaults
 	cancelStream       func()           // cancels the in-flight API call context
 	onClear            func()           // called on /clear to reset agent context
+	onCompact          func() tea.Cmd   // called on /compact to summarize context
 	selection          Selection        // mouse text selection state
 	viewLines          []string         // plain text lines from last render (for selection extraction)
 	pendingQuestion    *AgentAskUserMsg // non-nil when agent is waiting for user answer
@@ -208,9 +215,19 @@ func (m *Model) SetOnClear(fn func()) {
 	m.onClear = fn
 }
 
+// SetOnCompact sets the function called when /compact is executed to summarize context.
+func (m *Model) SetOnCompact(fn func() tea.Cmd) {
+	m.onCompact = fn
+}
+
 // SetOnModelSelected sets a callback invoked when the user switches models.
 func (m *Model) SetOnModelSelected(fn func(modelID string)) {
 	m.onModelSelected = fn
+}
+
+// TokenCount returns the current token count.
+func (m Model) TokenCount() int {
+	return m.tokenCount
 }
 
 // SetTokenCount sets the token count shown in the status bar.
@@ -625,6 +642,17 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.autoScroll()
 
+	case CompactDoneMsg:
+		m.streaming = false
+		if msg.Err != nil {
+			m.addStatusChat("Compact failed: "+msg.Err.Error(), AgentError)
+		} else {
+			m.chat = nil
+			m.addStatusChat("Conversation compacted", AgentDone)
+			m.tokenCount = EstimateTokens(len(msg.Summary))
+		}
+		m.autoScroll()
+
 	case BashResultMsg:
 		content := msg.Output
 		status := AgentActive
@@ -661,7 +689,7 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingQuestion = &msg
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
-			Content: "❓ " + msg.Question,
+			Content: msg.Question,
 			Status:  AgentWaiting,
 		})
 		m.autoScroll()
@@ -849,8 +877,15 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.addStatusChat(usage, AgentActive)
 		return "cost", nil
 	case "/compact":
-		m.addStatusChat("Context compaction is not yet implemented", AgentWaiting)
-		return "compact", nil
+		if m.onCompact == nil {
+			m.addStatusChat("Compact is not available", AgentError)
+			return "compact", nil
+		}
+		m.chat = nil
+		m.addStatusChat("Compacting conversation...", AgentWaiting)
+		m.startStream()
+		m.streamPhase = PhaseRequesting
+		return "compact", m.onCompact()
 	case "/spinner":
 		types := SpinnerTypes()
 		next := SpinnerBraille
@@ -1001,10 +1036,23 @@ func RenderChatEntry(entry ChatEntry, width int) string {
 
 	case EntryAgentStatus:
 		header := RenderAgentHeader(entry.AgentName, entry.Status)
-		if entry.Content != "" {
-			return header + " " + DimStyle.Render(entry.Content)
+		if entry.Content == "" {
+			return header
 		}
-		return header
+		if entry.Status == AgentWaiting {
+			// Ask-user questions: readable text with indentation for multi-line
+			lines := strings.Split(entry.Content, "\n")
+			first := header + " " + AgentBody.Render(lines[0])
+			if len(lines) == 1 {
+				return first
+			}
+			indent := "    "
+			for _, line := range lines[1:] {
+				first += "\n" + indent + AgentBody.Render(line)
+			}
+			return first
+		}
+		return header + " " + DimStyle.Render(entry.Content)
 
 	default:
 		return ""

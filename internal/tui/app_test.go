@@ -804,3 +804,71 @@ func TestTranscriptMode_SearchEscCancels(t *testing.T) {
 	assert.Equal(t, "", m.TranscriptSearchQuery())
 	assert.True(t, m.IsTranscriptMode(), "esc during search should not exit transcript mode")
 }
+
+// --- /compact ---
+
+func TestCompact_CallsCallback(t *testing.T) {
+	called := false
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetOnCompact(func() tea.Cmd {
+		called = true
+		return nil
+	})
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+
+	m = typeString(m, "/compact")
+	m = applyKey(m, "enter")
+	assert.True(t, called, "onCompact callback should be called")
+}
+
+func TestCompact_BlockedWhileStreaming(t *testing.T) {
+	called := false
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetOnCompact(func() tea.Cmd {
+		called = true
+		return nil
+	})
+
+	// Pre-type /compact before streaming starts
+	m = typeString(m, "/compact")
+
+	// Start streaming — submit should be blocked
+	m = applyMsg(m, tui.AgentStreamStartMsg{AgentName: "coder"})
+	m = applyKey(m, "enter")
+	assert.False(t, called, "onCompact should not be called while streaming")
+}
+
+func TestCompact_DoneReplacesChat(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "old message"})
+
+	m = applyMsg(m, tui.CompactDoneMsg{Summary: "summary of conversation"})
+	// Chat should contain the compacted status, not the old message
+	found := false
+	for _, c := range m.Chat() {
+		if strings.Contains(c.Content, "compacted") {
+			found = true
+		}
+		assert.NotContains(t, c.Content, "old message")
+	}
+	assert.True(t, found, "should show compacted status")
+}
+
+func TestCompact_DoneResetsTokenCount(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetTokenCount(50000)
+
+	m = applyMsg(m, tui.CompactDoneMsg{Summary: "short summary"})
+	assert.Less(t, m.TokenCount(), 50000, "token count should be reduced after compact")
+}
+
+func TestCompact_ErrorPreservesChat(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello"})
+	chatLen := len(m.Chat())
+
+	m = applyMsg(m, tui.CompactDoneMsg{Err: fmt.Errorf("API error")})
+	// Should have the original chat plus an error entry
+	assert.Greater(t, len(m.Chat()), chatLen)
+	assert.Contains(t, m.Chat()[len(m.Chat())-1].Content, "Compact failed")
+}
