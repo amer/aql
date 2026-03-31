@@ -209,6 +209,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Button == tea.MouseButtonWheelDown:
 			m.scrollDown(5)
 		case msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress:
+			m.selection.Clear()
 			m.computeViewLines() // snapshot screen content for selection extraction
 			m.selection.Start(msg.X, msg.Y)
 		case msg.Action == tea.MouseActionMotion && m.selection.Active():
@@ -216,7 +217,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Action == tea.MouseActionRelease && m.selection.Active():
 			m.selection.Update(msg.X, msg.Y)
 			text := m.selection.Extract(m.viewLines)
-			m.selection.Clear()
 			if text != "" {
 				return m, copyToClipboard(text)
 			}

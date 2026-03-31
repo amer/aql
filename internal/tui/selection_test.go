@@ -114,6 +114,33 @@ func TestSelection_ContainsPoint(t *testing.T) {
 	assert.False(t, s.Contains(3, 2), "wrong line")
 }
 
+func TestSelection_MultiByte(t *testing.T) {
+	// Screen columns are rune-based, not byte-based.
+	// "⏺" is a 3-byte UTF-8 character but occupies 1 screen column.
+	s := tui.Selection{}
+	s.Start(1, 0) // after the ⏺ character (column 1)
+	s.Update(7, 0)
+
+	lines := []string{
+		"⏺      Here's the project root",
+	}
+	// Should get 6 chars: "      " (spaces), not garbled UTF-8 bytes
+	assert.Equal(t, "      ", s.Extract(lines))
+}
+
+func TestSelection_MultiByteMiddle(t *testing.T) {
+	// Selecting text that spans across multi-byte characters
+	s := tui.Selection{}
+	s.Start(0, 0)
+	s.Update(3, 0)
+
+	lines := []string{
+		"⏺⎿hello",
+	}
+	// Should get "⏺⎿h" (3 runes), not garbled bytes
+	assert.Equal(t, "⏺⎿h", s.Extract(lines))
+}
+
 func TestSelection_ContainsMultiLine(t *testing.T) {
 	s := tui.Selection{}
 	s.Start(5, 0)

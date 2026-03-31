@@ -1086,13 +1086,22 @@ func TestIntegration_MouseReleaseCompletesSelection(t *testing.T) {
 		Action: tea.MouseActionMotion,
 		X:      5, Y: 3,
 	})
-	// Release clears selection (text was copied via OSC 52)
+	// Release copies text but keeps selection visible
 	m, _ = applyMsgCmd(m, tea.MouseMsg{
 		Button: tea.MouseButtonNone,
 		Action: tea.MouseActionRelease,
 		X:      5, Y: 3,
 	})
-	assert.False(t, m.HasSelection(), "release should clear selection after copy")
+	assert.True(t, m.HasSelection(), "release should keep selection visible")
+
+	// Next click clears the old selection and starts a new one
+	m = applyMsg(m, tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		X:      0, Y: 2,
+	})
+	// Selection is active at the new position, old highlight is gone
+	assert.True(t, m.HasSelection(), "new click starts new selection")
 }
 
 func TestIntegration_MouseScrollDoesNotStartSelection(t *testing.T) {

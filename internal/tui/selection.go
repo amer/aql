@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Selection tracks a text selection region by screen coordinates.
 // Coordinates are 0-based: X is the column, Y is the row.
@@ -63,26 +66,20 @@ func (s Selection) Extract(lines []string) string {
 
 	if sy == ey {
 		line := lines[sy]
-		if sx > len(line) {
-			sx = len(line)
-		}
-		if ex > len(line) {
-			ex = len(line)
-		}
-		if sx >= ex {
+		sxB := runeOffset(line, sx)
+		exB := runeOffset(line, ex)
+		if sxB >= exB {
 			return ""
 		}
-		return line[sx:ex]
+		return line[sxB:exB]
 	}
 
 	var b strings.Builder
 
 	// First line: from startX to end
 	first := lines[sy]
-	if sx > len(first) {
-		sx = len(first)
-	}
-	b.WriteString(first[sx:])
+	sxB := runeOffset(first, sx)
+	b.WriteString(first[sxB:])
 
 	// Middle lines: full lines
 	for i := sy + 1; i < ey; i++ {
@@ -92,13 +89,25 @@ func (s Selection) Extract(lines []string) string {
 
 	// Last line: from start to endX
 	last := lines[ey]
-	if ex > len(last) {
-		ex = len(last)
-	}
+	exB := runeOffset(last, ex)
 	b.WriteString("\n")
-	b.WriteString(last[:ex])
+	b.WriteString(last[:exB])
 
 	return b.String()
+}
+
+// runeOffset returns the byte offset of the n-th rune in s.
+// If n exceeds the rune count, returns len(s).
+func runeOffset(s string, n int) int {
+	off := 0
+	for i := 0; i < n; i++ {
+		if off >= len(s) {
+			return len(s)
+		}
+		_, size := utf8.DecodeRuneInString(s[off:])
+		off += size
+	}
+	return off
 }
 
 // Contains returns true if the given screen position is inside the selection.
