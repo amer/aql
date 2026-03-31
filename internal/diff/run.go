@@ -1,5 +1,29 @@
 package diff
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Runner — executes git diff commands and returns structured results,
+//     NewRunner() / NewDefaultRunner() — constructors with DI,
+//     Run() — orchestrates numstat + unified diff, merges hunks,
+//     mergeHunks() — attaches parsed hunks to numstat files,
+//     execCommand() — default CommandRunner using os/exec,
+//     CommandRunner — function type for dependency injection.
+//
+// MUST NOT GO HERE:
+//   - Diff parsing logic (parse.go)
+//   - Diff type definitions (types.go)
+//   - TUI rendering of diffs (tui/diff.go)
+//
+// Q: How do I test Runner without shelling out to git?
+// A: Inject a fake CommandRunner via NewRunner(fakeFn). See run_test.go.
+//
+// Q: Should I add more git commands here?
+// A: Only if they relate to diffing. Other git operations belong in
+//    their own package or in agent/tools.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

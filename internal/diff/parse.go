@@ -1,5 +1,30 @@
 package diff
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - ParseNumstat() — parses `git diff --numstat` into DiffFile slices,
+//     ParseUnifiedDiff() — parses unified diff into DiffFile with hunks,
+//     splitDiffSections() — splits raw diff output by file,
+//     parseDiffSection() — parses a single file's diff section,
+//     extractFilePath() — extracts path from diff header,
+//     parseHunkHeader() — parses @@ hunk ranges.
+//
+// MUST NOT GO HERE:
+//   - Executing git commands (run.go)
+//   - Diff type definitions (types.go)
+//   - TUI rendering of diffs (tui/diff.go)
+//
+// Q: Where do I add a new diff format parser?
+// A: Here, alongside the existing parsers. Keep it pure — input string,
+//    output structured types.
+//
+// Q: Can I import os/exec here?
+// A: No. This file is pure parsing — no I/O, no side effects. Execution
+//    belongs in run.go.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"strconv"
