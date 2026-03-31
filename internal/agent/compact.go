@@ -19,6 +19,10 @@ Be concise but thorough. Write in past tense as a factual summary.`
 
 const compactMaxTokens = 4096
 
+// AutoCompactThreshold is the input token count above which auto-compaction triggers.
+// Set to 80% of a typical 200k context window.
+const AutoCompactThreshold = 160_000
+
 // FormatHistoryForCompaction converts a message history into readable text
 // for summarization. Each message is prefixed with its role.
 func FormatHistoryForCompaction(history []anthropic.MessageParam) string {

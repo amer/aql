@@ -31,12 +31,19 @@ const (
 
 // StreamEvent represents a chunk of output from the agent.
 type StreamEvent struct {
-	AgentName string
-	Text      string
-	Done      bool
-	Error     error
-	ToolCall  *ToolCallEvent // non-nil when agent invokes a tool
-	ToolDone  *ToolDoneEvent // non-nil when a tool finishes
+	AgentName  string
+	Text       string
+	Done       bool
+	Error      error
+	ToolCall   *ToolCallEvent   // non-nil when agent invokes a tool
+	ToolDone   *ToolDoneEvent   // non-nil when a tool finishes
+	TokenUsage *TokenUsageEvent // non-nil after each API response with precise token counts
+}
+
+// TokenUsageEvent carries precise token counts from the API response.
+type TokenUsageEvent struct {
+	InputTokens  int
+	OutputTokens int
 }
 
 // ToolCallEvent is emitted when the agent starts a tool call.
@@ -94,6 +101,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			// Track active block by index
 			activeBlocks := map[int64]*pendingToolUse{}
 			textBlocks := map[int64]*strings.Builder{}
+			var inputTokens, outputTokens int64
 
 			for stream.Next() {
 				evt := stream.Current()
@@ -133,6 +141,12 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 
 				case anthropic.MessageDeltaEvent:
 					stopReason = v.Delta.StopReason
+					if v.Usage.OutputTokens > 0 {
+						outputTokens = v.Usage.OutputTokens
+					}
+					if v.Usage.InputTokens > 0 {
+						inputTokens = v.Usage.InputTokens
+					}
 				}
 			}
 
@@ -143,6 +157,18 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 					Error:     enrichAPIError(err, string(model)),
 				}
 				return
+			}
+
+			// Emit precise token counts from this API call
+			if inputTokens > 0 || outputTokens > 0 {
+				ch <- StreamEvent{
+					AgentName: a.config.Name,
+					TokenUsage: &TokenUsageEvent{
+						InputTokens:  int(inputTokens),
+						OutputTokens: int(outputTokens),
+					},
+				}
+				slog.Debug("token usage", "agent", a.config.Name, "input", inputTokens, "output", outputTokens)
 			}
 
 			// Build assistant message from accumulated blocks (sorted by index)
@@ -178,6 +204,25 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan StreamEvent 
 			// If no tool uses or stop reason is end_turn, we're done
 			if len(toolUses) == 0 || stopReason == anthropic.StopReasonEndTurn {
 				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", stopReason)
+
+				// Auto-compact if input tokens exceed threshold
+				if inputTokens > int64(AutoCompactThreshold) {
+					slog.Info("auto-compacting: input tokens exceed threshold",
+						"agent", a.config.Name, "inputTokens", inputTokens, "threshold", AutoCompactThreshold)
+					summary, compactErr := a.CompactHistory(ctx)
+					if compactErr != nil {
+						slog.Warn("auto-compact failed", "error", compactErr)
+					} else {
+						ch <- StreamEvent{
+							AgentName: a.config.Name,
+							TokenUsage: &TokenUsageEvent{
+								InputTokens:  len(summary) / 4, // rough estimate after compaction
+								OutputTokens: 0,
+							},
+						}
+					}
+				}
+
 				ch <- StreamEvent{AgentName: a.config.Name, Done: true}
 				return
 			}
@@ -260,6 +305,9 @@ const claudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,ef
 
 // buildMessageParams constructs the API request params with tools.
 func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewParams, []option.RequestOption) {
+	// Hot-reload CLAUDE.md if modified
+	a.RefreshClaudeMD()
+
 	system := []anthropic.TextBlockParam{
 		{Text: a.systemPrompt},
 	}

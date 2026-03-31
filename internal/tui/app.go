@@ -104,6 +104,12 @@ type CompactDoneMsg struct {
 	Err     error
 }
 
+// TokenUsageMsg is sent with precise token counts from the API response.
+type TokenUsageMsg struct {
+	InputTokens  int
+	OutputTokens int
+}
+
 // BashFunc executes a shell command and returns a tea.Cmd with the result.
 // Set by the main app to provide actual shell execution.
 type BashFunc func(command string) tea.Cmd
@@ -604,8 +610,10 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, SpinnerTickFor(m.spinnerType)
 		}
 
+	case TokenUsageMsg:
+		m.tokenCount = msg.InputTokens + msg.OutputTokens
+
 	case AgentStreamDoneMsg:
-		m.tokenCount += EstimateTokens(m.streamChars)
 		elapsed := time.Since(m.streamStart)
 		m.streaming = false
 		m.chat = append(m.chat, ChatEntry{
@@ -649,6 +657,7 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.chat = nil
 			m.addStatusChat("Conversation compacted", AgentDone)
+			// After compaction, estimate from summary until next API call provides precise counts
 			m.tokenCount = EstimateTokens(len(msg.Summary))
 		}
 		m.autoScroll()

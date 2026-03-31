@@ -872,3 +872,23 @@ func TestCompact_ErrorPreservesChat(t *testing.T) {
 	assert.Greater(t, len(m.Chat()), chatLen)
 	assert.Contains(t, m.Chat()[len(m.Chat())-1].Content, "Compact failed")
 }
+
+// --- TokenUsageMsg ---
+
+func TestTokenUsage_SetsPreciseCounts(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetTokenCount(999) // start with some estimate
+
+	m = applyMsg(m, tui.TokenUsageMsg{InputTokens: 5000, OutputTokens: 1200})
+	assert.Equal(t, 6200, m.TokenCount(), "should replace estimate with precise total")
+}
+
+func TestTokenUsage_UpdatesOnEachMessage(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	m = applyMsg(m, tui.TokenUsageMsg{InputTokens: 1000, OutputTokens: 500})
+	assert.Equal(t, 1500, m.TokenCount())
+
+	m = applyMsg(m, tui.TokenUsageMsg{InputTokens: 3000, OutputTokens: 800})
+	assert.Equal(t, 3800, m.TokenCount())
+}

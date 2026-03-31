@@ -129,6 +129,11 @@ func TestCompactHistory_SingleMessage(t *testing.T) {
 	assert.Contains(t, err.Error(), "fewer than 2 messages")
 }
 
+func TestAutoCompactThreshold_IsReasonable(t *testing.T) {
+	// 80% of 200k context window
+	assert.Equal(t, 160_000, agent.AutoCompactThreshold)
+}
+
 func TestCompactHistory_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

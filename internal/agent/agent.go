@@ -3,7 +3,10 @@ package agent
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/amer/aql/internal/memory"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -15,6 +18,7 @@ type Agent struct {
 	config       Config
 	memManager   *memory.Manager
 	claudeMD     string
+	claudeMDTime time.Time // mtime of last CLAUDE.md read
 	systemPrompt string
 	client       anthropic.Client
 	history      []anthropic.MessageParam
@@ -62,6 +66,10 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 	slog.Debug("creating agent", "agent", cfg.Name, "role", cfg.Role, "workDir", workDir)
 
 	claudeMD := CollectClaudeMD(workDir)
+	var claudeMDTime time.Time
+	if info, err := os.Stat(filepath.Join(workDir, "CLAUDE.md")); err == nil {
+		claudeMDTime = info.ModTime()
+	}
 	slog.Debug("loaded CLAUDE.md", "agent", cfg.Name, "length", len(claudeMD))
 
 	memManager, err := memory.NewManager(cfg.Name, workDir)
@@ -73,14 +81,15 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 	client := buildClient(o)
 
 	a := &Agent{
-		config:     cfg,
-		memManager: memManager,
-		claudeMD:   claudeMD,
-		client:     client,
-		dir:        workDir,
-		isOAuth:    o.isOAuth,
+		config:       cfg,
+		memManager:   memManager,
+		claudeMD:     claudeMD,
+		claudeMDTime: claudeMDTime,
+		client:       client,
+		dir:          workDir,
+		isOAuth:      o.isOAuth,
 	}
-	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD)
+	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD, workDir)
 
 	slog.Info("agent created", "agent", cfg.Name, "promptLength", len(a.systemPrompt))
 	return a, nil
@@ -170,12 +179,64 @@ func (a *Agent) AppendAssistantMessage(text string) {
 	))
 }
 
-// BuildSystemPrompt constructs the system prompt from config and CLAUDE.md content.
-func BuildSystemPrompt(cfg Config, claudeMD string) string {
+// RefreshClaudeMD re-reads CLAUDE.md if it has been modified since last read.
+// Returns true if the system prompt was updated.
+func (a *Agent) RefreshClaudeMD() bool {
+	path := filepath.Join(a.dir, "CLAUDE.md")
+	info, err := os.Stat(path)
+	if err != nil {
+		if a.claudeMD != "" {
+			a.claudeMD = ""
+			a.systemPrompt = BuildSystemPrompt(a.config, "", a.dir)
+			slog.Debug("CLAUDE.md removed, system prompt updated", "agent", a.config.Name)
+			return true
+		}
+		return false
+	}
+
+	if !info.ModTime().After(a.claudeMDTime) {
+		return false
+	}
+
+	content := CollectClaudeMD(a.dir)
+	a.claudeMD = content
+	a.claudeMDTime = info.ModTime()
+	a.systemPrompt = BuildSystemPrompt(a.config, content, a.dir)
+	slog.Debug("CLAUDE.md reloaded", "agent", a.config.Name, "length", len(content))
+	return true
+}
+
+// ToolDescriptionsPrompt generates a tool listing from ToolDefinitions()
+// so the system prompt always matches the actual registered tools.
+func ToolDescriptionsPrompt() string {
+	defs := ToolDefinitions()
+	var b strings.Builder
+	b.WriteString("# Available Tools\n\nYou have these tools available. Use the most appropriate tool for each task:\n")
+	for _, d := range defs {
+		b.WriteString(fmt.Sprintf("- %s: %s\n", d.Name, d.Description))
+	}
+	return b.String()
+}
+
+// BuildSystemPrompt constructs the system prompt from config, CLAUDE.md content,
+// and environment context.
+func BuildSystemPrompt(cfg Config, claudeMD string, workDir string) string {
 	var parts []string
 
 	parts = append(parts, fmt.Sprintf("Role: %s", cfg.Role))
 	parts = append(parts, cfg.SystemPrompt)
+
+	// Dynamic tool descriptions from ToolDefinitions()
+	parts = append(parts, ToolDescriptionsPrompt())
+
+	// Environment context: date, platform, shell, git info
+	envInfo := EnvironmentInfo(workDir, cfg.Model)
+	parts = append(parts, envInfo)
+
+	gitStatus := GitStatus(workDir)
+	if gitStatus != "" {
+		parts = append(parts, "# Git\n"+gitStatus)
+	}
 
 	if claudeMD != "" {
 		parts = append(parts, "---\nProject context:\n"+claudeMD)
@@ -185,8 +246,8 @@ func BuildSystemPrompt(cfg Config, claudeMD string) string {
 }
 
 // BuildSystemPromptWithMemories constructs the system prompt with injected memory context.
-func BuildSystemPromptWithMemories(cfg Config, claudeMD string, memories []string) string {
-	base := BuildSystemPrompt(cfg, claudeMD)
+func BuildSystemPromptWithMemories(cfg Config, claudeMD string, workDir string, memories []string) string {
+	base := BuildSystemPrompt(cfg, claudeMD, workDir)
 
 	if len(memories) == 0 {
 		return base

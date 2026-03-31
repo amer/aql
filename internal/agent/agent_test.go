@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/amer/aql/internal/agent"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,7 @@ func TestNewAgent(t *testing.T) {
 }
 
 func TestBuildSystemPrompt(t *testing.T) {
-	prompt := agent.BuildSystemPrompt(testConfig(), "# Project Rules\n- Use TDD\n")
+	prompt := agent.BuildSystemPrompt(testConfig(), "# Project Rules\n- Use TDD\n", "/tmp")
 
 	assert.Contains(t, prompt, "You are a senior Go developer.")
 	assert.Contains(t, prompt, "Write clean Go code")
@@ -39,8 +40,34 @@ func TestBuildSystemPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "Use TDD")
 }
 
+func TestBuildSystemPromptContainsEnvInfo(t *testing.T) {
+	prompt := agent.BuildSystemPrompt(testConfig(), "", "/tmp")
+
+	assert.Contains(t, prompt, "# Environment")
+	assert.Contains(t, prompt, "Date:")
+	assert.Contains(t, prompt, "Platform:")
+}
+
+func TestToolDescriptionsPrompt(t *testing.T) {
+	desc := agent.ToolDescriptionsPrompt()
+	assert.Contains(t, desc, "read_file")
+	assert.Contains(t, desc, "write_file")
+	assert.Contains(t, desc, "bash")
+	assert.Contains(t, desc, "edit")
+	assert.Contains(t, desc, "glob")
+	assert.Contains(t, desc, "grep")
+	assert.Contains(t, desc, "ask_user")
+}
+
+func TestToolDescriptionsPrompt_MatchesToolDefs(t *testing.T) {
+	desc := agent.ToolDescriptionsPrompt()
+	for _, td := range agent.ToolDefinitions() {
+		assert.Contains(t, desc, td.Name, "tool %q missing from descriptions prompt", td.Name)
+	}
+}
+
 func TestBuildSystemPromptNoClaudeMD(t *testing.T) {
-	prompt := agent.BuildSystemPrompt(testConfig(), "")
+	prompt := agent.BuildSystemPrompt(testConfig(), "", "/tmp")
 
 	assert.Contains(t, prompt, "You are a senior Go developer.")
 	assert.NotContains(t, prompt, "Project Rules")
@@ -52,10 +79,35 @@ func TestBuildSystemPromptWithMemoryContext(t *testing.T) {
 		"Team prefers table-driven tests",
 	}
 
-	prompt := agent.BuildSystemPromptWithMemories(testConfig(), "", memories)
+	prompt := agent.BuildSystemPromptWithMemories(testConfig(), "", "/tmp", memories)
 
 	assert.Contains(t, prompt, "JWT")
 	assert.Contains(t, prompt, "table-driven tests")
+}
+
+func TestClaudeMDHotReload(t *testing.T) {
+	dir := t.TempDir()
+
+	// Start without CLAUDE.md
+	a, err := agent.New(testConfig(), dir)
+	require.NoError(t, err)
+	assert.NotContains(t, a.SystemPrompt(), "hot-reload-test")
+
+	// Write CLAUDE.md
+	mdPath := filepath.Join(dir, "CLAUDE.md")
+	require.NoError(t, os.WriteFile(mdPath, []byte("# hot-reload-test"), 0644))
+
+	// Force a refresh (normally called by buildMessageParams)
+	a.RefreshClaudeMD()
+	assert.Contains(t, a.SystemPrompt(), "hot-reload-test")
+
+	// Update the file
+	time.Sleep(10 * time.Millisecond) // ensure mtime differs
+	require.NoError(t, os.WriteFile(mdPath, []byte("# updated-content"), 0644))
+
+	a.RefreshClaudeMD()
+	assert.Contains(t, a.SystemPrompt(), "updated-content")
+	assert.NotContains(t, a.SystemPrompt(), "hot-reload-test")
 }
 
 func TestClearHistory_RemovesAllMessages(t *testing.T) {

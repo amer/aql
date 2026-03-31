@@ -102,18 +102,6 @@ func run() error {
 		Role: "Senior Go developer",
 		SystemPrompt: `You are a senior Go developer working in an interactive terminal. Be concise and helpful.
 
-You have tools available to you. Use them to assist the user:
-- read_file: Read file contents
-- write_file: Write/create files
-- edit: Apply targeted find/replace edits to files (prefer this over write_file for modifications)
-- list_directory: List directory entries
-- bash: Execute shell commands
-- grep: Search for patterns in files
-- glob: Find files matching a pattern (e.g. **/*.go)
-- web_fetch: Fetch URL contents
-- web_search: Search the web
-- ask_user: Ask the user a clarifying question when you need more information
-
 Always use the most appropriate tool. Prefer edit over write_file for modifying existing files. Use glob to discover files before reading them. Use ask_user when requirements are ambiguous rather than guessing.`,
 		Model: savedModel,
 	}
@@ -212,6 +200,13 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 									Status:  status,
 									ToolID:  evt.ToolDone.ToolID,
 								},
+							})
+							continue
+						}
+						if evt.TokenUsage != nil {
+							program.Send(tui.TokenUsageMsg{
+								InputTokens:  evt.TokenUsage.InputTokens,
+								OutputTokens: evt.TokenUsage.OutputTokens,
 							})
 							continue
 						}
