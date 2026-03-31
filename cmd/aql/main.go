@@ -137,7 +137,13 @@ func configureTUI(
 			*streamCancel = cancel
 			(*program).Send(tui.AgentStreamStartMsg{AgentName: "coder"})
 			ch := coder.Run(ctx, input)
-			go stream.Forward(ctx, ch, func(msg any) { (*program).Send(msg) })
+			go stream.ForwardWithHistory(ctx, ch,
+				func(msg any) { (*program).Send(msg) },
+				stream.HistoryCallbacks{
+					Append:  func(msg domain.Message) { coder.ApplyHistory(msg) },
+					Replace: func(msgs []domain.Message) { coder.ReplaceHistory(msgs) },
+				},
+			)
 			return nil
 		}
 	}

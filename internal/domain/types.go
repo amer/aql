@@ -11,9 +11,24 @@ type StreamEvent struct {
 	Text       string
 	Done       bool
 	Error      error
-	ToolCall   *ToolCallEvent   // non-nil when agent invokes a tool
-	ToolDone   *ToolDoneEvent   // non-nil when a tool finishes
-	TokenUsage *TokenUsageEvent // non-nil after each API response with precise token counts
+	ToolCall   *ToolCallEvent     // non-nil when agent invokes a tool
+	ToolDone   *ToolDoneEvent     // non-nil when a tool finishes
+	TokenUsage *TokenUsageEvent   // non-nil after each API response with precise token counts
+	History    *HistoryAppendMsg  // non-nil when the caller should append a message to history
+	Replace    *HistoryReplaceMsg // non-nil when the caller should replace history entirely (compaction)
+}
+
+// HistoryAppendMsg tells the caller to append a message to the agent's history.
+// Emitted by Run() so that history mutation happens in the caller's goroutine,
+// not the agent's streaming goroutine.
+type HistoryAppendMsg struct {
+	Message Message
+}
+
+// HistoryReplaceMsg tells the caller to replace the agent's entire history.
+// Emitted after auto-compaction summarizes the conversation.
+type HistoryReplaceMsg struct {
+	Messages []Message
 }
 
 // ToolCallEvent is emitted when the agent starts a tool call.

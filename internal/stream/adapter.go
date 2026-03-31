@@ -29,6 +29,45 @@ func Forward(ctx context.Context, ch <-chan domain.StreamEvent, send SendFunc) {
 	}
 }
 
+// HistoryApplier applies a history message to the agent.
+// Provided by the caller so the adapter doesn't import the agent package.
+type HistoryApplier func(msg domain.Message)
+
+// HistoryReplacer replaces the agent's entire history (for compaction).
+type HistoryReplacer func(msgs []domain.Message)
+
+// HistoryCallbacks holds the functions for applying history mutations.
+type HistoryCallbacks struct {
+	Append  HistoryApplier
+	Replace HistoryReplacer
+}
+
+// ForwardWithHistory reads domain.StreamEvents and translates them into TUI
+// messages, applying history events via the provided callbacks. This keeps
+// history mutation in the Forward goroutine (single writer), not inside
+// the agent's Run goroutine.
+func ForwardWithHistory(ctx context.Context, ch <-chan domain.StreamEvent, send SendFunc, history HistoryCallbacks) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt, ok := <-ch:
+			if !ok {
+				return
+			}
+			if evt.History != nil && history.Append != nil {
+				history.Append(evt.History.Message)
+			}
+			if evt.Replace != nil && history.Replace != nil {
+				history.Replace(evt.Replace.Messages)
+			}
+			if forwardEvent(evt, send) {
+				return
+			}
+		}
+	}
+}
+
 // forwardEvent translates a single StreamEvent into a TUI message.
 // Returns true if the event is terminal (done or error).
 func forwardEvent(evt domain.StreamEvent, send SendFunc) bool {
@@ -50,6 +89,8 @@ func forwardEvent(evt domain.StreamEvent, send SendFunc) bool {
 		})
 	case evt.Text != "":
 		send(tui.AgentStreamDeltaMsg{AgentName: evt.AgentName, Delta: evt.Text})
+	case evt.History != nil:
+		// History events are handled by ForwardWithHistory; Forward ignores them.
 	}
 	return false
 }

@@ -54,17 +54,28 @@ func FormatHistoryForCompaction(history []domain.Message) string {
 // CompactHistory summarizes the conversation history via a Claude API call
 // and replaces the full history with the summary.
 func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
-	if len(a.history) < 2 {
-		return "", fmt.Errorf("nothing to compact: conversation has fewer than 2 messages")
+	summary, compacted, err := a.summarizeHistory(ctx, a.history)
+	if err != nil {
+		return "", err
+	}
+	a.history = compacted
+	return summary, nil
+}
+
+// summarizeHistory performs the API call to summarize history and returns
+// the summary text and the replacement history messages. Does not mutate
+// any agent state, so it's safe to call from any goroutine.
+func (a *Agent) summarizeHistory(ctx context.Context, history []domain.Message) (string, []domain.Message, error) {
+	if len(history) < 2 {
+		return "", nil, fmt.Errorf("nothing to compact: conversation has fewer than 2 messages")
 	}
 
-	formatted := FormatHistoryForCompaction(a.history)
-
+	formatted := FormatHistoryForCompaction(history)
 	model := models.ResolveModel(a.config.Model)
 
 	slog.Debug("compacting conversation history",
 		"agent", a.config.Name,
-		"messages", len(a.history),
+		"messages", len(history),
 		"formatted_len", len(formatted),
 	)
 
@@ -75,16 +86,15 @@ func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
 		Messages:  []domain.Message{domain.NewUserMessage(formatted)},
 	})
 	if err != nil {
-		return "", fmt.Errorf("compact API call: %w", err)
+		return "", nil, fmt.Errorf("compact API call: %w", err)
 	}
 
 	summaryText := strings.Join(resp.TextParts, "")
 	if summaryText == "" {
-		return "", fmt.Errorf("compact produced empty summary")
+		return "", nil, fmt.Errorf("compact produced empty summary")
 	}
 
-	// Replace history with compact summary
-	a.history = []domain.Message{
+	compacted := []domain.Message{
 		domain.NewUserMessage("Summary of prior conversation:\n\n" + summaryText),
 		domain.NewAssistantMessage("Understood. I have the context from our previous conversation. How can I help you next?"),
 	}
@@ -94,5 +104,5 @@ func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
 		"summary_len", len(summaryText),
 	)
 
-	return summaryText, nil
+	return summaryText, compacted, nil
 }

@@ -4,6 +4,14 @@ Opportunities to make better use of Go concurrency patterns across the codebase.
 
 ## High Impact
 
+### 0. History ownership — eliminate data race on agent.history
+
+- **Files:** `internal/agent/runner.go`, `internal/agent/agent.go`, `internal/stream/adapter.go`
+- **Problem:** `Run()` goroutine mutated `a.history` concurrently with caller (auto-compact, /clear, next Run)
+- **Pattern:** Run() snapshots history, works on local copy, emits `HistoryAppendMsg`/`HistoryReplaceMsg` events; caller applies via `ApplyHistory()`/`ReplaceHistory()` — single writer, no shared mutable state
+- **Impact:** Eliminates data race on conversation history; aligns agent with TUI's Elm architecture (events in → state change)
+- **Status:** DONE
+
 ### 1. Parallel tool execution
 
 - **File:** `internal/agent/runner.go`

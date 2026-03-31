@@ -37,8 +37,18 @@ const (
 // returned channel. Implements a tool use loop: if Claude responds with
 // tool_use blocks, the tools are executed and results sent back until
 // Claude produces a final text response.
+//
+// Run does NOT mutate a.history. Instead, it emits HistoryAppendMsg events
+// on the channel. The caller must apply them via ApplyHistory to keep the
+// agent's history in sync. This keeps all history mutation in the caller's
+// goroutine, eliminating data races.
 func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.StreamEvent {
 	ch := make(chan domain.StreamEvent, streamEventBufSize)
+
+	// Snapshot the current history so the goroutine works on a local copy.
+	// The caller owns a.history; the goroutine only reads this local slice.
+	localHistory := make([]domain.Message, len(a.history))
+	copy(localHistory, a.history)
 
 	go func() {
 		defer close(ch)
@@ -46,14 +56,16 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		slog.Debug("agent run started", "agent", a.config.Name, "messageLength", len(userMessage))
 		start := time.Now()
 
-		a.history = append(a.history, domain.NewUserMessage(userMessage))
+		userMsg := domain.NewUserMessage(userMessage)
+		localHistory = append(localHistory, userMsg)
+		ch <- domain.StreamEvent{AgentName: a.config.Name, History: &domain.HistoryAppendMsg{Message: userMsg}}
 
 		model := models.ResolveModel(a.config.Model)
-		slog.Debug("starting API call", "agent", a.config.Name, "model", model, "historyLength", len(a.history), "oauth", a.isOAuth)
+		slog.Debug("starting API call", "agent", a.config.Name, "model", model, "historyLength", len(localHistory), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
 		for iteration := range maxToolIterations {
-			params := a.buildChatParams(model)
+			params := a.buildChatParamsFrom(model, localHistory)
 
 			resp, err := a.streamWithRetry(ctx, ch, params)
 			if err != nil {
@@ -77,22 +89,24 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 				slog.Debug("token usage", "agent", a.config.Name, "input", resp.InputTokens, "output", resp.OutputTokens)
 			}
 
-			a.history = append(a.history, buildAssistantMessage(resp))
+			assistantMsg := buildAssistantMessage(resp)
+			localHistory = append(localHistory, assistantMsg)
+			ch <- domain.StreamEvent{AgentName: a.config.Name, History: &domain.HistoryAppendMsg{Message: assistantMsg}}
 
 			// If no tool uses or stop reason is end_turn, we're done
 			if len(resp.ToolUses) == 0 || resp.StopReason == "end_turn" {
 				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", resp.StopReason)
-				a.maybeAutoCompact(ctx, ch, int64(resp.InputTokens))
+				a.maybeAutoCompact(ctx, ch, localHistory, int64(resp.InputTokens))
 				ch <- domain.StreamEvent{AgentName: a.config.Name, Done: true}
 				return
 			}
 
 			// Execute tools and feed results back
 			toolResultBlocks := a.executeTools(ctx, ch, resp.ToolUses)
-			a.history = append(a.history, domain.Message{
-				Role:    domain.RoleUser,
-				Content: toolResultBlocks,
-			})
+			toolResultMsg := domain.Message{Role: domain.RoleUser, Content: toolResultBlocks}
+			localHistory = append(localHistory, toolResultMsg)
+			ch <- domain.StreamEvent{AgentName: a.config.Name, History: &domain.HistoryAppendMsg{Message: toolResultMsg}}
+
 			slog.Debug("tool results sent, continuing loop", "agent", a.config.Name, "toolCount", len(resp.ToolUses), "iteration", iteration)
 		}
 
@@ -198,16 +212,21 @@ func (a *Agent) emitToolResults(ch chan<- domain.StreamEvent, toolUses []domain.
 }
 
 // maybeAutoCompact triggers compaction if input tokens exceed the threshold.
-func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEvent, inputTokens int64) {
+// It does not mutate a.history; instead it emits a HistoryReplaceMsg event.
+func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEvent, localHistory []domain.Message, inputTokens int64) {
 	if inputTokens <= int64(AutoCompactThreshold) {
 		return
 	}
 	slog.Info("auto-compacting: input tokens exceed threshold",
 		"agent", a.config.Name, "inputTokens", inputTokens, "threshold", AutoCompactThreshold)
-	summary, compactErr := a.CompactHistory(ctx)
+	summary, compacted, compactErr := a.summarizeHistory(ctx, localHistory)
 	if compactErr != nil {
 		slog.Warn("auto-compact failed", "error", compactErr)
 		return
+	}
+	ch <- domain.StreamEvent{
+		AgentName: a.config.Name,
+		Replace:   &domain.HistoryReplaceMsg{Messages: compacted},
 	}
 	ch <- domain.StreamEvent{
 		AgentName: a.config.Name,
@@ -218,8 +237,10 @@ func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEve
 	}
 }
 
-// buildChatParams constructs the domain.ChatParams for an API call.
-func (a *Agent) buildChatParams(model string) domain.ChatParams {
+// buildChatParamsFrom constructs the domain.ChatParams for an API call
+// using the provided history slice (not a.history), so Run's goroutine
+// doesn't need to read shared state.
+func (a *Agent) buildChatParamsFrom(model string, history []domain.Message) domain.ChatParams {
 	// Hot-reload CLAUDE.md if modified
 	a.RefreshClaudeMD()
 
@@ -247,7 +268,7 @@ func (a *Agent) buildChatParams(model string) domain.ChatParams {
 	return domain.ChatParams{
 		Model:        model,
 		System:       a.systemPrompt,
-		Messages:     a.history,
+		Messages:     history,
 		Tools:        toolDefs,
 		MaxTokens:    maxTokens,
 		OAuthBilling: a.isOAuth,

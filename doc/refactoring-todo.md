@@ -6,9 +6,9 @@ Identified 2026-03-31. Work through top-to-bottom by priority.
 
 ## High Priority
 
-- [x] **1. Split Model god object** — partially done (handlers extracted, Model struct still large)
-  - [ ] Extract `CommandPaletteState`, `StreamingState`, `SelectionState`
-  - [ ] Extract rendering into separate modules
+- [x] **1. Split Model god object** — done
+  - [x] Extracted `streamState`, `modelPickerState`, `transcriptSearchState`, `paletteState` sub-structs
+  - [x] Extracted shared types/messages to `types.go` (~100 lines moved from `app.go`)
   - [x] Split `View()` delegates are clean; `executeCommand()` is manageable
 
 - [x] **2. Inject Anthropic client** — `internal/models/probe.go`
@@ -20,8 +20,9 @@ Identified 2026-03-31. Work through top-to-bottom by priority.
   - `handleSubmit()` — answer, bash, normal submit extracted
 
 - [x] **4. Extract agent runner concerns** — `internal/agent/runner.go`
-  - `Run()` is now ~50 line orchestrator
+  - `Run()` is now ~50 line orchestrator with no shared state mutation
   - Extracted `streamWithRetry()`, `consumeStream()`, `executeTools()`, `maybeAutoCompact()`
+  - History ownership moved to caller via `HistoryAppendMsg`/`HistoryReplaceMsg` events
 
 - [x] **5. Clean up main bootstrap** — `cmd/aql/main.go`
   - Extracted `setupLogging()`, `configureTUI()`, `startBackgroundModelProbe()`

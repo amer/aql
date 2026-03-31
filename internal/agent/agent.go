@@ -139,6 +139,20 @@ func (a *Agent) AppendAssistantMessage(text string) {
 	a.history = append(a.history, domain.NewAssistantMessage(text))
 }
 
+// ApplyHistory appends a message to the conversation history.
+// Called by the caller of Run() in response to HistoryAppendMsg events,
+// keeping all history mutation in the caller's goroutine.
+func (a *Agent) ApplyHistory(msg domain.Message) {
+	a.history = append(a.history, msg)
+}
+
+// ReplaceHistory replaces the entire conversation history.
+// Called by the caller of Run() in response to HistoryReplaceMsg events
+// (auto-compaction).
+func (a *Agent) ReplaceHistory(msgs []domain.Message) {
+	a.history = msgs
+}
+
 // RefreshClaudeMD re-reads CLAUDE.md if it has been modified since last read.
 // Returns true if the system prompt was updated.
 func (a *Agent) RefreshClaudeMD() bool {

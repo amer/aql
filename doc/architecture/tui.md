@@ -36,25 +36,32 @@ output is rendered with [Glamour](https://github.com/charmbracelet/glamour).
 
 ## Components
 
-| File             | Purpose                                           |
-| ---------------- | ------------------------------------------------- |
-| `app.go`         | Main Bubble Tea model, Update/View, message types |
-| `styles.go`      | Lip Gloss styles and color palette                |
-| `header.go`      | Welcome header with branding                      |
-| `statusbar.go`   | Bottom bar with model info and hints              |
-| `prompt.go`      | Input prompt and streaming prompt                 |
-| `spinner.go`     | Braille spinner animation                         |
-| `agent_panel.go` | Agent headers, tool blocks, user messages         |
-| `commands.go`    | Slash command definitions, filtering, rendering   |
-| `markdown.go`    | Glamour-based markdown rendering                  |
+| File             | Purpose                                                                           |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `types.go`       | Shared enums (AgentStatus, ChatEntryType), ChatEntry, all Msg types, callbacks    |
+| `app.go`         | Main Bubble Tea model, Update/View, sub-structs (streamState, paletteState, etc.) |
+| `handlers.go`    | Key/message handlers, submit/escape/tab dispatch                                  |
+| `styles.go`      | Lip Gloss styles and color palette                                                |
+| `welcome.go`     | Welcome screen with branding                                                      |
+| `statusbar.go`   | Bottom bar with model name and token count                                        |
+| `prompt.go`      | Input prompt and streaming prompt                                                 |
+| `spinner.go`     | Spinner animations (braille, circle, arc, etc.)                                   |
+| `agent_panel.go` | Agent headers, tool blocks, user messages                                         |
+| `commands.go`    | Slash command definitions, filtering, rendering                                   |
+| `markdown.go`    | Glamour-based markdown rendering                                                  |
+| `transcript.go`  | Transcript blocks, tool grouping, search                                          |
 
 ## Data Flow
 
 1. User types in prompt → `tea.KeyMsg` updates `Model.input`
 2. User presses Enter → `SubmitFunc` called → returns `tea.Cmd`
-3. Agent streams via `tea.Program.Send()` → `AgentStreamDeltaMsg` appended to chat
-4. `AgentStreamDoneMsg` ends streaming state
-5. `View()` renders header → chat entries → prompt → palette → status bar
+3. `agent.Run()` starts in goroutine, emits `StreamEvent`s on channel
+4. `stream.ForwardWithHistory()` translates events to TUI messages and applies history:
+   - `HistoryAppendMsg` → `agent.ApplyHistory()` (caller owns history mutation)
+   - `HistoryReplaceMsg` → `agent.ReplaceHistory()` (auto-compaction)
+   - Text/tool/done events → `tea.Program.Send()` → TUI `Update()`
+5. `AgentStreamDoneMsg` ends streaming state
+6. `View()` renders welcome → chat entries → prompt → palette → status bar
 
 ## Message Types
 

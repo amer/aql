@@ -13,8 +13,8 @@ internal/
     anthropic.go          — AnthropicClient, StreamMessage, SendMessage, SDK type conversions
   agent/                  — core agent logic (SDK-free)
     agent.go              — Agent struct, New(), WithChatClient(), system prompt building
-    runner.go             — Run() orchestrator, streamWithRetry(), executeTools(), buildChatParams()
-    compact.go            — CompactHistory, FormatHistoryForCompaction (uses domain.ChatClient)
+    runner.go             — Run() orchestrator, streamWithRetry(), executeTools(), buildChatParamsFrom()
+    compact.go            — CompactHistory, summarizeHistory, FormatHistoryForCompaction (uses domain.ChatClient)
     errors.go             — isRetryableError, enrichAPIError (SDK error inspection)
     config.go             — Config struct (YAML), MemoryConfig, EventsConfig
     context.go            — LoadClaudeMD, CollectClaudeMD
@@ -24,12 +24,13 @@ internal/
       tools_glob.go       — execGlob
       tools_web.go        — execWebFetch, execWebSearch, HTML parsing
   tui/                    — 27 files, ~5000 lines (UI)
-    app.go                — Model struct, Update(), all Msg types, callbacks
+    types.go              — shared enums (AgentStatus, ChatEntryType), ChatEntry, all Msg types, callbacks
+    app.go                — Model struct, Update(), View(), sub-structs (streamState, paletteState, etc.)
     handlers.go           — handleKey/handleMsg/handleSubmit dispatchers + focused handler methods
     transcript.go         — tool display names, rendering
     commands.go           — slash commands, ModelTier, model picker, command palette
     streamstatus.go       — StreamPhase, FormatStreamStatus
-    statusbar.go          — AgentStatus, RenderStatusBar
+    statusbar.go          — RenderStatusBar
     agent_panel.go        — ToolCall struct, ToolStatus, RenderToolBlock
     header.go             — RenderHeader
     input.go              — InputBuffer
