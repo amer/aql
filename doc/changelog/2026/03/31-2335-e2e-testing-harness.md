@@ -35,7 +35,11 @@ test/e2e/artifacts/
 ## Running
 
 ```sh
+# Replay mode (default, fast, no API key needed)
 go test -tags e2e -v -count=1 -timeout 60s ./test/e2e/
+
+# Record mode (captures fresh API fixtures)
+E2E_RECORD=1 go test -tags e2e -v -run TestE2E_RecordAPICall -timeout 60s ./test/e2e/
 ```
 
 ## ADR
