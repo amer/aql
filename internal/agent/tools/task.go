@@ -1,5 +1,28 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Task struct, TaskStore (thread-safe with mutex)
+//   - Create/Update/List operations
+//   - registerTaskTools — adds task handlers to registry
+//   - execTaskCreate/execTaskUpdate/execTaskList
+//   - validStatuses map
+//
+// MUST NOT GO HERE:
+//   - TUI task panel rendering (tui/tasks.go)
+//   - Tool definitions (defs.go)
+//   - Anything that imports agent or tui
+//
+// Q: Should I add a new task field?
+// A: Add it to Task struct here and update the TUI's TaskEntry in
+//    tui/tasks.go.
+//
+// Q: Is TaskStore safe for concurrent use?
+// A: Yes, all methods hold the mutex.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

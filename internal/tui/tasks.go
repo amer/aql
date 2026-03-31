@@ -1,5 +1,24 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - TaskEntry struct, taskState, isTaskTool — identifies task
+//     tools for transcript suppression, handleTaskToolResult —
+//     parses task output and updates panel state, upsertTask,
+//     ToggleTasks, task panel rendering (taskCheckbox,
+//     taskDescriptionStyle, RenderTaskPanel), testing accessors.
+//
+// MUST NOT GO HERE:
+//   - TaskStore implementation (tools/task.go), agent imports, tool
+//     definitions.
+//
+// Q: Should I suppress a new tool from the transcript?
+// A: If it's task-like, add it to isTaskTool() and handle in
+//    handleTaskToolResult().
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"fmt"

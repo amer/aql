@@ -1,5 +1,21 @@
 package models
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - ResolveModel() — maps shortcuts (sonnet/opus/haiku) to full model IDs
+//   - ValidateModelID()
+//   - Model ID constants (ModelSonnet, ModelOpus, ModelHaiku)
+//
+// MUST NOT GO HERE:
+//   - API calls, model persistence
+//   - Anthropic SDK imports (this file is SDK-free by design)
+//
+// Q: Should I add a new model shortcut?
+// A: Add a case to ResolveModel() and a constant.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"log/slog"

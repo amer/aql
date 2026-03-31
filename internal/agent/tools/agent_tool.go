@@ -1,5 +1,23 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - AgentSpawner interface (consumer-side port)
+//   - registerAgentTool — adds agent handler to registry
+//   - execAgent — validates input and delegates to spawner
+//
+// MUST NOT GO HERE:
+//   - Spawner implementation (that's internal/agent/spawner.go —
+//     avoids circular import)
+//   - Tool definitions (defs.go)
+//
+// Q: Why is AgentSpawner defined here, not in the agent package?
+// A: To avoid circular imports. tools defines the interface (consumer),
+//    agent implements it (producer).
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

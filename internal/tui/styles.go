@@ -1,5 +1,22 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - All lipgloss style definitions (colors, typography), Tokyo
+//     Night color palette, ANSI escape helpers (stripAnsiString,
+//     highlightLineRange, selHighlightOn/Off), ansiRegexp.
+//
+// MUST NOT GO HERE:
+//   - Rendering logic (use styles in render functions), state
+//     mutation, business logic.
+//
+// Q: Should I add a new color?
+// A: Define it in the color palette section at the top, then create
+//    a style variable.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"regexp"
 	"strings"

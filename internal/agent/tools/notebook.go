@@ -1,5 +1,17 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - execNotebookEdit — parses .ipynb JSON and modifies cell source
+//   - splitSourceLines — ipynb line format helper
+//
+// MUST NOT GO HERE:
+//   - General file operations (file.go)
+//   - Tool definitions (defs.go)
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"fmt"

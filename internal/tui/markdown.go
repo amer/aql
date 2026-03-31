@@ -1,5 +1,16 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - RenderMarkdown — renders markdown for terminal using glamour,
+//     markdownStyle config.
+//
+// MUST NOT GO HERE:
+//   - Custom markdown parsing, state mutation, agent imports.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"strings"
 

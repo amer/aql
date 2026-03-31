@@ -1,5 +1,22 @@
 package models
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - LoadOrDefault() — startup model resolution (saved → cached → default)
+//   - ModelToTier() — converts ModelInfo for display
+//   - ProbeAndUpdate() — background model probe + cache update
+//
+// MUST NOT GO HERE:
+//   - Direct Anthropic SDK calls (probe.go)
+//   - Model persistence logic (persist.go)
+//   - TUI imports
+//
+// Q: Should I change the model fallback order?
+// A: Update LoadOrDefault() here.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

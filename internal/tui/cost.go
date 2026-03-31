@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - FormatTokenCount — comma-separated formatting,
+//     FormatTokenCountShort — short form (1.0k, 1.2m).
+//
+// MUST NOT GO HERE:
+//   - Token tracking state, API pricing logic, status bar rendering
+//     (statusbar.go).
+// ──────────────────────────────────────────────────────────────────
+
 import "fmt"
 
 // FormatTokenCount formats a token count with comma separators.

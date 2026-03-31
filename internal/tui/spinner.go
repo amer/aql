@@ -1,5 +1,18 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - SpinnerType enum, Spinner definitions (frames, intervals),
+//     SpinnerDef/SpinnerTypes/RandomSpinnerType/SpinnerFrameAt,
+//     SpinnerTickMsg, SpinnerTick/SpinnerTickFor tea.Cmds,
+//     RenderSpinner/RenderSpinnerWithType.
+//
+// MUST NOT GO HERE:
+//   - Stream state management (handlers.go), non-spinner animations.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"math/rand/v2"
 	"time"

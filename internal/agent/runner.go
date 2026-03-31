@@ -1,5 +1,34 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Run() method — the core streaming + tool loop, streamWithRetry(),
+//     executeTools() and its helpers (emitToolCallEvents, runToolsParallel,
+//     emitToolResults), buildChatParamsFrom(), maybeAutoCompact(),
+//     buildAssistantMessage(), constants (maxToolIterations,
+//     streamEventBufSize, etc.).
+//
+// MUST NOT GO HERE:
+//   - Agent construction (agent.go)
+//   - Tool implementations (tools/)
+//   - Compaction logic (compact.go)
+//   - Error classification (errors.go)
+//   - Direct a.history mutation (use localHistory + events)
+//
+// Q: Should I add retry logic for a new error type?
+// A: Update isRetryableError() in errors.go. Runner uses it automatically.
+//
+// Q: Where does history mutation happen?
+// A: Run() works on localHistory (snapshot). Mutations go to the caller
+//    via HistoryAppendMsg events on ch.
+//
+// Q: How do I add a new event type to the stream?
+// A: Add a field to domain.StreamEvent, emit it in Run() via ch <-, and
+//    handle it in stream/adapter.go.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - AgentPanelData struct, RenderAgentHeader — agent name with
+//     status indicator, RenderToolBlock — bordered tool call block,
+//     RenderAgentPanel, RenderUserMessage.
+//
+// MUST NOT GO HERE:
+//   - Message handling, state mutation, agent imports.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"strings"

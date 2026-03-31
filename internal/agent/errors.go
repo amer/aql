@@ -1,5 +1,26 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - statusCoder interface, extractStatusCode(), isRetryableError(),
+//     enrichAPIError() — all pure functions for error classification
+//     and enrichment.
+//
+// MUST NOT GO HERE:
+//   - Retry logic itself (that's runner.go's streamWithRetry)
+//   - Anthropic SDK types (uses interface, not concrete)
+//   - Error creation
+//
+// Q: Should I add a new retryable error code?
+// A: Add it to the switch in isRetryableError().
+//
+// Q: Should I add user-facing error messages?
+// A: Add a case to enrichAPIError(). It wraps errors with actionable
+//    context.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"errors"
 	"fmt"

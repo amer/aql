@@ -1,5 +1,23 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - LoadClaudeMD() — reads CLAUDE.md from a single directory,
+//     CollectClaudeMD() — deduplicates and concatenates from multiple
+//     directories.
+//
+// MUST NOT GO HERE:
+//   - System prompt assembly (that's agent.go's BuildPromptParts)
+//   - File writing
+//   - Anything beyond reading CLAUDE.md files
+//
+// Q: Should I add support for reading other config files?
+// A: Add a similar Load* function here, then integrate in agent.go's
+//    BuildPromptParts.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"os"
 	"path/filepath"

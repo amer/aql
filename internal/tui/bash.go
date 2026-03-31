@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - IsBashCommand — detects "!" prefix, ParseBashCommand —
+//     extracts shell command.
+//
+// MUST NOT GO HERE:
+//   - Shell execution (that's main.go's onBash callback), rendering,
+//     state mutation. These are pure parsing functions.
+// ──────────────────────────────────────────────────────────────────
+
 import "strings"
 
 // IsBashCommand returns true if the input starts with "!" (bash mode prefix).

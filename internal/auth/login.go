@@ -1,5 +1,25 @@
 package auth
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Login() — full OAuth PKCE flow
+//   - startCallbackServer — local HTTP server for OAuth callback
+//   - exchangeAndCreateKey, openAuthURL, openBrowser
+//   - LoginResult/LoginOptions types
+//   - Success HTML page, generateState, findAvailablePort
+//
+// MUST NOT GO HERE:
+//   - Token storage (oauth.go's SaveTokens/LoadTokens)
+//   - API key resolution (resolve.go)
+//   - Agent or TUI imports
+//
+// Q: Should I change the OAuth flow?
+// A: Modify Login() here. It orchestrates: server start → browser
+//    open → wait for code → exchange → create key.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"crypto/rand"

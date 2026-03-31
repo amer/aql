@@ -1,5 +1,22 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Command struct, SlashCommands() list, FilterCommands — fuzzy
+//     matching, ModelTier struct, DefaultModelTiers,
+//     RenderModelPicker, RenderCommandPalette.
+//
+// MUST NOT GO HERE:
+//   - Command execution logic (app.go's executeCommand), agent
+//     imports, state mutation.
+//
+// Q: Should I add a new slash command?
+// A: Add it to SlashCommands() here and handle it in app.go's
+//    executeCommand().
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"strings"

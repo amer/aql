@@ -1,5 +1,18 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - RenderPrompt, renderPromptFrame — prompt area with separator
+//     bars and project badge, RenderPromptArea,
+//     RenderPromptAreaStreaming.
+//
+// MUST NOT GO HERE:
+//   - Input buffer logic (input.go), keyboard handling
+//     (handlers.go), state mutation.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"strings"
 

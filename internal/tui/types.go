@@ -1,5 +1,31 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - AgentStatus enum, ChatEntryType/ChatEntry — chat log item
+//     types, all Bubble Tea message types (AgentStreamStartMsg,
+//     AgentStreamDeltaMsg, AgentStreamDoneMsg, AgentStreamErrorMsg,
+//     AgentStatusMsg, AgentToolCallMsg, AgentAskUserMsg,
+//     ModelSelectedMsg, ModelsLoadedMsg, BashResultMsg,
+//     CompactDoneMsg, TokenUsageMsg, TokenCountMsg),
+//     BashFunc/SubmitFunc callback types.
+//
+// MUST NOT GO HERE:
+//   - Message handling logic (handlers.go), rendering, agent
+//     imports. Messages are value types — immutable data carriers.
+//
+// Q: Should I add a new TUI message?
+// A: Define it here as a value type struct. Handle it in
+//    handlers.go's handleMsg(). If it originates from a domain
+//    event, translate it in stream/adapter.go.
+//
+// Q: Can messages contain channels?
+// A: Only AgentAskUserMsg has a ResponseCh. This is the exception,
+//    not the norm.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"github.com/amer/aql/internal/domain"
 	tea "github.com/charmbracelet/bubbletea"

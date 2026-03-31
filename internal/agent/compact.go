@@ -1,5 +1,27 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - CompactHistory() (user-facing), summarizeHistory() (pure — safe
+//     from any goroutine), FormatHistoryForCompaction(),
+//     AutoCompactThreshold constant, compactSystemPrompt.
+//
+// MUST NOT GO HERE:
+//   - Direct API call logic (uses chatClient.SendMessage)
+//   - Tool execution
+//   - TUI concerns
+//   - Auto-compact triggering (that's in runner.go's maybeAutoCompact)
+//
+// Q: Should I change the compaction threshold?
+// A: Update AutoCompactThreshold here. maybeAutoCompact in runner.go
+//    reads it.
+//
+// Q: Is summarizeHistory safe to call from a goroutine?
+// A: Yes, it doesn't mutate agent state. It takes history as a parameter.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

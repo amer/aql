@@ -1,5 +1,22 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - InputBuffer — pure data structure for cursor-aware text
+//     editing with readline operations (Insert, DeleteBackward,
+//     MoveLeft/Right, KillToEnd/Start, Clear, Set),
+//     RenderWithCursor.
+//
+// MUST NOT GO HERE:
+//   - Keyboard handling (handlers.go), TUI state, anything beyond
+//     pure buffer operations. This is functional core.
+//
+// Q: Should I add a new editing operation?
+// A: Add a method to InputBuffer here. Call it from handlers.go.
+// ──────────────────────────────────────────────────────────────────
+
 import "strings"
 
 // InputBuffer is a pure data structure for cursor-aware text editing.

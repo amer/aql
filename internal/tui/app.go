@@ -1,5 +1,33 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Model struct (main Bubble Tea model), NewModel constructor,
+//     Init/Update/View methods, callback setters (SetOnBash,
+//     SetCancelStream, SetOnClear, SetOnCompact, SetOnModelSelected,
+//     SetModelTiers, etc.), scroll management, command palette logic,
+//     executeCommand handler, View rendering, RenderChatEntry,
+//     testing accessors (Chat, IsStreaming, HasSelection, etc.)
+//
+// MUST NOT GO HERE:
+//   - Agent or LLM imports (TUI never imports agent), tool execution,
+//     direct API calls, creating agents. Communication is via
+//     callbacks and message types only.
+//
+// Q: Should I add a new slash command?
+// A: Add it to commands.go's SlashCommands() and handle it in
+//    executeCommand() here.
+//
+// Q: Should I add a new callback?
+// A: Add a Set* method here and call it from cmd/aql/main.go.
+//
+// Q: How do I access agent state from the TUI?
+// A: You don't. Use callbacks injected via Set*() methods. The TUI
+//    knows about messages, not agents.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"os/user"

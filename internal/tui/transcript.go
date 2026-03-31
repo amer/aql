@@ -1,5 +1,31 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Tool display name mapping (toolDisplayNames), tool input
+//     extractors (toolInputExtractors), FormatToolHeader/
+//     FormatToolSummary, TranscriptBlock/ToolEntry/ToolGroup types,
+//     BuildTranscriptBlocks — groups flat entries into semantic
+//     blocks, GroupConsecutiveTools, transcript rendering
+//     (RenderTranscriptBlock, renderAssistantBlock, renderToolGroup,
+//     renderToolEntry, etc.), transcript search
+//     (SearchTranscriptBlocks, blockContains), helper functions.
+//
+// MUST NOT GO HERE:
+//   - Message handling (handlers.go), state mutation, agent imports.
+//     This file renders whatever is in m.chat — it doesn't filter.
+//
+// Q: How do I add a display name for a new tool?
+// A: Add entries to toolDisplayNames and toolInputExtractors maps
+//    at the top.
+//
+// Q: Does the rendering pipeline filter tools?
+// A: No. Filtering happens in handleToolCall() before entries reach
+//    m.chat.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"fmt"

@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - History — pure data structure for command history navigation
+//     (Push, Previous, Next).
+//
+// MUST NOT GO HERE:
+//   - Persistent storage, file I/O, keyboard handling. This is
+//     functional core.
+// ──────────────────────────────────────────────────────────────────
+
 // History is a pure data structure for command history navigation.
 // It stores past inputs and supports Up/Down traversal.
 type History struct {

@@ -1,5 +1,25 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Spawner struct, NewSpawner() with SpawnerOption pattern,
+//     Spawn() — creates and runs child agents, depth limiting,
+//     NewToolExecutor() — convenience wiring function.
+//
+// MUST NOT GO HERE:
+//   - Tool implementations (tools/)
+//   - Direct TUI interaction
+//   - History from parent agent (children are isolated)
+//
+// Q: Should I give sub-agents access to the parent's history?
+// A: No. Sub-agents get fresh conversation context. This is by design.
+//
+// Q: Where do I configure sub-agent tools?
+// A: In Spawn(), which calls tools.NewExecutor(). Add options there.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

@@ -1,5 +1,21 @@
 package auth
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - ResolveAPIKey() — determines API key source (OAuth tokens → env var)
+//   - RunLoginCLI() — handles `aql auth login` subcommand
+//
+// MUST NOT GO HERE:
+//   - OAuth implementation details (oauth.go)
+//   - Login flow (login.go)
+//   - Agent or TUI imports
+//
+// Q: Should I add a new auth source?
+// A: Add it to ResolveAPIKey() in the fallback chain.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

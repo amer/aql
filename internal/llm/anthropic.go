@@ -2,6 +2,39 @@
 // specific LLM providers. Currently only Anthropic is supported.
 package llm
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - AnthropicClient — implements domain.ChatClient
+//   - StreamMessage/SendMessage methods
+//   - APIError wrapper (satisfies statusCoder)
+//   - buildAPIParams — converts domain types to SDK types
+//   - applyOAuthConfig — billing headers + thinking
+//   - Type conversion functions (toAPIMessages, toAPIContentBlocks,
+//     toAPITools)
+//   - consumeStream — SSE stream processing
+//   - pendingToolUse accumulator
+//
+// MUST NOT GO HERE:
+//   - Domain type definitions (domain/types.go)
+//   - Tool implementations (tools/)
+//   - Agent logic, TUI imports
+//   - This is a pure adapter — translates between domain types
+//     and Anthropic SDK types.
+//
+// Q: Should I add a new LLM provider?
+// A: Create a new file (e.g., openai.go) implementing
+//    domain.ChatClient. Don't modify this file.
+//
+// Q: Should I add billing/thinking config?
+// A: Update applyOAuthConfig() here.
+//
+// Q: How do streaming events work?
+// A: consumeStream() reads the SSE stream, accumulates text/tool
+//    blocks, calls onText for deltas.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

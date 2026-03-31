@@ -1,5 +1,36 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - ToolDef type, Definitions() — all tool JSON schemas
+//   - buildRegistry() — tool name→handler mapping
+//   - ExecutorOption pattern (WithAskUser, WithTaskStore, WithAgentSpawner)
+//   - NewExecutor/DefaultExecutor/Execute
+//   - parseInput generic helper, resolvePath helper
+//   - toolHandler type, UserQuestion/AskUserFn/ExecutorFn types
+//
+// MUST NOT GO HERE:
+//   - Individual tool implementation logic (each tool gets its own file)
+//   - TUI rendering
+//   - Agent construction
+//   - Anthropic SDK types
+//
+// Q: How do I add a new tool?
+// A: Three steps: (1) Add definition to Definitions(), (2) Add handler
+//    to buildRegistry() or register*Tools(), (3) Add display mapping in
+//    tui/transcript.go. The DispatchesAllKnownTools test enforces step 2.
+//
+// Q: How do tool errors work?
+// A: Return error string as first value with nil error. Go error is only
+//    for infrastructure failures (unknown tool, context canceled).
+//
+// Q: Where do I add a dynamic tool (needs runtime state)?
+// A: Create a register*Tools() function like registerTaskTools(), call it
+//    from NewExecutor().
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

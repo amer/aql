@@ -1,5 +1,25 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - execWebFetch — URL fetching with HTML text extraction
+//   - execWebSearch — DuckDuckGo search
+//   - HTML parsing helpers (extractText, walkText, parseSearchResults,
+//     collectSearchResults)
+//   - httpClient and constants
+//
+// MUST NOT GO HERE:
+//   - Tool definitions (defs.go)
+//   - File I/O
+//   - Anything that imports the agent package
+//
+// Q: Should I add a new search provider?
+// A: Replace or extend execWebSearch here. The tool definition in
+//    defs.go stays the same.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

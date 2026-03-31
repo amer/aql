@@ -1,5 +1,20 @@
 package models
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - SaveModel/LoadModel — persist selected model ID (.aql_model)
+//   - SaveModelCache/LoadModelCache — model list cache with TTL
+//     (.aql_models_cache.json)
+//   - modelCache struct, constants
+//
+// MUST NOT GO HERE:
+//   - Model probing (probe.go)
+//   - Model resolution (resolve.go)
+//   - API calls
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"log/slog"

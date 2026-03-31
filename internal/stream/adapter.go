@@ -1,5 +1,37 @@
 package stream
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Forward() — translates domain.StreamEvent → TUI messages
+//     (without history)
+//   - ForwardWithHistory() — same but applies history mutations
+//     via callbacks
+//   - forwardEvent — single event translation
+//   - forwardToolCall/forwardToolDone — tool event mapping
+//   - SendFunc/HistoryCallbacks types
+//
+// MUST NOT GO HERE:
+//   - Agent logic, tool execution, TUI rendering
+//   - Event filtering (except ask_user suppression — that's the
+//     one documented exception)
+//   - This is a dumb translation pipe.
+//
+// Q: Should I filter out a new tool type here?
+// A: Probably not. Filtering belongs in tui/handlers.go. The only
+//    exception is ask_user because it has its own message path.
+//
+// Q: Should I add a new TUI message type for a new event?
+// A: Add the field to domain.StreamEvent, handle it in
+//    forwardEvent() here, define the TUI message in tui/types.go,
+//    handle it in tui/handlers.go.
+//
+// Q: Who calls Forward vs ForwardWithHistory?
+// A: ForwardWithHistory is used in production (main.go). Forward
+//    is the simpler version without history tracking.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 

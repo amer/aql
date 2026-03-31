@@ -1,5 +1,28 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - File system tool handlers — execReadFile, execWriteFile,
+//     execEdit, execListDirectory
+//   - All take (workDir, json.RawMessage) and return (string, error)
+//
+// MUST NOT GO HERE:
+//   - Tool definitions (defs.go)
+//   - Path resolution logic beyond resolvePath (that's in defs.go)
+//   - TUI concerns
+//   - Network I/O
+//
+// Q: Should I add a new file operation tool?
+// A: Add the handler here, definition in defs.go, registry entry in
+//    buildRegistry().
+//
+// Q: How do I report errors to the agent?
+// A: Return the error message as the string value with nil Go error.
+//    Never return a Go error for domain failures.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"fmt"

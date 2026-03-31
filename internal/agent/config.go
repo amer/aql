@@ -1,5 +1,22 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Config struct definition, LoadConfig() and ParseConfig() for
+//     YAML files.
+//
+// MUST NOT GO HERE:
+//   - Agent construction logic (agent.go)
+//   - Runtime config changes
+//   - Environment variable handling (env.go)
+//
+// Q: Should I add a new config field?
+// A: Add it to the Config struct here. Use it in agent.go's New() or
+//    BuildPromptParts().
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"os"

@@ -1,5 +1,29 @@
 package auth
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Tokens struct and lifecycle (NewTokens, IsExpired, NeedsRefresh)
+//   - PKCE generation (GeneratePKCE)
+//   - OAuth URL building (BuildAuthorizeURL)
+//   - Token exchange (ExchangeCode), API key creation (CreateAPIKey)
+//   - Token refresh (RefreshAccessToken)
+//   - Token persistence (SaveTokens, LoadTokens)
+//   - OAuth constants and endpoints
+//
+// MUST NOT GO HERE:
+//   - Login flow orchestration (login.go)
+//   - API key resolution logic (resolve.go)
+//   - Agent or TUI imports
+//
+// Q: Should I add a new OAuth scope?
+// A: Add it to AllScopes here.
+//
+// Q: Where do tokens get saved?
+// A: SaveTokens writes to .aql_tokens.json with 0600 permissions.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"bytes"
 	"crypto/rand"

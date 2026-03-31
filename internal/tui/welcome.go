@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - WelcomeData struct, WelcomeGreeting, ShortenHome,
+//     TruncatePath, RenderLogo, RenderWelcome.
+//
+// MUST NOT GO HERE:
+//   - State mutation, user detection (caller provides data), agent
+//     imports.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"strings"

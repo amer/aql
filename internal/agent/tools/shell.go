@@ -1,5 +1,27 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Shell execution handlers — execBash (runs sh -c), execGrep
+//     (runs grep with flags)
+//   - Both take full (ctx, workDir, json.RawMessage) signature
+//
+// MUST NOT GO HERE:
+//   - File I/O tools (file.go)
+//   - Tool definitions (defs.go)
+//   - Output formatting for TUI
+//
+// Q: Should I add a timeout to bash?
+// A: The ctx already carries a timeout. Bash execution respects
+//    context cancellation.
+//
+// Q: Why does grep ignore the error?
+// A: grep returns exit code 1 when no matches found — that's not an
+//    error for our purposes.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

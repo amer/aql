@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - OSC52Copy — terminal clipboard via escape sequence,
+//     ExecCopy — platform-native clipboard (pbcopy/xclip/xsel),
+//     copyToClipboard tea.Cmd, ClipboardMsg.
+//
+// MUST NOT GO HERE:
+//   - Selection logic (selection.go), rendering, state mutation.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/base64"
 	"fmt"

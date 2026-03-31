@@ -1,5 +1,18 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Selection struct — tracks mouse text selection by screen
+//     coordinates, Start/Update/Clear/Active/Normalized/Extract/
+//     Contains methods, runeOffset helper.
+//
+// MUST NOT GO HERE:
+//   - Clipboard operations (clipboard.go), ANSI handling
+//     (styles.go), state mutation beyond selection state.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"strings"
 	"unicode/utf8"

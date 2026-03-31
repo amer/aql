@@ -1,5 +1,22 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - execAskUser — invokes the AskUserFn callback to prompt the user
+//
+// MUST NOT GO HERE:
+//   - TUI rendering
+//   - Direct I/O (stdin/stdout)
+//   - Tool definitions
+//
+// Q: How does ask_user reach the TUI?
+// A: main.go sets up the askFn callback closure that sends
+//    AgentAskUserMsg to the TUI program. This file just calls that
+//    callback.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"encoding/json"

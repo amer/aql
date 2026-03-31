@@ -1,5 +1,29 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - All Bubble Tea message handling — handleKey (keyboard),
+//     handleModelPickerKey, handleTranscriptModeKey, handleMsg
+//     (non-key messages), handleSubmit, handleStreamStart/Delta/
+//     Done/Error, handleToolCall (including task tool suppression),
+//     handleAskUser, handleBashResult, handleCompactDone,
+//     startStream, selectModel.
+//
+// MUST NOT GO HERE:
+//   - Rendering (that's spread across other files), type definitions
+//     (types.go), direct agent calls. Handlers update Model state
+//     and return tea.Cmds.
+//
+// Q: Should I suppress a new tool from the transcript?
+// A: Add it to isTaskTool() in tasks.go, or handle it in
+//    handleToolCall() here.
+//
+// Q: How do I add a new keybinding?
+// A: Add a case to handleKey(). Use the msg.String() pattern.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"strings"
 	"time"

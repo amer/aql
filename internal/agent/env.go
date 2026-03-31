@@ -1,5 +1,28 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - EnvironmentInfo() — formats env context for system prompt,
+//     GitStatus() — short git status, CheckEnv() — API key validation,
+//     shell detection, git helper functions (isGitRepo, gitCommand).
+//
+// MUST NOT GO HERE:
+//   - System prompt assembly (agent.go)
+//   - Authentication logic (auth/)
+//   - Model resolution (models/)
+//   - Anything that imports other internal packages
+//
+// Q: Should I add more environment info to the system prompt?
+// A: Add it to EnvironmentInfo() here. It returns a formatted string
+//    block.
+//
+// Q: Can I use this for runtime git operations?
+// A: No. This is for system prompt context only. Runtime git ops belong
+//    in tools.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"os/exec"

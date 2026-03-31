@@ -1,5 +1,17 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - StreamPhase enum, PhaseArrow, StreamStatus struct,
+//     FormatStreamStatus, RenderStreamingIndicator,
+//     RenderCompletionIndicator, EstimateTokens, formatDuration.
+//
+// MUST NOT GO HERE:
+//   - Stream state management (handlers.go), actual API interaction.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"time"

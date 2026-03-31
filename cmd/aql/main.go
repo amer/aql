@@ -1,5 +1,36 @@
 package main
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - The main() and run() functions — program entrypoint
+//   - Wiring: creating agents, LLM clients, TUI, and connecting them via callbacks
+//   - CLI subcommand routing (e.g. `auth login`)
+//   - Logging setup
+//   - Background goroutines for model probing
+//   - Callback closures that bridge TUI <-> Agent (onSubmit, onBash, onClear, etc.)
+//
+// MUST NOT GO HERE:
+//   - Business logic or domain rules — those belong in internal/agent or internal/domain
+//   - Tool implementations — those belong in internal/agent/tools
+//   - TUI rendering or styling — those belong in internal/tui
+//   - Auth logic beyond routing — that belongs in internal/auth
+//   - Direct Anthropic SDK calls — those belong in internal/llm
+//
+// Q: Should I add a new CLI flag here?
+// A: Yes, parse it in run() and thread it to the appropriate package.
+//
+// Q: Should I add a new callback for the TUI?
+// A: Yes, define it here as a closure that captures the agent, then inject via model.Set*().
+//
+// Q: Should I handle a new message type here?
+// A: No, message handling goes in internal/tui/handlers.go. Main only sends messages via program.Send().
+//
+// Q: Where do I add a new tool?
+// A: Not here. Add it in internal/agent/tools/defs.go (definition + handler + display mapping).
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

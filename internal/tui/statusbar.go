@@ -1,5 +1,16 @@
 package tui
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - RenderStatusBar — bottom status bar with model name, hints,
+//     token count.
+//
+// MUST NOT GO HERE:
+//   - State mutation, token calculations (cost.go), model logic.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"strings"
 )

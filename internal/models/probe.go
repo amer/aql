@@ -1,5 +1,27 @@
 package models
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - ClientConfig, FetchModels() — lists models from API
+//   - ProbeUsableModels() — tests which models the key can use
+//   - probeModel — single model probe
+//   - isRelevantModel filter, relevantModelPrefixes
+//
+// MUST NOT GO HERE:
+//   - Model persistence (persist.go)
+//   - Model resolution/shortcuts (resolve.go)
+//   - TUI imports
+//
+// Q: Should I add a new model family to probe?
+// A: Add its prefix to relevantModelPrefixes.
+//
+// Q: How are models probed?
+// A: Parallel minimal API calls — each model gets a one-token
+//    request to test access.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"fmt"

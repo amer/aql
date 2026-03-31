@@ -1,5 +1,24 @@
 package tools
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - execGlob handler
+//   - walkGlob — directory walking
+//   - matchesPattern — glob matching with ** support
+//   - formatGlobResults, fileEntry type, maxGlobResults constant
+//
+// MUST NOT GO HERE:
+//   - Other file operations (file.go)
+//   - Shell-based find commands (we do our own walking)
+//   - Tool definitions
+//
+// Q: Why not use filepath.Glob?
+// A: It doesn't support ** recursive matching. We walk the tree
+//    ourselves.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"encoding/json"
 	"fmt"
