@@ -90,7 +90,7 @@ func testModel(onSubmit tui.SubmitFunc) tui.Model {
 
 // fillChat adds n agent messages to produce enough lines for scrolling.
 func fillChat(m tui.Model, n int) tui.Model {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Message %d with enough content to fill a line", i),

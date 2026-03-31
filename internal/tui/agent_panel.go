@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/amer/aql/internal/domain"
 )
@@ -67,23 +68,23 @@ func RenderToolBlock(tc domain.ToolCall) string {
 
 // RenderAgentPanel renders a complete agent panel.
 func RenderAgentPanel(data AgentPanelData) string {
-	var result string
+	var result strings.Builder
 
-	result += RenderAgentHeader(data.Name, data.Status) + "\n"
+	result.WriteString(RenderAgentHeader(data.Name, data.Status) + "\n")
 
 	if data.Output != "" {
-		result += AgentBody.Render(data.Output) + "\n"
+		result.WriteString(AgentBody.Render(data.Output) + "\n")
 	}
 
 	for _, tc := range data.ToolCalls {
-		result += RenderToolBlock(tc) + "\n"
+		result.WriteString(RenderToolBlock(tc) + "\n")
 	}
 
 	if data.StatusMsg != "" {
-		result += DimStyle.Render("  "+data.StatusMsg) + "\n"
+		result.WriteString(DimStyle.Render("  "+data.StatusMsg) + "\n")
 	}
 
-	return result
+	return result.String()
 }
 
 // RenderUserMessage renders a user input message in Claude Code style.

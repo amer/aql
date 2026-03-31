@@ -25,10 +25,7 @@ func renderPromptFrame(content string, projectName string, width int) string {
 	badge := badgeStyle.Render(projectName)
 	badgeWidth := lipgloss.Width(badge)
 	trailWidth := 2
-	leadWidth := width - badgeWidth - trailWidth - 2
-	if leadWidth < 1 {
-		leadWidth = 1
-	}
+	leadWidth := max(width-badgeWidth-trailWidth-2, 1)
 	b.WriteString(lineStyle.Render(strings.Repeat("─", leadWidth)))
 	b.WriteString(" ")
 	b.WriteString(badge)

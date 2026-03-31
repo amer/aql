@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -184,10 +185,8 @@ func parseSearchResults(htmlContent string) string {
 func hasClass(n *html.Node, class string) bool {
 	for _, a := range n.Attr {
 		if a.Key == "class" {
-			for _, c := range strings.Fields(a.Val) {
-				if c == class {
-					return true
-				}
+			if slices.Contains(strings.Fields(a.Val), class) {
+				return true
 			}
 		}
 	}

@@ -713,7 +713,7 @@ func TestIntegration_ScrollingLongConversation(t *testing.T) {
 	m := testModel(nil)
 
 	// Fill chat with many entries
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Message %d with some content", i),
@@ -1183,7 +1183,7 @@ func TestIntegration_MouseWheelScrollsChatHistory(t *testing.T) {
 	m := testModel(nil)
 
 	// Fill chat with many entries so there's content to scroll
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Message %d", i),
@@ -1234,7 +1234,7 @@ func TestIntegration_MouseScrollClampedAtBounds(t *testing.T) {
 	m := testModel(nil)
 
 	// Fill chat
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Entry %d", i),
@@ -1259,7 +1259,7 @@ func TestIntegration_MouseScrollClampedAtBounds(t *testing.T) {
 func TestIntegration_ShiftArrowsScrollChat(t *testing.T) {
 	m := testModel(nil)
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Message %d", i),
@@ -1279,7 +1279,7 @@ func TestIntegration_ShiftArrowsScrollChat(t *testing.T) {
 func TestIntegration_PageUpDownScrollsChat(t *testing.T) {
 	m := testModel(nil)
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Message %d", i),
@@ -1338,7 +1338,7 @@ func TestIntegration_ArrowsDoNotScrollChat(t *testing.T) {
 	m := testModel(nil)
 
 	// Fill chat
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Line %d", i),

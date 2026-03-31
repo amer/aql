@@ -154,7 +154,7 @@ func countLines(s string) int {
 
 func countNonEmptyLines(s string) int {
 	n := 0
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.TrimSpace(line) != "" {
 			n++
 		}

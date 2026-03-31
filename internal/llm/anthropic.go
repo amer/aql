@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/amer/aql/internal/domain"
@@ -288,7 +288,7 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 	for idx := range textBlocks {
 		textIndices = append(textIndices, idx)
 	}
-	sort.Slice(textIndices, func(i, j int) bool { return textIndices[i] < textIndices[j] })
+	slices.Sort(textIndices)
 
 	var textParts []string
 	for _, idx := range textIndices {

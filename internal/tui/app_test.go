@@ -435,7 +435,7 @@ func TestScrollOffset_ClampedToMax(t *testing.T) {
 	m = fillChat(m, 5) // few messages, may not exceed visible area
 
 	// Try scrolling up a lot — should clamp
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		m = applyKey(m, "pgup")
 	}
 	// Offset should not be negative or cause rendering issues
@@ -552,7 +552,7 @@ func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 80, Height: 40})
 	// Add numbered messages
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		m = applyMsg(m, tui.AgentOutputMsg{
 			AgentName: "coder",
 			Output:    fmt.Sprintf("Line-%03d", i),
@@ -565,7 +565,7 @@ func TestScrollOffset_ViewShowsOlderContentWhenScrolledUp(t *testing.T) {
 	assert.Contains(t, plain, "Line-099")
 
 	// Scroll up a lot
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		m = applyKey(m, "pgup")
 	}
 

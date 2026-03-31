@@ -34,10 +34,7 @@ func RenderStatusBar(modelName string, tokenCount int, width int) string {
 
 	leftWidth := len(modelName)
 	rightWidth := len(formatTokenCount(tokenCount))
-	gap := width - leftWidth - rightWidth
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(width-leftWidth-rightWidth, 1)
 
 	return left + strings.Repeat(" ", gap) + right
 }

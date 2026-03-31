@@ -346,10 +346,7 @@ func (m Model) visibleHeight() int {
 	if m.streaming {
 		reservedLines++ // streaming indicator (\n + text)
 	}
-	h := m.height - reservedLines
-	if h < 1 {
-		h = 1
-	}
+	h := max(m.height-reservedLines, 1)
 	return h
 }
 
@@ -521,21 +518,12 @@ func (m Model) View() string {
 	contentLines := strings.Split(chatContent, "\n")
 
 	// Clamp scrollOffset to valid range
-	maxOffset := len(contentLines) - vh
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	offset := m.scrollOffset
-	if offset > maxOffset {
-		offset = maxOffset
-	}
+	maxOffset := max(len(contentLines)-vh, 0)
+	offset := min(m.scrollOffset, maxOffset)
 
 	// Slice the visible window: end is from-bottom, start is end-vh
 	end := len(contentLines) - offset
-	start := end - vh
-	if start < 0 {
-		start = 0
-	}
+	start := max(end-vh, 0)
 	if end < 0 {
 		end = 0
 	}
@@ -545,7 +533,7 @@ func (m Model) View() string {
 
 	// Pad to push prompt to bottom
 	padding := vh - len(visible)
-	for i := 0; i < padding; i++ {
+	for range padding {
 		b.WriteString("\n")
 	}
 
