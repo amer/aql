@@ -3,6 +3,7 @@ package tui_test
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/amer/aql/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,6 +87,18 @@ func testModel(onSubmit tui.SubmitFunc) tui.Model {
 	m := tui.NewModel("pair-programming", []string{"coder", "reviewer"}, onSubmit)
 	m = applyMsg(m, tea.WindowSizeMsg{Width: 100, Height: 40})
 	return m
+}
+
+// findLineY returns the Y coordinate (0-based row) of the first view line
+// containing substr after stripping ANSI. Returns -1 if not found.
+func findLineY(m tui.Model, substr string) int {
+	lines := strings.Split(m.View(), "\n")
+	for i, line := range lines {
+		if strings.Contains(stripAnsi(line), substr) {
+			return i
+		}
+	}
+	return -1
 }
 
 // fillChat adds n agent messages to produce enough lines for scrolling.

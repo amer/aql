@@ -315,8 +315,13 @@ func GroupConsecutiveTools(tools []ToolEntry) []ToolGroup {
 const (
 	transcriptMarker    = "⏺"
 	transcriptConnector = "⎿"
-	transcriptPadding   = "    "   // space between marker and text
-	transcriptIndent    = "      " // align continuation lines with text after marker + padding
+	markerWidth         = 1 // display width of marker/connector in terminal cells
+	gapWidth            = 1 // spaces between marker and text
+)
+
+var (
+	transcriptPadding = strings.Repeat(" ", gapWidth)
+	transcriptIndent  = strings.Repeat(" ", markerWidth+gapWidth)
 )
 
 // MarkerState represents the visual state of a ⏺ marker.

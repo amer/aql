@@ -1043,12 +1043,14 @@ func TestIntegration_EscWithoutStreamingNoOp(t *testing.T) {
 func TestIntegration_MouseClickStartsSelection(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+	y := findLineY(m, "hello world")
+	require.GreaterOrEqual(t, y, 0, "should find agent output line")
 
 	// Left click starts selection
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      5, Y: 3,
+		X:      5, Y: y,
 	})
 	assert.True(t, m.HasSelection(), "left click should start selection")
 }
@@ -1056,17 +1058,19 @@ func TestIntegration_MouseClickStartsSelection(t *testing.T) {
 func TestIntegration_MouseDragUpdatesSelection(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+	y := findLineY(m, "hello world")
+	require.GreaterOrEqual(t, y, 0, "should find agent output line")
 
 	// Press then drag
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 3,
+		X:      0, Y: y,
 	})
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 3,
+		X:      10, Y: y,
 	})
 	assert.True(t, m.HasSelection(), "drag should maintain selection")
 }
@@ -1074,23 +1078,25 @@ func TestIntegration_MouseDragUpdatesSelection(t *testing.T) {
 func TestIntegration_MouseReleaseCompletesSelection(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+	y := findLineY(m, "hello world")
+	require.GreaterOrEqual(t, y, 0, "should find agent output line")
 
 	// Press, drag, release
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 3,
+		X:      0, Y: y,
 	})
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      5, Y: 3,
+		X:      5, Y: y,
 	})
 	// Release copies text but keeps selection visible
 	m, _ = applyMsgCmd(m, tea.MouseMsg{
 		Button: tea.MouseButtonNone,
 		Action: tea.MouseActionRelease,
-		X:      5, Y: 3,
+		X:      5, Y: y,
 	})
 	assert.True(t, m.HasSelection(), "release should keep selection visible")
 
@@ -1098,7 +1104,7 @@ func TestIntegration_MouseReleaseCompletesSelection(t *testing.T) {
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 2,
+		X:      0, Y: y - 1,
 	})
 	// Selection is active at the new position, old highlight is gone
 	assert.True(t, m.HasSelection(), "new click starts new selection")
@@ -1118,17 +1124,19 @@ func TestIntegration_MouseScrollDoesNotStartSelection(t *testing.T) {
 func TestIntegration_SelectionHighlightInView(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+	y := findLineY(m, "hello world")
+	require.GreaterOrEqual(t, y, 0, "should find agent output line")
 
 	// Start selection on the agent output line (⏺ hello world)
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 3,
+		X:      0, Y: y,
 	})
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 3,
+		X:      10, Y: y,
 	})
 
 	view := m.View()
@@ -1148,26 +1156,28 @@ func TestIntegration_NoHighlightWithoutSelection(t *testing.T) {
 func TestIntegration_SelectionReleaseCopiesText(t *testing.T) {
 	m := testModel(nil)
 	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "hello world"})
+	y := findLineY(m, "hello world")
+	require.GreaterOrEqual(t, y, 0, "should find agent output line")
 
 	// Press starts selection on the agent output line
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		X:      0, Y: 3,
+		X:      0, Y: y,
 	})
 
 	// Drag
 	m = applyMsg(m, tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
-		X:      10, Y: 3,
+		X:      10, Y: y,
 	})
 
 	// Release should produce a clipboard command
 	_, cmd := applyMsgCmd(m, tea.MouseMsg{
 		Button: tea.MouseButtonNone,
 		Action: tea.MouseActionRelease,
-		X:      10, Y: 3,
+		X:      10, Y: y,
 	})
 
 	// The command should not be nil if text was extracted

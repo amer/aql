@@ -443,13 +443,13 @@ func (m Model) View() string {
 	}
 
 	visible := contentLines[start:end]
-	b.WriteString(strings.Join(visible, "\n"))
 
-	// Pad to push prompt to bottom
+	// Pad above content so short conversations sit close to the prompt.
 	padding := vh - len(visible)
 	for range padding {
 		b.WriteString("\n")
 	}
+	b.WriteString(strings.Join(visible, "\n"))
 
 	// Scroll indicator when not at bottom
 	if offset > 0 {
@@ -458,7 +458,7 @@ func (m Model) View() string {
 		b.WriteString(DimStyle.Render(indicator))
 	}
 
-	// Streaming indicator (above prompt, like Claude Code)
+	// Streaming indicator (directly above prompt)
 	if m.stream.active {
 		status := StreamStatus{
 			Elapsed: time.Since(m.stream.start).Truncate(time.Second),

@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/amer/aql/internal/tui"
@@ -55,6 +56,12 @@ func TestRenderMarkdownBulletList(t *testing.T) {
 	assert.Contains(t, plain, "one")
 	assert.Contains(t, plain, "two")
 	assert.Contains(t, plain, "three")
+}
+
+func TestRenderMarkdownNoLeadingMargin(t *testing.T) {
+	result := tui.RenderMarkdown("hello world", 80)
+	plain := stripANSI(result)
+	assert.True(t, strings.HasPrefix(plain, "hello world"), "rendered text should have no leading margin")
 }
 
 func TestRenderMarkdownEmpty(t *testing.T) {
