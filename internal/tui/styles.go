@@ -300,4 +300,19 @@ var (
 
 	PromptBadgeStyle = lipgloss.NewStyle().
 				Foreground(mutedColor)
+
+	// Diff overlay
+	DiffAddedStyle = lipgloss.NewStyle().
+			Foreground(successColor)
+
+	DiffRemovedStyle = lipgloss.NewStyle().
+				Foreground(errorColor)
+
+	DiffHunkHeaderStyle = lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Italic(true)
+
+	DiffSelectedStyle = lipgloss.NewStyle().
+				Foreground(brandColor).
+				Bold(true)
 )

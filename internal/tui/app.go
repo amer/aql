@@ -98,6 +98,7 @@ type Model struct {
 	tsSearch  transcriptSearchState
 	palette   paletteState
 	taskPanel taskState
+	diffPanel diffState
 
 	// Callbacks
 	onSubmit        SubmitFunc
