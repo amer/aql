@@ -7,27 +7,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config defines the YAML configuration for an agent.
+// Config defines the configuration for an agent.
 type Config struct {
-	Name         string       `yaml:"name"`
-	Role         string       `yaml:"role"`
-	SystemPrompt string       `yaml:"system_prompt"`
-	Model        string       `yaml:"model"`
-	Tools        []string     `yaml:"tools"`
-	Memory       MemoryConfig `yaml:"memory"`
-	Events       EventsConfig `yaml:"events"`
-}
-
-// MemoryConfig defines memory access for an agent.
-type MemoryConfig struct {
-	Private      bool     `yaml:"private"`
-	SharedAccess []string `yaml:"shared_access"`
-}
-
-// EventsConfig defines event pub/sub for an agent.
-type EventsConfig struct {
-	Publishes  []string `yaml:"publishes"`
-	Subscribes []string `yaml:"subscribes"`
+	Name         string `yaml:"name"`
+	Role         string `yaml:"role"`
+	SystemPrompt string `yaml:"system_prompt"`
+	Model        string `yaml:"model"`
 }
 
 // LoadConfig reads and parses an agent config from a YAML file.

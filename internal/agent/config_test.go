@@ -15,21 +15,6 @@ role: "Write clean, tested Go code following TDD"
 system_prompt: |
   You are a senior Go developer.
   Always write failing tests first.
-tools:
-  - read_file
-  - write_file
-  - bash
-memory:
-  private: true
-  shared_access:
-    - project
-    - architecture
-events:
-  publishes:
-    - code_written
-    - test_written
-  subscribes:
-    - review_feedback
 `
 
 func TestLoadConfig(t *testing.T) {
@@ -43,11 +28,6 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, "coder", cfg.Name)
 	assert.Equal(t, "Write clean, tested Go code following TDD", cfg.Role)
 	assert.Contains(t, cfg.SystemPrompt, "senior Go developer")
-	assert.Equal(t, []string{"read_file", "write_file", "bash"}, cfg.Tools)
-	assert.True(t, cfg.Memory.Private)
-	assert.Equal(t, []string{"project", "architecture"}, cfg.Memory.SharedAccess)
-	assert.Equal(t, []string{"code_written", "test_written"}, cfg.Events.Publishes)
-	assert.Equal(t, []string{"review_feedback"}, cfg.Events.Subscribes)
 }
 
 func TestLoadConfigFileNotFound(t *testing.T) {
@@ -68,7 +48,6 @@ func TestParseConfig(t *testing.T) {
 	cfg, err := agent.ParseConfig([]byte(testConfigYAML))
 	require.NoError(t, err)
 	assert.Equal(t, "coder", cfg.Name)
-	assert.Len(t, cfg.Tools, 3)
 }
 
 func TestParseConfigEmpty(t *testing.T) {

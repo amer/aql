@@ -16,11 +16,6 @@ func testConfig() agent.Config {
 		Name:         "coder",
 		Role:         "Write clean Go code",
 		SystemPrompt: "You are a senior Go developer.",
-		Tools:        []string{"read_file", "write_file"},
-		Memory: agent.MemoryConfig{
-			Private:      true,
-			SharedAccess: []string{"project"},
-		},
 	}
 }
 
@@ -71,18 +66,6 @@ func TestBuildSystemPromptNoClaudeMD(t *testing.T) {
 
 	assert.Contains(t, prompt, "You are a senior Go developer.")
 	assert.NotContains(t, prompt, "Project Rules")
-}
-
-func TestBuildSystemPromptWithMemoryContext(t *testing.T) {
-	memories := []string{
-		"Previously implemented auth module using JWT",
-		"Team prefers table-driven tests",
-	}
-
-	prompt := agent.BuildSystemPromptWithMemories(testConfig(), "", "/tmp", memories)
-
-	assert.Contains(t, prompt, "JWT")
-	assert.Contains(t, prompt, "table-driven tests")
 }
 
 func TestClaudeMDHotReload(t *testing.T) {
