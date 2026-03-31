@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/models"
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
 const compactSystemPrompt = `You are a conversation summarizer. Summarize the following conversation concisely, preserving:
@@ -26,26 +26,25 @@ const AutoCompactThreshold = 160_000
 
 // FormatHistoryForCompaction converts a message history into readable text
 // for summarization. Each message is prefixed with its role.
-func FormatHistoryForCompaction(history []anthropic.MessageParam) string {
+func FormatHistoryForCompaction(history []domain.Message) string {
 	if len(history) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	for _, msg := range history {
-		role := string(msg.Role)
 		for _, block := range msg.Content {
 			switch {
-			case block.OfText != nil:
+			case block.ToolUse != nil:
+				b.WriteString(fmt.Sprintf("[Tool: %s]\n\n", block.ToolUse.Name))
+			case block.ToolResult != nil:
+				b.WriteString("[Tool Result]\n\n")
+			default:
 				prefix := "User"
-				if role == "assistant" {
+				if msg.Role == domain.RoleAssistant {
 					prefix = "Assistant"
 				}
-				b.WriteString(fmt.Sprintf("%s: %s\n\n", prefix, block.OfText.Text))
-			case block.OfToolUse != nil:
-				b.WriteString(fmt.Sprintf("[Tool: %s]\n\n", block.OfToolUse.Name))
-			case block.OfToolResult != nil:
-				b.WriteString("[Tool Result]\n\n")
+				b.WriteString(fmt.Sprintf("%s: %s\n\n", prefix, block.Text))
 			}
 		}
 	}
@@ -69,36 +68,25 @@ func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
 		"formatted_len", len(formatted),
 	)
 
-	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+	resp, err := a.chatClient.SendMessage(ctx, domain.ChatParams{
 		Model:     model,
 		MaxTokens: compactMaxTokens,
-		System: []anthropic.TextBlockParam{
-			{Text: compactSystemPrompt},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(formatted)),
-		},
+		System:    compactSystemPrompt,
+		Messages:  []domain.Message{domain.NewUserMessage(formatted)},
 	})
 	if err != nil {
 		return "", fmt.Errorf("compact API call: %w", err)
 	}
 
-	var summary strings.Builder
-	for _, block := range resp.Content {
-		if block.Type == "text" {
-			summary.WriteString(block.Text)
-		}
-	}
-
-	summaryText := summary.String()
+	summaryText := strings.Join(resp.TextParts, "")
 	if summaryText == "" {
 		return "", fmt.Errorf("compact produced empty summary")
 	}
 
 	// Replace history with compact summary
-	a.history = []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock("Summary of prior conversation:\n\n" + summaryText)),
-		anthropic.NewAssistantMessage(anthropic.NewTextBlock("Understood. I have the context from our previous conversation. How can I help you next?")),
+	a.history = []domain.Message{
+		domain.NewUserMessage("Summary of prior conversation:\n\n" + summaryText),
+		domain.NewAssistantMessage("Understood. I have the context from our previous conversation. How can I help you next?"),
 	}
 
 	slog.Info("conversation compacted",

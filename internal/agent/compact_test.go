@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent"
-	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/amer/aql/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,11 +19,11 @@ func TestFormatHistoryForCompaction_EmptyHistory(t *testing.T) {
 }
 
 func TestFormatHistoryForCompaction_BasicConversation(t *testing.T) {
-	history := []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock("Hello")),
-		anthropic.NewAssistantMessage(anthropic.NewTextBlock("Hi there!")),
-		anthropic.NewUserMessage(anthropic.NewTextBlock("Write tests")),
-		anthropic.NewAssistantMessage(anthropic.NewTextBlock("Done.")),
+	history := []domain.Message{
+		domain.NewUserMessage("Hello"),
+		domain.NewAssistantMessage("Hi there!"),
+		domain.NewUserMessage("Write tests"),
+		domain.NewAssistantMessage("Done."),
 	}
 
 	result := agent.FormatHistoryForCompaction(history)
@@ -34,15 +34,21 @@ func TestFormatHistoryForCompaction_BasicConversation(t *testing.T) {
 }
 
 func TestFormatHistoryForCompaction_WithToolUse(t *testing.T) {
-	history := []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock("Read main.go")),
-		anthropic.NewAssistantMessage(
-			anthropic.NewToolUseBlock("tool_1", map[string]any{"path": "main.go"}, "read_file"),
-		),
-		anthropic.NewUserMessage(
-			anthropic.NewToolResultBlock("tool_1", "package main\nfunc main() {}", false),
-		),
-		anthropic.NewAssistantMessage(anthropic.NewTextBlock("Here is main.go")),
+	history := []domain.Message{
+		domain.NewUserMessage("Read main.go"),
+		{
+			Role: domain.RoleAssistant,
+			Content: []domain.ContentBlock{
+				domain.ToolUseContentBlock("tool_1", "read_file", `{"path": "main.go"}`),
+			},
+		},
+		{
+			Role: domain.RoleUser,
+			Content: []domain.ContentBlock{
+				domain.ToolResultContentBlock("tool_1", "package main\nfunc main() {}", false),
+			},
+		},
+		domain.NewAssistantMessage("Here is main.go"),
 	}
 
 	result := agent.FormatHistoryForCompaction(history)
@@ -53,11 +59,14 @@ func TestFormatHistoryForCompaction_WithToolUse(t *testing.T) {
 }
 
 func TestFormatHistoryForCompaction_MultipleBlocksPerMessage(t *testing.T) {
-	history := []anthropic.MessageParam{
-		anthropic.NewAssistantMessage(
-			anthropic.NewTextBlock("I'll read the file."),
-			anthropic.NewToolUseBlock("tool_1", map[string]any{"path": "go.mod"}, "read_file"),
-		),
+	history := []domain.Message{
+		{
+			Role: domain.RoleAssistant,
+			Content: []domain.ContentBlock{
+				domain.TextBlock("I'll read the file."),
+				domain.ToolUseContentBlock("tool_1", "read_file", `{"path": "go.mod"}`),
+			},
+		},
 	}
 
 	result := agent.FormatHistoryForCompaction(history)
@@ -79,11 +88,12 @@ const compactSummaryJSON = `{
 
 func newCompactTestAgent(t *testing.T, serverURL string) *agent.Agent {
 	t.Helper()
+	opts := testClientOpts(serverURL)
 	a, err := agent.New(agent.Config{
 		Name:         "test-coder",
 		Role:         "Go developer",
 		SystemPrompt: "You are a Go developer.",
-	}, t.TempDir(), agent.WithBaseURL(serverURL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 	return a
 }

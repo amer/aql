@@ -5,7 +5,31 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/llm"
 )
+
+// testClientOpts returns agent options that connect to a test HTTP server.
+func testClientOpts(serverURL string) []agent.Option {
+	return []agent.Option{
+		agent.WithChatClient(llm.NewAnthropicClient(
+			llm.WithBaseURL(serverURL),
+			llm.WithAPIKey("test-key"),
+		)),
+	}
+}
+
+// testOAuthClientOpts returns agent options for OAuth-style test connections.
+func testOAuthClientOpts(serverURL, oauthKey string) []agent.Option {
+	return []agent.Option{
+		agent.WithChatClient(llm.NewAnthropicClient(
+			llm.WithBaseURL(serverURL),
+			llm.WithBearerToken(oauthKey),
+		)),
+		agent.WithOAuth(),
+	}
+}
 
 // jsonToSSE converts a Messages API JSON response into an SSE stream that
 // NewStreaming can parse. This lets existing replay tests keep their JSON

@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StreamEvent represents a chunk of output from the agent.
 type StreamEvent struct {
@@ -40,6 +43,117 @@ type ModelInfo struct {
 	DisplayName    string
 	MaxInputTokens int64
 	CreatedAt      time.Time
+}
+
+// --- Conversation message types (port-side, provider-agnostic) ---
+
+// MessageRole identifies the sender of a conversation message.
+type MessageRole string
+
+const (
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+)
+
+// Message represents a single message in a conversation history.
+type Message struct {
+	Role    MessageRole
+	Content []ContentBlock
+}
+
+// NewUserMessage creates a user message with a single text block.
+func NewUserMessage(text string) Message {
+	return Message{Role: RoleUser, Content: []ContentBlock{{Text: text}}}
+}
+
+// NewAssistantMessage creates an assistant message with a single text block.
+func NewAssistantMessage(text string) Message {
+	return Message{Role: RoleAssistant, Content: []ContentBlock{{Text: text}}}
+}
+
+// ContentBlock is a union type: exactly one field is non-zero.
+type ContentBlock struct {
+	Text       string
+	ToolUse    *ToolUseBlock
+	ToolResult *ToolResultBlock
+}
+
+// TextBlock creates a text content block.
+func TextBlock(text string) ContentBlock {
+	return ContentBlock{Text: text}
+}
+
+// ToolUseContentBlock creates a tool_use content block.
+func ToolUseContentBlock(id, name, input string) ContentBlock {
+	return ContentBlock{ToolUse: &ToolUseBlock{ID: id, Name: name, Input: input}}
+}
+
+// ToolResultContentBlock creates a tool_result content block.
+func ToolResultContentBlock(toolUseID, content string, isError bool) ContentBlock {
+	return ContentBlock{ToolResult: &ToolResultBlock{ToolUseID: toolUseID, Content: content, IsError: isError}}
+}
+
+// ToolUseBlock represents a tool invocation by the assistant.
+type ToolUseBlock struct {
+	ID    string
+	Name  string
+	Input string // raw JSON
+}
+
+// ToolResultBlock represents the result of a tool invocation.
+type ToolResultBlock struct {
+	ToolUseID string
+	Content   string
+	IsError   bool
+}
+
+// --- ChatClient port (provider-agnostic LLM interface) ---
+
+// ChatClient is the port for sending messages to an LLM and receiving
+// streamed responses. Implementations (adapters) handle provider-specific
+// details like SDK types, auth headers, and streaming protocols.
+type ChatClient interface {
+	// StreamMessage sends a conversation and streams the response.
+	// The onText callback is invoked for each text delta as it arrives.
+	// Returns the complete response or an error.
+	StreamMessage(ctx context.Context, params ChatParams, onText func(text string)) (*ChatResponse, error)
+
+	// SendMessage sends a conversation and returns the full response (no streaming).
+	// Used for internal operations like compaction where streaming isn't needed.
+	SendMessage(ctx context.Context, params ChatParams) (*ChatResponse, error)
+}
+
+// ChatParams holds the inputs for a ChatClient call.
+type ChatParams struct {
+	Model        string
+	System       string
+	Messages     []Message
+	Tools        []ToolDef
+	MaxTokens    int
+	OAuthBilling bool // when true, adapter injects billing headers and enables thinking
+}
+
+// ToolDef defines a tool the LLM can invoke.
+type ToolDef struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+}
+
+// ChatResponse holds the accumulated result of a streamed LLM response.
+type ChatResponse struct {
+	TextParts    []string      // ordered text blocks from the response
+	ToolUses     []ChatToolUse // tool_use blocks the LLM wants to invoke
+	StopReason   string        // "end_turn", "tool_use", etc.
+	InputTokens  int
+	OutputTokens int
+}
+
+// ChatToolUse represents a tool invocation requested by the LLM.
+type ChatToolUse struct {
+	ID    string
+	Name  string
+	Input string // raw JSON
 }
 
 // BillingHeader is the Claude Code billing header that enables access to

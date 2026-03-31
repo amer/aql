@@ -30,10 +30,12 @@ Identified 2026-03-31. Work through top-to-bottom by priority.
 
 ## Medium Priority
 
-- [ ] **6. Wrap SDK types in domain interfaces** — `internal/agent/`
-  - `anthropic.MessageParam`, `anthropic.Model`, `anthropic.ContentBlockParamUnion` used directly
-  - Create domain types and adapter wrappers
-  - Deferred: large cross-cutting change, needs careful planning
+- [x] **6. Wrap SDK types in domain interfaces** — Ports & Adapters complete
+  - Domain types: `Message`, `ContentBlock`, `ChatParams`, `ChatResponse` in `domain/types.go`
+  - Port: `domain.ChatClient` interface with `StreamMessage`/`SendMessage`
+  - Adapter: `llm.AnthropicClient` handles all SDK-specific code
+  - Agent core (`agent.go`, `runner.go`, `compact.go`) is SDK-free
+  - SDK only remains in adapter (`llm/`), error inspection (`errors.go`), model probing (`models/`)
 
 - [x] **7. Split Login flow** — `internal/auth/login.go`
   - Extracted `callbackServer` struct, `startCallbackServer()`, `openAuthURL()`, `exchangeAndCreateKey()`

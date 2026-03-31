@@ -28,11 +28,12 @@ func TestRunnerReplay_MessageFromFixture(t *testing.T) {
 
 	workDir := t.TempDir()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test-coder",
 		Role:         "Go developer",
 		SystemPrompt: "Reply with exactly: hello world.",
-	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -98,11 +99,12 @@ func TestRunnerReplay_ToolUse(t *testing.T) {
 
 	workDir := t.TempDir()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "Use tools.",
-	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -187,11 +189,12 @@ func TestRunnerReplay_ParallelToolExecution(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "Read files.",
-	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -283,9 +286,10 @@ func TestRunnerReplay_ParallelToolExecution_Timing(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := append(testClientOpts(server.URL), agent.WithToolExecutor(mockExecutor))
 	coder, err := agent.New(agent.Config{
 		Name: "test", Role: "assistant", SystemPrompt: "test",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"), agent.WithToolExecutor(mockExecutor))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

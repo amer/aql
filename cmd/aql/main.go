@@ -15,6 +15,7 @@ import (
 	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/auth"
 	"github.com/amer/aql/internal/domain"
+	"github.com/amer/aql/internal/llm"
 	"github.com/amer/aql/internal/models"
 	"github.com/amer/aql/internal/stream"
 	"github.com/amer/aql/internal/tui"
@@ -80,9 +81,22 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		}
 	}
 
-	opts := []agent.Option{agent.WithAskUser(askUser)}
+	// Build the LLM adapter (Ports & Adapters: domain code depends on the port,
+	// adapter handles SDK-specific details)
+	var clientOpts []llm.ClientOption
 	if useOAuth {
-		opts = append(opts, agent.WithOAuthKey(apiKey))
+		clientOpts = append(clientOpts, llm.WithBearerToken(apiKey))
+	} else {
+		clientOpts = append(clientOpts, llm.WithAPIKey(apiKey))
+	}
+	chatClient := llm.NewAnthropicClient(clientOpts...)
+
+	opts := []agent.Option{
+		agent.WithChatClient(chatClient),
+		agent.WithAskUser(askUser),
+	}
+	if useOAuth {
+		opts = append(opts, agent.WithOAuth())
 	}
 
 	coder, err := agent.New(cfg, workDir, opts...)

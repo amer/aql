@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/models"
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 const (
@@ -37,22 +33,6 @@ const (
 	streamRetryBaseDelay = 500 * time.Millisecond
 )
 
-// pendingToolUse accumulates a tool_use block as it streams in.
-type pendingToolUse struct {
-	id       string
-	name     string
-	inputBuf strings.Builder
-}
-
-// streamResult holds the accumulated output of a single API streaming call.
-type streamResult struct {
-	textBlocks   []anthropic.ContentBlockParamUnion
-	toolUses     []pendingToolUse
-	stopReason   anthropic.StopReason
-	inputTokens  int64
-	outputTokens int64
-}
-
 // Run sends a user message to Claude and streams responses back on the
 // returned channel. Implements a tool use loop: if Claude responds with
 // tool_use blocks, the tools are executed and results sent back until
@@ -66,71 +46,65 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		slog.Debug("agent run started", "agent", a.config.Name, "messageLength", len(userMessage))
 		start := time.Now()
 
-		a.history = append(a.history, anthropic.NewUserMessage(
-			anthropic.NewTextBlock(userMessage),
-		))
+		a.history = append(a.history, domain.NewUserMessage(userMessage))
 
 		model := models.ResolveModel(a.config.Model)
-		slog.Debug("starting API call", "agent", a.config.Name, "model", string(model), "historyLength", len(a.history), "oauth", a.isOAuth)
+		slog.Debug("starting API call", "agent", a.config.Name, "model", model, "historyLength", len(a.history), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
 		for iteration := 0; iteration < maxToolIterations; iteration++ {
-			params, reqOpts := a.buildMessageParams(model)
+			params := a.buildChatParams(model)
 
-			result, err := a.streamWithRetry(ctx, ch, params, reqOpts)
+			resp, err := a.streamWithRetry(ctx, ch, params)
 			if err != nil {
 				slog.Error("API error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "iteration", iteration)
 				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
-					Error:     enrichAPIError(err, string(model)),
+					Error:     enrichAPIError(err, model),
 				}
 				return
 			}
 
 			// Emit precise token counts from this API call
-			if result.inputTokens > 0 || result.outputTokens > 0 {
+			if resp.InputTokens > 0 || resp.OutputTokens > 0 {
 				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
 					TokenUsage: &domain.TokenUsageEvent{
-						InputTokens:  int(result.inputTokens),
-						OutputTokens: int(result.outputTokens),
+						InputTokens:  resp.InputTokens,
+						OutputTokens: resp.OutputTokens,
 					},
 				}
-				slog.Debug("token usage", "agent", a.config.Name, "input", result.inputTokens, "output", result.outputTokens)
+				slog.Debug("token usage", "agent", a.config.Name, "input", resp.InputTokens, "output", resp.OutputTokens)
 			}
 
 			// Build assistant message from text + tool_use blocks
-			assistantBlocks := result.textBlocks
-			for _, tu := range result.toolUses {
-				var input json.RawMessage
-				if tu.inputBuf.Len() > 0 {
-					input = json.RawMessage(tu.inputBuf.String())
-				} else {
-					input = json.RawMessage("{}")
-				}
-				assistantBlocks = append(assistantBlocks, anthropic.ContentBlockParamUnion{
-					OfToolUse: &anthropic.ToolUseBlockParam{
-						ID:    tu.id,
-						Name:  tu.name,
-						Input: input,
-					},
-				})
+			var assistantBlocks []domain.ContentBlock
+			for _, text := range resp.TextParts {
+				assistantBlocks = append(assistantBlocks, domain.TextBlock(text))
 			}
-
-			a.history = append(a.history, anthropic.NewAssistantMessage(assistantBlocks...))
+			for _, tu := range resp.ToolUses {
+				assistantBlocks = append(assistantBlocks, domain.ToolUseContentBlock(tu.ID, tu.Name, tu.Input))
+			}
+			a.history = append(a.history, domain.Message{
+				Role:    domain.RoleAssistant,
+				Content: assistantBlocks,
+			})
 
 			// If no tool uses or stop reason is end_turn, we're done
-			if len(result.toolUses) == 0 || result.stopReason == anthropic.StopReasonEndTurn {
-				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", result.stopReason)
-				a.maybeAutoCompact(ctx, ch, result.inputTokens)
+			if len(resp.ToolUses) == 0 || resp.StopReason == "end_turn" {
+				slog.Info("agent run completed", "agent", a.config.Name, "duration", time.Since(start), "iterations", iteration+1, "stopReason", resp.StopReason)
+				a.maybeAutoCompact(ctx, ch, int64(resp.InputTokens))
 				ch <- domain.StreamEvent{AgentName: a.config.Name, Done: true}
 				return
 			}
 
 			// Execute tools and feed results back
-			toolResultBlocks := a.executeTools(ctx, ch, result.toolUses)
-			a.history = append(a.history, anthropic.NewUserMessage(toolResultBlocks...))
-			slog.Debug("tool results sent, continuing loop", "agent", a.config.Name, "toolCount", len(result.toolUses), "iteration", iteration)
+			toolResultBlocks := a.executeTools(ctx, ch, resp.ToolUses)
+			a.history = append(a.history, domain.Message{
+				Role:    domain.RoleUser,
+				Content: toolResultBlocks,
+			})
+			slog.Debug("tool results sent, continuing loop", "agent", a.config.Name, "toolCount", len(resp.ToolUses), "iteration", iteration)
 		}
 
 		slog.Warn("agent hit tool use iteration limit", "agent", a.config.Name)
@@ -141,12 +115,15 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 }
 
 // streamWithRetry performs the streaming API call with retry logic for transient errors.
-// Returns the accumulated stream result or an error.
-func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEvent, params anthropic.MessageNewParams, reqOpts []option.RequestOption) (*streamResult, error) {
+func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEvent, params domain.ChatParams) (*domain.ChatResponse, error) {
+	onText := func(text string) {
+		ch <- domain.StreamEvent{AgentName: a.config.Name, Text: text}
+	}
+
 	for attempt := 0; attempt <= maxStreamRetries; attempt++ {
-		result, err := a.consumeStream(ctx, ch, params, reqOpts)
+		resp, err := a.chatClient.StreamMessage(ctx, params, onText)
 		if err == nil {
-			return result, nil
+			return resp, nil
 		}
 
 		if !isRetryableError(err) || attempt == maxStreamRetries {
@@ -166,105 +143,17 @@ func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEven
 	return nil, fmt.Errorf("exhausted retries")
 }
 
-// consumeStream reads a single streaming response, emitting text deltas to ch
-// and accumulating the full response into a streamResult.
-func (a *Agent) consumeStream(ctx context.Context, ch chan<- domain.StreamEvent, params anthropic.MessageNewParams, reqOpts []option.RequestOption) (*streamResult, error) {
-	stream := a.client.Messages.NewStreaming(ctx, params, reqOpts...)
-
-	var toolUses []pendingToolUse
-	var stopReason anthropic.StopReason
-	var inputTokens, outputTokens int64
-	activeBlocks := map[int64]*pendingToolUse{}
-	textBlocks := map[int64]*strings.Builder{}
-
-	for stream.Next() {
-		evt := stream.Current()
-
-		switch v := evt.AsAny().(type) {
-		case anthropic.ContentBlockStartEvent:
-			cb := v.ContentBlock
-			switch cb.Type {
-			case "text":
-				textBlocks[v.Index] = &strings.Builder{}
-			case "tool_use":
-				tu := &pendingToolUse{id: cb.ID, name: cb.Name}
-				activeBlocks[v.Index] = tu
-				toolUses = append(toolUses, *tu)
-			}
-
-		case anthropic.ContentBlockDeltaEvent:
-			switch d := v.Delta.AsAny().(type) {
-			case anthropic.TextDelta:
-				if d.Text != "" {
-					ch <- domain.StreamEvent{AgentName: a.config.Name, Text: d.Text}
-					if sb, ok := textBlocks[v.Index]; ok {
-						sb.WriteString(d.Text)
-					}
-				}
-			case anthropic.InputJSONDelta:
-				if tu, ok := activeBlocks[v.Index]; ok {
-					tu.inputBuf.WriteString(d.PartialJSON)
-					for i := range toolUses {
-						if toolUses[i].id == tu.id {
-							toolUses[i].inputBuf = tu.inputBuf
-						}
-					}
-				}
-			}
-
-		case anthropic.MessageDeltaEvent:
-			stopReason = v.Delta.StopReason
-			if v.Usage.OutputTokens > 0 {
-				outputTokens = v.Usage.OutputTokens
-			}
-			if v.Usage.InputTokens > 0 {
-				inputTokens = v.Usage.InputTokens
-			}
-		}
-	}
-
-	streamErr := stream.Err()
-	stream.Close()
-
-	if streamErr != nil {
-		return nil, streamErr
-	}
-
-	// Build text blocks in index order
-	textIndices := make([]int64, 0, len(textBlocks))
-	for idx := range textBlocks {
-		textIndices = append(textIndices, idx)
-	}
-	sort.Slice(textIndices, func(i, j int) bool { return textIndices[i] < textIndices[j] })
-
-	var blocks []anthropic.ContentBlockParamUnion
-	for _, idx := range textIndices {
-		text := textBlocks[idx].String()
-		if text != "" {
-			blocks = append(blocks, anthropic.NewTextBlock(text))
-		}
-	}
-
-	return &streamResult{
-		textBlocks:   blocks,
-		toolUses:     toolUses,
-		stopReason:   stopReason,
-		inputTokens:  inputTokens,
-		outputTokens: outputTokens,
-	}, nil
-}
-
 // executeTools runs all pending tool calls in parallel, emits events to ch,
-// and returns the tool result blocks for the next API call.
-func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, toolUses []pendingToolUse) []anthropic.ContentBlockParamUnion {
+// and returns the tool result content blocks for the next API call.
+func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, toolUses []domain.ChatToolUse) []domain.ContentBlock {
 	// Notify TUI of all tool calls up front
 	for _, tu := range toolUses {
 		ch <- domain.StreamEvent{
 			AgentName: a.config.Name,
 			ToolCall: &domain.ToolCallEvent{
-				ToolName: tu.name,
-				ToolID:   tu.id,
-				Input:    tu.inputBuf.String(),
+				ToolName: tu.Name,
+				ToolID:   tu.ID,
+				Input:    tu.Input,
 			},
 		}
 	}
@@ -278,10 +167,10 @@ func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, 
 	var wg sync.WaitGroup
 	for i, tu := range toolUses {
 		wg.Add(1)
-		go func(idx int, tu pendingToolUse) {
+		go func(idx int, tu domain.ChatToolUse) {
 			defer wg.Done()
-			slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.name, "id", tu.id)
-			result, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.name, json.RawMessage(tu.inputBuf.String()))
+			slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
+			result, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.Name, json.RawMessage(tu.Input))
 			if execErr != nil {
 				results[idx] = toolResult{output: execErr.Error(), isError: true}
 			} else {
@@ -291,29 +180,22 @@ func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, 
 	}
 	wg.Wait()
 
-	// Emit results and build API response in original order
-	var toolResultBlocks []anthropic.ContentBlockParamUnion
+	// Emit results and build content blocks in original order
+	var blocks []domain.ContentBlock
 	for i, tu := range toolUses {
 		r := results[i]
 		ch <- domain.StreamEvent{
 			AgentName: a.config.Name,
 			ToolDone: &domain.ToolDoneEvent{
-				ToolName: tu.name,
-				ToolID:   tu.id,
+				ToolName: tu.Name,
+				ToolID:   tu.ID,
 				Output:   r.output,
 				IsError:  r.isError,
 			},
 		}
-		toolResultBlocks = append(toolResultBlocks, anthropic.ContentBlockParamUnion{
-			OfToolResult: &anthropic.ToolResultBlockParam{
-				ToolUseID: tu.id,
-				Content: []anthropic.ToolResultBlockParamContentUnion{
-					{OfText: &anthropic.TextBlockParam{Text: r.output}},
-				},
-			},
-		})
+		blocks = append(blocks, domain.ToolResultContentBlock(tu.ID, r.output, r.isError))
 	}
-	return toolResultBlocks
+	return blocks
 }
 
 // maybeAutoCompact triggers compaction if input tokens exceed the threshold.
@@ -337,51 +219,40 @@ func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEve
 	}
 }
 
-// buildMessageParams constructs the API request params with tools.
-func (a *Agent) buildMessageParams(model anthropic.Model) (anthropic.MessageNewParams, []option.RequestOption) {
+// buildChatParams constructs the domain.ChatParams for an API call.
+func (a *Agent) buildChatParams(model string) domain.ChatParams {
 	// Hot-reload CLAUDE.md if modified
 	a.RefreshClaudeMD()
 
-	system := []anthropic.TextBlockParam{
-		{Text: a.systemPrompt},
+	defs := tools.Definitions()
+	toolDefs := make([]domain.ToolDef, len(defs))
+	for i, d := range defs {
+		toolDefs[i] = domain.ToolDef{
+			Name:        d.Name,
+			Description: d.Description,
+			InputSchema: d.InputSchema,
+		}
 	}
 
-	defs := tools.Definitions()
 	toolNames := make([]string, len(defs))
 	for i, d := range defs {
 		toolNames[i] = d.Name
 	}
 	slog.Debug("building API request", "agent", a.config.Name, "toolCount", len(defs), "tools", toolNames)
 
-	params := anthropic.MessageNewParams{
-		Model:     model,
-		MaxTokens: defaultMaxTokens,
-		System:    system,
-		Messages:  a.history,
-		Tools:     tools.ToAPITools(defs),
-	}
-
-	var reqOpts []option.RequestOption
-
+	maxTokens := defaultMaxTokens
 	if a.isOAuth {
-		params.System = append(
-			[]anthropic.TextBlockParam{{Text: domain.BillingHeader}},
-			params.System...,
-		)
-		params.Thinking = anthropic.ThinkingConfigParamUnion{
-			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
-		}
-		params.OutputConfig = anthropic.OutputConfigParam{
-			Effort: anthropic.OutputConfigEffortMedium,
-		}
-		params.MaxTokens = oauthMaxTokens
-		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", domain.ClaudeCodeBetas))
-
-		slog.Debug("injected Claude Code billing header for OAuth",
-			"agent", a.config.Name, "model", string(model))
+		maxTokens = oauthMaxTokens
 	}
 
-	return params, reqOpts
+	return domain.ChatParams{
+		Model:        model,
+		System:       a.systemPrompt,
+		Messages:     a.history,
+		Tools:        toolDefs,
+		MaxTokens:    maxTokens,
+		OAuthBilling: a.isOAuth,
+	}
 }
 
 // WorkDir returns the agent's working directory.

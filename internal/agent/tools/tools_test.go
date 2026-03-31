@@ -49,15 +49,7 @@ func TestDefinitions_AllHaveDescriptionsAndSchemas(t *testing.T) {
 	}
 }
 
-func TestToAPITools_ConvertsAllDefs(t *testing.T) {
-	defs := tools.Definitions()
-	apiTools := tools.ToAPITools(defs)
-	assert.Len(t, apiTools, len(defs))
-	for i, at := range apiTools {
-		require.NotNil(t, at.OfTool, "tool %d should have OfTool set", i)
-		assert.Equal(t, defs[i].Name, at.OfTool.Name)
-	}
-}
+// ToAPITools moved to internal/llm adapter — tested via llm package
 
 // --- read_file ---
 

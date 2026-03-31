@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // ToolDef is the pure definition of a tool — name, description, and JSON Schema.
@@ -202,41 +200,6 @@ func Definitions() []ToolDef {
 			},
 		},
 	}
-}
-
-// ToAPITools converts tool definitions to the Anthropic API format.
-func ToAPITools(defs []ToolDef) []anthropic.ToolUnionParam {
-	tools := make([]anthropic.ToolUnionParam, len(defs))
-	for i, d := range defs {
-		tools[i] = anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        d.Name,
-				Description: anthropic.String(d.Description),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: d.InputSchema["properties"],
-					Required:   toStringSlice(d.InputSchema["required"]),
-				},
-			},
-		}
-	}
-	return tools
-}
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	switch s := v.(type) {
-	case []string:
-		return s
-	case []any:
-		result := make([]string, len(s))
-		for i, item := range s {
-			result[i] = fmt.Sprint(item)
-		}
-		return result
-	}
-	return nil
 }
 
 // DefaultExecutor returns an ExecutorFn that dispatches to the

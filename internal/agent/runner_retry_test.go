@@ -38,11 +38,12 @@ func TestRunner_RetryOnTransient500(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "Reply with hello world.",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -83,11 +84,12 @@ func TestRunner_RetryExhausted(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "test",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -125,11 +127,12 @@ func TestRunner_NoRetryOn400(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "test",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

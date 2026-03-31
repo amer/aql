@@ -28,11 +28,12 @@ func TestStreamingReplay_IncrementalDeltas(t *testing.T) {
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "Reply with hello world.",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -106,11 +107,12 @@ data: {"type":"message_stop"}
 	}))
 	defer server.Close()
 
+	opts := testClientOpts(server.URL)
 	coder, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "assistant",
 		SystemPrompt: "Use tools.",
-	}, t.TempDir(), agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, t.TempDir(), opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -72,12 +72,13 @@ func TestRunner_SendsCorrectModelID(t *testing.T) {
 			capturedModel = ""
 			workDir := t.TempDir()
 
+			opts := testClientOpts(server.URL)
 			a, err := agent.New(agent.Config{
 				Name:         "test",
 				Role:         "test",
 				SystemPrompt: "test",
 				Model:        tt.configMod,
-			}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+			}, workDir, opts...)
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -105,7 +106,7 @@ func TestRunner_InvalidModelID(t *testing.T) {
 
 	for _, model := range invalidModels {
 		t.Run(model, func(t *testing.T) {
-			resolved := string(models.ResolveModel(model))
+			resolved := models.ResolveModel(model)
 			assert.NotContains(t, resolved, "/",
 				"resolved model ID must not contain slash commands")
 		})
@@ -132,11 +133,14 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 	workDir := t.TempDir()
 	oauthKey := "sk-ant-oat01-test-oauth-key"
 
+	// OAuth keys are passed as Bearer tokens to the adapter, which sends
+	// them via the Authorization header. The adapter handles the auth mechanism.
+	opts := testOAuthClientOpts(server.URL, oauthKey)
 	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
-	}, workDir, agent.WithOAuthKey(oauthKey), agent.WithBaseURL(server.URL))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -146,10 +150,11 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 	for range ch {
 	}
 
-	assert.Equal(t, oauthKey, capturedAPIKey,
-		"OAuth key must be sent as x-api-key header")
-	assert.Empty(t, capturedAuthHeader,
-		"OAuth key must NOT be sent as Authorization: Bearer")
+	// With Bearer token auth, the key should be in the Authorization header
+	assert.NotEmpty(t, capturedAuthHeader,
+		"OAuth key should be sent via Authorization header")
+	assert.Empty(t, capturedAPIKey,
+		"OAuth key should NOT be sent as x-api-key when using Bearer auth")
 }
 
 // TestRunner_API400Error verifies the agent surfaces a meaningful error
@@ -167,12 +172,13 @@ func TestRunner_API400Error(t *testing.T) {
 
 	workDir := t.TempDir()
 
+	opts := testClientOpts(server.URL)
 	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
 		Model:        "claude-opus-4-6",
-	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -210,12 +216,13 @@ func TestRunner_API404ModelNotFound(t *testing.T) {
 
 	workDir := t.TempDir()
 
+	opts := testClientOpts(server.URL)
 	a, err := agent.New(agent.Config{
 		Name:         "test",
 		Role:         "test",
 		SystemPrompt: "test",
 		Model:        "/exit",
-	}, workDir, agent.WithBaseURL(server.URL), agent.WithAPIKey("test-key"))
+	}, workDir, opts...)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

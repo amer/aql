@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,9 +9,22 @@ import (
 
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/agent/tools"
+	"github.com/amer/aql/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mockChatClient is a minimal ChatClient that does nothing — used for tests
+// that only exercise agent construction and prompt building, not API calls.
+type mockChatClient struct{}
+
+func (m *mockChatClient) StreamMessage(_ context.Context, _ domain.ChatParams, _ func(string)) (*domain.ChatResponse, error) {
+	return &domain.ChatResponse{StopReason: "end_turn"}, nil
+}
+
+func (m *mockChatClient) SendMessage(_ context.Context, _ domain.ChatParams) (*domain.ChatResponse, error) {
+	return &domain.ChatResponse{StopReason: "end_turn"}, nil
+}
 
 func testConfig() agent.Config {
 	return agent.Config{
@@ -22,7 +36,7 @@ func testConfig() agent.Config {
 
 func TestNewAgent(t *testing.T) {
 	dir := t.TempDir()
-	a, err := agent.New(testConfig(), dir)
+	a, err := agent.New(testConfig(), dir, agent.WithChatClient(&mockChatClient{}))
 	require.NoError(t, err)
 	assert.Equal(t, "coder", a.Name())
 }
@@ -73,7 +87,7 @@ func TestClaudeMDHotReload(t *testing.T) {
 	dir := t.TempDir()
 
 	// Start without CLAUDE.md
-	a, err := agent.New(testConfig(), dir)
+	a, err := agent.New(testConfig(), dir, agent.WithChatClient(&mockChatClient{}))
 	require.NoError(t, err)
 	assert.NotContains(t, a.SystemPrompt(), "hot-reload-test")
 
@@ -81,7 +95,7 @@ func TestClaudeMDHotReload(t *testing.T) {
 	mdPath := filepath.Join(dir, "CLAUDE.md")
 	require.NoError(t, os.WriteFile(mdPath, []byte("# hot-reload-test"), 0644))
 
-	// Force a refresh (normally called by buildMessageParams)
+	// Force a refresh (normally called by buildChatParams)
 	a.RefreshClaudeMD()
 	assert.Contains(t, a.SystemPrompt(), "hot-reload-test")
 
@@ -96,7 +110,7 @@ func TestClaudeMDHotReload(t *testing.T) {
 
 func TestClearHistory_RemovesAllMessages(t *testing.T) {
 	dir := t.TempDir()
-	a, err := agent.New(testConfig(), dir)
+	a, err := agent.New(testConfig(), dir, agent.WithChatClient(&mockChatClient{}))
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, a.HistoryLen(), "new agent starts with empty history")
@@ -113,7 +127,7 @@ func TestClearHistory_RemovesAllMessages(t *testing.T) {
 
 func TestClearHistory_SafeOnEmptyHistory(t *testing.T) {
 	dir := t.TempDir()
-	a, err := agent.New(testConfig(), dir)
+	a, err := agent.New(testConfig(), dir, agent.WithChatClient(&mockChatClient{}))
 	require.NoError(t, err)
 
 	// Should not panic on empty history
@@ -125,7 +139,7 @@ func TestAgentWithClaudeMD(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Rules\n- TDD always\n"), 0644))
 
-	a, err := agent.New(testConfig(), dir)
+	a, err := agent.New(testConfig(), dir, agent.WithChatClient(&mockChatClient{}))
 	require.NoError(t, err)
 
 	prompt := a.SystemPrompt()

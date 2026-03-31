@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent/tools"
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/amer/aql/internal/domain"
 )
 
 // AskUserFn is the signature for a function that asks the user a question.
@@ -27,8 +26,8 @@ type Agent struct {
 	claudeMD     string
 	claudeMDTime time.Time // mtime of last CLAUDE.md read
 	systemPrompt string
-	client       anthropic.Client
-	history      []anthropic.MessageParam
+	chatClient   domain.ChatClient
+	history      []domain.Message
 	isOAuth      bool   // true when created via OAuth Console login (enables billing header for Opus)
 	dir          string // working directory for tool execution
 	askUser      AskUserFn
@@ -39,32 +38,20 @@ type Agent struct {
 type Option func(*agentOptions)
 
 type agentOptions struct {
-	apiKey       string
-	bearerToken  string
-	baseURL      string
+	chatClient   domain.ChatClient
 	isOAuth      bool
 	askUser      AskUserFn
 	toolExecutor ToolExecutorFn
 }
 
-// WithAPIKey sets the API key for authentication.
-func WithAPIKey(key string) Option {
-	return func(o *agentOptions) { o.apiKey = key }
+// WithChatClient sets the ChatClient used for LLM API calls.
+func WithChatClient(c domain.ChatClient) Option {
+	return func(o *agentOptions) { o.chatClient = c }
 }
 
-// WithOAuthKey sets an OAuth-issued API key and marks the agent as OAuth.
-func WithOAuthKey(key string) Option {
-	return func(o *agentOptions) { o.apiKey = key; o.isOAuth = true }
-}
-
-// WithBearerToken sets a Bearer token for authentication.
-func WithBearerToken(token string) Option {
-	return func(o *agentOptions) { o.bearerToken = token }
-}
-
-// WithBaseURL sets a custom API base URL (useful for testing).
-func WithBaseURL(url string) Option {
-	return func(o *agentOptions) { o.baseURL = url }
+// WithOAuth marks the agent as using OAuth billing (enables Opus/thinking).
+func WithOAuth() Option {
+	return func(o *agentOptions) { o.isOAuth = true }
 }
 
 // WithAskUser sets the function called when the agent uses ask_user.
@@ -93,7 +80,9 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 	}
 	slog.Debug("loaded CLAUDE.md", "agent", cfg.Name, "length", len(claudeMD))
 
-	client := buildClient(o)
+	if o.chatClient == nil {
+		return nil, fmt.Errorf("agent %q: ChatClient is required (use WithChatClient)", cfg.Name)
+	}
 
 	toolExec := o.toolExecutor
 	if toolExec == nil {
@@ -104,7 +93,7 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 		config:       cfg,
 		claudeMD:     claudeMD,
 		claudeMDTime: claudeMDTime,
-		client:       client,
+		chatClient:   o.chatClient,
 		dir:          workDir,
 		isOAuth:      o.isOAuth,
 		askUser:      o.askUser,
@@ -114,21 +103,6 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 
 	slog.Info("agent created", "agent", cfg.Name, "promptLength", len(a.systemPrompt))
 	return a, nil
-}
-
-func buildClient(o agentOptions) anthropic.Client {
-	var clientOpts []option.RequestOption
-
-	if o.bearerToken != "" {
-		clientOpts = append(clientOpts, option.WithAuthToken(o.bearerToken))
-	} else if o.apiKey != "" {
-		clientOpts = append(clientOpts, option.WithAPIKey(o.apiKey))
-	}
-	if o.baseURL != "" {
-		clientOpts = append(clientOpts, option.WithBaseURL(o.baseURL))
-	}
-
-	return anthropic.NewClient(clientOpts...)
 }
 
 // Name returns the agent's name.
@@ -157,16 +131,12 @@ func (a *Agent) HistoryLen() int {
 
 // AppendUserMessage adds a user message to the conversation history.
 func (a *Agent) AppendUserMessage(text string) {
-	a.history = append(a.history, anthropic.NewUserMessage(
-		anthropic.NewTextBlock(text),
-	))
+	a.history = append(a.history, domain.NewUserMessage(text))
 }
 
 // AppendAssistantMessage adds an assistant message to the conversation history.
 func (a *Agent) AppendAssistantMessage(text string) {
-	a.history = append(a.history, anthropic.NewAssistantMessage(
-		anthropic.NewTextBlock(text),
-	))
+	a.history = append(a.history, domain.NewAssistantMessage(text))
 }
 
 // RefreshClaudeMD re-reads CLAUDE.md if it has been modified since last read.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/amer/aql/internal/agent"
 	"github.com/amer/aql/internal/auth"
+	"github.com/amer/aql/internal/llm"
 	"github.com/amer/aql/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,11 +51,12 @@ func TestRunnerLive_StreamsFromAPI(t *testing.T) {
 
 	workDir := t.TempDir()
 
+	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey))
 	coder, err := agent.New(agent.Config{
 		Name:         "test-coder",
 		Role:         "Go developer",
 		SystemPrompt: "Reply with exactly: hello world. Nothing else.",
-	}, workDir)
+	}, workDir, agent.WithChatClient(chatClient))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -92,11 +94,7 @@ func TestRunnerLive_StreamsFromAPI(t *testing.T) {
 }
 
 // TestRunnerLive_OAuthKeyAccessesOpus verifies that an OAuth-issued API key
-// (from `aql auth login --console`) can access Opus. This is the core integration
-// test for the OAuth flow — it catches the exact bug where the user logs in
-// successfully but the agent still gets 400 because the token isn't used correctly.
-//
-// Requires: .aql_tokens.json in project root (from `aql auth login --console`).
+// (from `aql auth login --console`) can access Opus.
 func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 	if os.Getenv("AQL_LIVE_TEST") != "1" {
 		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
@@ -121,13 +119,13 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 	t.Logf("OAuth token found, expires at %s, API key prefix: %s",
 		tokens.ExpiresAt.Format("15:04:05"), tokens.APIKey[:min(15, len(tokens.APIKey))])
 
-	// This is the critical test: use the OAuth-derived API key to access Opus
+	chatClient := llm.NewAnthropicClient(llm.WithBearerToken(tokens.APIKey))
 	a, err := agent.New(agent.Config{
 		Name:         "test-oauth-opus",
 		Role:         "test",
 		SystemPrompt: "Reply with exactly one word: pong",
 		Model:        "claude-opus-4-6",
-	}, t.TempDir(), agent.WithOAuthKey(tokens.APIKey))
+	}, t.TempDir(), agent.WithChatClient(chatClient), agent.WithOAuth())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -160,12 +158,13 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 
 // TestRunnerLive_AllModelTiers verifies that each model tier from the
 // TUI model picker actually works with the current API key.
-// This catches issues where a tier shows in the picker but returns 400/404.
 func TestRunnerLive_AllModelTiers(t *testing.T) {
 	if os.Getenv("AQL_LIVE_TEST") != "1" {
 		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
@@ -182,12 +181,13 @@ func TestRunnerLive_AllModelTiers(t *testing.T) {
 		t.Run(tier.name, func(t *testing.T) {
 			workDir := t.TempDir()
 
+			chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey))
 			a, err := agent.New(agent.Config{
 				Name:         "test-" + tier.name,
 				Role:         "test",
 				SystemPrompt: "Reply with exactly one word: pong",
 				Model:        tier.modelID,
-			}, workDir)
+			}, workDir, agent.WithChatClient(chatClient))
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -227,13 +227,14 @@ func TestRunnerLive_AllModelTiers(t *testing.T) {
 }
 
 // TestRunnerLive_SavedModelWorks verifies that the currently saved model
-// in .aql_model actually works with the API. This catches the scenario where
-// an invalid value (like "/exit") gets persisted and breaks all future sessions.
+// in .aql_model actually works with the API.
 func TestRunnerLive_SavedModelWorks(t *testing.T) {
 	if os.Getenv("AQL_LIVE_TEST") != "1" {
 		t.Skip("set AQL_LIVE_TEST=1 to run live API tests")
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
@@ -261,12 +262,13 @@ func TestRunnerLive_SavedModelWorks(t *testing.T) {
 		"saved model ID must not be a slash command — file is corrupted")
 
 	// Actually try to use it
+	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey))
 	a, err := agent.New(agent.Config{
 		Name:         "test-saved",
 		Role:         "test",
 		SystemPrompt: "Reply: ok",
 		Model:        savedModel,
-	}, t.TempDir())
+	}, t.TempDir(), agent.WithChatClient(chatClient))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
