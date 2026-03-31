@@ -133,8 +133,7 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 	workDir := t.TempDir()
 	oauthKey := "sk-ant-oat01-test-oauth-key"
 
-	// OAuth keys are passed as Bearer tokens to the adapter, which sends
-	// them via the Authorization header. The adapter handles the auth mechanism.
+	// OAuth-derived keys are still API keys — sent via X-Api-Key, not Bearer
 	opts := testOAuthClientOpts(server.URL, oauthKey)
 	a, err := agent.New(agent.Config{
 		Name:         "test",
@@ -150,11 +149,10 @@ func TestRunner_OAuthTokenSentAsAPIKey(t *testing.T) {
 	for range ch {
 	}
 
-	// With Bearer token auth, the key should be in the Authorization header
-	assert.NotEmpty(t, capturedAuthHeader,
-		"OAuth key should be sent via Authorization header")
-	assert.Empty(t, capturedAPIKey,
-		"OAuth key should NOT be sent as x-api-key when using Bearer auth")
+	assert.Equal(t, oauthKey, capturedAPIKey,
+		"OAuth key must be sent as x-api-key header")
+	assert.Empty(t, capturedAuthHeader,
+		"OAuth key must NOT be sent as Authorization: Bearer")
 }
 
 // TestRunner_API400Error verifies the agent surfaces a meaningful error

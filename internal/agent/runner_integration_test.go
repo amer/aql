@@ -119,7 +119,7 @@ func TestRunnerLive_OAuthKeyAccessesOpus(t *testing.T) {
 	t.Logf("OAuth token found, expires at %s, API key prefix: %s",
 		tokens.ExpiresAt.Format("15:04:05"), tokens.APIKey[:min(15, len(tokens.APIKey))])
 
-	chatClient := llm.NewAnthropicClient(llm.WithBearerToken(tokens.APIKey))
+	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(tokens.APIKey))
 	a, err := agent.New(agent.Config{
 		Name:         "test-oauth-opus",
 		Role:         "test",

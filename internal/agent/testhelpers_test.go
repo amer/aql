@@ -21,11 +21,12 @@ func testClientOpts(serverURL string) []agent.Option {
 }
 
 // testOAuthClientOpts returns agent options for OAuth-style test connections.
+// OAuth-derived keys are still sent as API keys (X-Api-Key header), not Bearer tokens.
 func testOAuthClientOpts(serverURL, oauthKey string) []agent.Option {
 	return []agent.Option{
 		agent.WithChatClient(llm.NewAnthropicClient(
 			llm.WithBaseURL(serverURL),
-			llm.WithBearerToken(oauthKey),
+			llm.WithAPIKey(oauthKey),
 		)),
 		agent.WithOAuth(),
 	}

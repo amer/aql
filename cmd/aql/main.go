@@ -81,15 +81,9 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		}
 	}
 
-	// Build the LLM adapter (Ports & Adapters: domain code depends on the port,
-	// adapter handles SDK-specific details)
-	var clientOpts []llm.ClientOption
-	if useOAuth {
-		clientOpts = append(clientOpts, llm.WithBearerToken(apiKey))
-	} else {
-		clientOpts = append(clientOpts, llm.WithAPIKey(apiKey))
-	}
-	chatClient := llm.NewAnthropicClient(clientOpts...)
+	// Build the LLM adapter — OAuth-derived keys are still API keys
+	// (sent via X-Api-Key header), the OAuth flag only controls billing headers
+	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey))
 
 	opts := []agent.Option{
 		agent.WithChatClient(chatClient),
