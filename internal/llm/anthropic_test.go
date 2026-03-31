@@ -362,6 +362,98 @@ func TestMessageConversion_AllContentBlockTypes(t *testing.T) {
 	assert.Equal(t, "tu_1", blocks3[0].(map[string]any)["tool_use_id"])
 }
 
+// --- tool_use input serialization ---
+
+func TestToolUseInput_SerializedAsDictionary(t *testing.T) {
+	var captured map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &captured)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, sseTextResponse("ok"))
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	client.StreamMessage(context.Background(), domain.ChatParams{
+		Model:  "claude-sonnet-4-6",
+		System: "test",
+		Messages: []domain.Message{
+			domain.NewUserMessage("read main.go"),
+			{
+				Role: domain.RoleAssistant,
+				Content: []domain.ContentBlock{
+					domain.ToolUseContentBlock("tu_1", "read_file", `{"path":"main.go"}`),
+				},
+			},
+			{
+				Role: domain.RoleUser,
+				Content: []domain.ContentBlock{
+					domain.ToolResultContentBlock("tu_1", "package main", false),
+				},
+			},
+		},
+		MaxTokens: 1024,
+	}, nil)
+
+	msgs := captured["messages"].([]any)
+	assistantMsg := msgs[1].(map[string]any)
+	blocks := assistantMsg["content"].([]any)
+	toolUse := blocks[0].(map[string]any)
+
+	// The input field MUST be a JSON object (map), not a string or base64-encoded bytes.
+	input, ok := toolUse["input"].(map[string]any)
+	require.True(t, ok, "tool_use input must be a dictionary, got %T: %v", toolUse["input"], toolUse["input"])
+	assert.Equal(t, "main.go", input["path"])
+}
+
+func TestToolUseInput_EmptyInput_SerializedAsEmptyDictionary(t *testing.T) {
+	var captured map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &captured)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, sseTextResponse("ok"))
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	client.StreamMessage(context.Background(), domain.ChatParams{
+		Model:  "claude-sonnet-4-6",
+		System: "test",
+		Messages: []domain.Message{
+			domain.NewUserMessage("list files"),
+			{
+				Role: domain.RoleAssistant,
+				Content: []domain.ContentBlock{
+					domain.ToolUseContentBlock("tu_2", "list_dir", ""),
+				},
+			},
+			{
+				Role: domain.RoleUser,
+				Content: []domain.ContentBlock{
+					domain.ToolResultContentBlock("tu_2", "file1.go\nfile2.go", false),
+				},
+			},
+		},
+		MaxTokens: 1024,
+	}, nil)
+
+	msgs := captured["messages"].([]any)
+	assistantMsg := msgs[1].(map[string]any)
+	blocks := assistantMsg["content"].([]any)
+	toolUse := blocks[0].(map[string]any)
+
+	// Empty input must still be a dictionary, not a string.
+	input, ok := toolUse["input"].(map[string]any)
+	require.True(t, ok, "empty tool_use input must be a dictionary, got %T: %v", toolUse["input"], toolUse["input"])
+	assert.Empty(t, input)
+}
+
 // --- Tool conversion ---
 
 func TestToolConversion_SendsToolDefinitions(t *testing.T) {

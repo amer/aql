@@ -11,7 +11,7 @@ Made the Claude model configurable per agent instead of hardcoding a single mode
 Resolves shortcut names to full model identifiers:
 
 | Shortcut       | Model ID             |
-|----------------|----------------------|
+| -------------- | -------------------- |
 | `""` (default) | `claude-haiku-4-5`   |
 | `haiku`        | `claude-haiku-4-5`   |
 | `sonnet`       | `claude-sonnet-4-5`  |

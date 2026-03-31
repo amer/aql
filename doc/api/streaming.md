@@ -40,16 +40,16 @@ if err := stream.Err(); err != nil {
 
 The stream emits server-sent events (SSE). Key event types:
 
-| Event | Description |
-| --- | --- |
-| `message_start` | Contains the initial `Message` object |
+| Event                 | Description                               |
+| --------------------- | ----------------------------------------- |
+| `message_start`       | Contains the initial `Message` object     |
 | `content_block_start` | Start of a content block (text, tool use) |
-| `content_block_delta` | Incremental update to a content block |
-| `content_block_stop` | End of a content block |
-| `message_delta` | Top-level changes (stop reason, usage) |
-| `message_stop` | End of the message |
-| `ping` | Keep-alive event |
-| `error` | Error during streaming |
+| `content_block_delta` | Incremental update to a content block     |
+| `content_block_stop`  | End of a content block                    |
+| `message_delta`       | Top-level changes (stop reason, usage)    |
+| `message_stop`        | End of the message                        |
+| `ping`                | Keep-alive event                          |
+| `error`               | Error during streaming                    |
 
 ## Non-Streaming Alternative
 
