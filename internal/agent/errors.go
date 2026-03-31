@@ -4,17 +4,32 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
+
+// statusCoder is satisfied by any error that carries an HTTP status code.
+// Both *anthropic.Error and test fakes implement this, decoupling error
+// inspection from the SDK.
+type statusCoder interface {
+	error
+	StatusCode() int
+}
+
+// extractStatusCode returns the HTTP status code from an error if it
+// implements statusCoder, and -1 otherwise.
+func extractStatusCode(err error) int {
+	var sc statusCoder
+	if errors.As(err, &sc) {
+		return sc.StatusCode()
+	}
+	return -1
+}
 
 // isRetryableError returns true for transient server errors that are safe to retry.
 // This includes 500 (Internal Server Error), 502, 503, 529 (Overloaded), and
 // streaming errors that contain "api_error" or "overloaded_error".
 func isRetryableError(err error) bool {
-	var apiErr *anthropic.Error
-	if errors.As(err, &apiErr) {
-		switch apiErr.StatusCode {
+	if code := extractStatusCode(err); code > 0 {
+		switch code {
 		case 500, 502, 503, 529:
 			return true
 		}
@@ -28,14 +43,12 @@ func isRetryableError(err error) bool {
 }
 
 // enrichAPIError adds actionable context to common API errors.
-// Uses the SDK's typed error to inspect HTTP status codes directly
-// rather than fragile string matching.
 func enrichAPIError(err error, model string) error {
-	var apiErr *anthropic.Error
-	if !errors.As(err, &apiErr) {
+	code := extractStatusCode(err)
+	if code < 0 {
 		return err
 	}
-	switch apiErr.StatusCode {
+	switch code {
 	case 400, 403:
 		return fmt.Errorf("%w — your API key may not have access to %s. "+
 			"Run `aql auth login --console` for full model access, "+

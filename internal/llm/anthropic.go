@@ -4,6 +4,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -14,6 +15,27 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
+
+// APIError wraps an SDK error and exposes the status code via a method,
+// satisfying the statusCoder interface used by agent error handling.
+type APIError struct {
+	err        *anthropic.Error
+	statusCode int
+}
+
+func (e *APIError) Error() string   { return e.err.Error() }
+func (e *APIError) Unwrap() error   { return e.err }
+func (e *APIError) StatusCode() int { return e.statusCode }
+
+// wrapError converts *anthropic.Error into *APIError so downstream code
+// can use the statusCoder interface instead of the concrete SDK type.
+func wrapError(err error) error {
+	var apiErr *anthropic.Error
+	if errors.As(err, &apiErr) {
+		return &APIError{err: apiErr, statusCode: apiErr.StatusCode}
+	}
+	return err
+}
 
 // AnthropicClient implements domain.ChatClient using the Anthropic SDK.
 type AnthropicClient struct {
@@ -70,7 +92,11 @@ func NewAnthropicClient(opts ...ClientOption) *AnthropicClient {
 func (c *AnthropicClient) StreamMessage(ctx context.Context, params domain.ChatParams, onText func(string)) (*domain.ChatResponse, error) {
 	apiParams, reqOpts := buildAPIParams(params)
 	stream := c.client.Messages.NewStreaming(ctx, apiParams, reqOpts...)
-	return consumeStream(stream, onText)
+	resp, err := consumeStream(stream, onText)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	return resp, nil
 }
 
 // SendMessage implements domain.ChatClient. It sends a non-streaming request
@@ -79,7 +105,7 @@ func (c *AnthropicClient) SendMessage(ctx context.Context, params domain.ChatPar
 	apiParams, reqOpts := buildAPIParams(params)
 	resp, err := c.client.Messages.New(ctx, apiParams, reqOpts...)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err)
 	}
 
 	var textParts []string
