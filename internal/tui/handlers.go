@@ -14,32 +14,32 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.modelPickerVisible = false
-		m.modelPickerIdx = 0
-		m.modelPickerInput = ""
+		m.picker.visible = false
+		m.picker.idx = 0
+		m.picker.input = ""
 	case "up":
-		if m.modelPickerIdx > 0 {
-			m.modelPickerIdx--
+		if m.picker.idx > 0 {
+			m.picker.idx--
 		}
 	case "down":
-		if m.modelPickerIdx < maxIdx {
-			m.modelPickerIdx++
+		if m.picker.idx < maxIdx {
+			m.picker.idx++
 		}
 	case "backspace":
-		if len(m.modelPickerInput) > 0 {
-			m.modelPickerInput = m.modelPickerInput[:len(m.modelPickerInput)-1]
+		if len(m.picker.input) > 0 {
+			m.picker.input = m.picker.input[:len(m.picker.input)-1]
 		}
 	case "enter":
-		if m.modelPickerIdx < len(tiers) {
-			tier := tiers[m.modelPickerIdx]
+		if m.picker.idx < len(tiers) {
+			tier := tiers[m.picker.idx]
 			return m, m.selectModel(tier.ModelID, tier.Label+" ("+tier.ModelID+")")
 		}
-		if m.modelPickerInput != "" {
-			return m, m.selectModel(m.modelPickerInput, m.modelPickerInput)
+		if m.picker.input != "" {
+			return m, m.selectModel(m.picker.input, m.picker.input)
 		}
 	default:
-		if m.modelPickerIdx == len(tiers) && len(msg.String()) == 1 {
-			m.modelPickerInput += msg.String()
+		if m.picker.idx == len(tiers) && len(msg.String()) == 1 {
+			m.picker.input += msg.String()
 		}
 	}
 	return m, nil
@@ -47,10 +47,10 @@ func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Transcript search mode intercept
-	if m.tsSearching {
+	if m.tsSearch.searching {
 		return m.handleTranscriptSearchKey(msg)
 	}
-	if m.transcriptMode {
+	if m.tsSearch.mode {
 		if model, cmd, handled := m.handleTranscriptModeKey(msg); handled {
 			return model, cmd
 		}
@@ -58,8 +58,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "ctrl+c", "ctrl+d":
-		if m.streaming && m.cancelStream != nil {
-			m.cancelStream()
+		if m.stream.active && m.stream.cancel != nil {
+			m.stream.cancel()
 		}
 		return m, tea.Quit
 	case "esc":
@@ -90,7 +90,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+p":
 		m.openModelPicker()
 	case "ctrl+o":
-		m.transcriptMode = !m.transcriptMode
+		m.tsSearch.mode = !m.tsSearch.mode
 	case "shift+up":
 		m.scrollUp(3)
 	case "shift+down":
@@ -119,44 +119,44 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleTranscriptModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "/":
-		m.tsSearching = true
-		m.tsSearchQuery = ""
+		m.tsSearch.searching = true
+		m.tsSearch.query = ""
 		return m, nil, true
 	case "n":
-		if len(m.tsMatches) > 0 {
-			m.tsMatchIdx = (m.tsMatchIdx + 1) % len(m.tsMatches)
+		if len(m.tsSearch.matches) > 0 {
+			m.tsSearch.matchIdx = (m.tsSearch.matchIdx + 1) % len(m.tsSearch.matches)
 			m.scrollToTranscriptMatch()
 		}
 		return m, nil, true
 	case "N":
-		if len(m.tsMatches) > 0 {
-			m.tsMatchIdx = (m.tsMatchIdx - 1 + len(m.tsMatches)) % len(m.tsMatches)
+		if len(m.tsSearch.matches) > 0 {
+			m.tsSearch.matchIdx = (m.tsSearch.matchIdx - 1 + len(m.tsSearch.matches)) % len(m.tsSearch.matches)
 			m.scrollToTranscriptMatch()
 		}
 		return m, nil, true
 	case "esc":
-		m.transcriptMode = false
-		m.tsSearchQuery = ""
-		m.tsMatches = nil
-		m.tsMatchIdx = 0
+		m.tsSearch.mode = false
+		m.tsSearch.query = ""
+		m.tsSearch.matches = nil
+		m.tsSearch.matchIdx = 0
 		return m, nil, true
 	}
 	return m, nil, false
 }
 
 func (m *Model) handleEscKey() {
-	if m.paletteVisible {
-		m.paletteVisible = false
-		m.paletteSelected = 0
+	if m.palette.visible {
+		m.palette.visible = false
+		m.palette.selected = 0
 		m.inputBuf.Clear()
-	} else if m.streaming {
+	} else if m.stream.active {
 		// Esc during streaming cancels the in-flight API call and stays
 		// in the app — unlike Ctrl+C which quits entirely. This lets users
 		// stop a runaway response without losing their session.
-		if m.cancelStream != nil {
-			m.cancelStream()
+		if m.stream.cancel != nil {
+			m.stream.cancel()
 		}
-		m.streaming = false
+		m.stream.active = false
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
 			Content: "Interrupted",
@@ -167,17 +167,17 @@ func (m *Model) handleEscKey() {
 }
 
 func (m *Model) handleTabComplete() {
-	if m.paletteVisible && len(m.paletteFiltered) > 0 {
-		m.inputBuf.Set(m.paletteFiltered[m.paletteSelected].Name)
-		m.paletteVisible = false
-		m.paletteSelected = 0
+	if m.palette.visible && len(m.palette.filtered) > 0 {
+		m.inputBuf.Set(m.palette.filtered[m.palette.selected].Name)
+		m.palette.visible = false
+		m.palette.selected = 0
 	}
 }
 
 func (m *Model) handleUpKey() {
-	if m.paletteVisible {
-		if m.paletteSelected > 0 {
-			m.paletteSelected--
+	if m.palette.visible {
+		if m.palette.selected > 0 {
+			m.palette.selected--
 		}
 	} else if val, ok := m.history.Previous(); ok {
 		m.inputBuf.Set(val)
@@ -185,9 +185,9 @@ func (m *Model) handleUpKey() {
 }
 
 func (m *Model) handleDownKey() {
-	if m.paletteVisible {
-		if m.paletteSelected < len(m.paletteFiltered)-1 {
-			m.paletteSelected++
+	if m.palette.visible {
+		if m.palette.selected < len(m.palette.filtered)-1 {
+			m.palette.selected++
 		}
 	} else if val, ok := m.history.Next(); ok {
 		m.inputBuf.Set(val)
@@ -202,16 +202,16 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Resolve command: palette selection takes priority.
 	cmd := strings.TrimSpace(input)
-	if m.paletteVisible && len(m.paletteFiltered) > 0 {
-		cmd = m.paletteFiltered[m.paletteSelected].Name
+	if m.palette.visible && len(m.palette.filtered) > 0 {
+		cmd = m.palette.filtered[m.palette.selected].Name
 	}
-	m.paletteVisible = false
-	m.paletteSelected = 0
+	m.palette.visible = false
+	m.palette.selected = 0
 
 	// Exit commands always work, even during streaming.
 	if cmd == "/exit" || cmd == "/quit" || cmd == "/q" {
-		if m.streaming && m.cancelStream != nil {
-			m.cancelStream()
+		if m.stream.active && m.stream.cancel != nil {
+			m.stream.cancel()
 		}
 		return m, tea.Quit
 	}
@@ -221,7 +221,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.handleAnswerQuestion(cmd)
 	}
 
-	if m.streaming {
+	if m.stream.active {
 		return m, nil
 	}
 	if result, resultCmd := m.executeCommand(cmd); result != "" {
@@ -273,12 +273,12 @@ func (m Model) handleNormalSubmit(input string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) openModelPicker() {
-	m.modelPickerVisible = true
-	m.modelPickerIdx = 0
-	m.modelPickerInput = ""
+	m.picker.visible = true
+	m.picker.idx = 0
+	m.picker.input = ""
 	for i, tier := range m.GetModelTiers() {
 		if tier.ModelID == m.modelName {
-			m.modelPickerIdx = i
+			m.picker.idx = i
 			break
 		}
 	}
@@ -310,7 +310,7 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleBashResult(msg)
 	case ModelsLoadedMsg:
 		if len(msg.Tiers) > 0 {
-			m.modelTiers = msg.Tiers
+			m.picker.tiers = msg.Tiers
 		}
 	case ModelSelectedMsg:
 		if m.onModelSelected != nil {
@@ -325,29 +325,29 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSpinnerTick() (tea.Model, tea.Cmd) {
-	if m.streaming {
-		m.spinnerFrame++
-		return m, SpinnerTickFor(m.spinnerType)
+	if m.stream.active {
+		m.stream.spinnerFrame++
+		return m, SpinnerTickFor(m.stream.spinnerType)
 	}
 	return m, nil
 }
 
 func (m Model) handleStreamStart() (tea.Model, tea.Cmd) {
-	if !m.streaming {
+	if !m.stream.active {
 		m.startStream()
-		m.streamPhase = PhaseRequesting
-		return m, SpinnerTickFor(m.spinnerType)
+		m.stream.phase = PhaseRequesting
+		return m, SpinnerTickFor(m.stream.spinnerType)
 	}
 	return m, nil
 }
 
 func (m Model) handleStreamDelta(msg AgentStreamDeltaMsg) (tea.Model, tea.Cmd) {
-	wasStreaming := m.streaming
+	wasStreaming := m.stream.active
 	if !wasStreaming {
 		m.startStream()
 	}
-	m.streamPhase = PhaseResponding
-	m.streamChars += len(msg.Delta)
+	m.stream.phase = PhaseResponding
+	m.stream.chars += len(msg.Delta)
 
 	// Append to existing agent text entry or create new one
 	if len(m.chat) > 0 {
@@ -356,7 +356,7 @@ func (m Model) handleStreamDelta(msg AgentStreamDeltaMsg) (tea.Model, tea.Cmd) {
 			last.Content += msg.Delta
 			m.autoScroll()
 			if !wasStreaming {
-				return m, SpinnerTickFor(m.spinnerType)
+				return m, SpinnerTickFor(m.stream.spinnerType)
 			}
 			return m, nil
 		}
@@ -368,14 +368,14 @@ func (m Model) handleStreamDelta(msg AgentStreamDeltaMsg) (tea.Model, tea.Cmd) {
 	})
 	m.autoScroll()
 	if !wasStreaming {
-		return m, SpinnerTickFor(m.spinnerType)
+		return m, SpinnerTickFor(m.stream.spinnerType)
 	}
 	return m, nil
 }
 
 func (m *Model) handleStreamDone() {
-	elapsed := time.Since(m.streamStart)
-	m.streaming = false
+	elapsed := time.Since(m.stream.start)
+	m.stream.active = false
 	m.chat = append(m.chat, ChatEntry{
 		Type:    EntryAgentStatus,
 		Content: "\n" + RenderCompletionIndicator(elapsed) + "\n",
@@ -385,7 +385,7 @@ func (m *Model) handleStreamDone() {
 }
 
 func (m *Model) handleStreamError(msg AgentStreamErrorMsg) {
-	m.streaming = false
+	m.stream.active = false
 	m.chat = append(m.chat, ChatEntry{
 		Type:      EntryAgentStatus,
 		AgentName: msg.AgentName,
@@ -415,7 +415,7 @@ func (m *Model) handleAgentStatus(msg AgentStatusMsg) {
 }
 
 func (m *Model) handleCompactDone(msg CompactDoneMsg) {
-	m.streaming = false
+	m.stream.active = false
 	if msg.Err != nil {
 		m.addStatusChat("Compact failed: "+msg.Err.Error(), AgentError)
 	} else {
@@ -462,19 +462,19 @@ func (m *Model) handleAskUser(msg AgentAskUserMsg) {
 }
 
 func (m *Model) startStream() {
-	m.spinnerType = RandomSpinnerType()
-	m.spinnerFrame = 0
-	m.streamStart = time.Now()
-	m.streamChars = 0
-	m.streaming = true
+	m.stream.spinnerType = RandomSpinnerType()
+	m.stream.spinnerFrame = 0
+	m.stream.start = time.Now()
+	m.stream.chars = 0
+	m.stream.active = true
 }
 
 // selectModel handles model selection from the picker or custom input.
 func (m *Model) selectModel(modelID string, label string) tea.Cmd {
 	m.modelName = modelID
-	m.modelPickerVisible = false
-	m.modelPickerIdx = 0
-	m.modelPickerInput = ""
+	m.picker.visible = false
+	m.picker.idx = 0
+	m.picker.input = ""
 	m.chat = append(m.chat, ChatEntry{
 		Type:    EntryAgentStatus,
 		Content: "Switched to: " + label,

@@ -409,80 +409,95 @@ func renderToolGroup(group ToolGroup, width int, expanded bool) string {
 	return b.String()
 }
 
-func renderCollapsedToolGroup(group ToolGroup, width int) string {
-	var b strings.Builder
-
-	// Header: ⏺ Read 3 files
-	allDone := true
-	for _, e := range group.Entries {
+// allToolsDone returns true if every entry in the group has a result.
+func allToolsDone(entries []ToolEntry) bool {
+	for _, e := range entries {
 		if e.Result == nil {
-			allDone = false
-			break
+			return false
 		}
 	}
+	return true
+}
+
+// collectToolPaths extracts file paths from each tool entry's JSON input.
+func collectToolPaths(entries []ToolEntry) []string {
+	var paths []string
+	for _, e := range entries {
+		if path := extractPathFromInput(e.Call.Name, e.Call.Content); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func renderCollapsedToolGroup(group ToolGroup, width int) string {
+	var b strings.Builder
+	done := allToolsDone(group.Entries)
 
 	header := fmt.Sprintf("%s %d files", group.DisplayName, len(group.Entries))
-	if !allDone {
+	if !done {
 		header = fmt.Sprintf("%sing %d files...", group.DisplayName, len(group.Entries))
 	}
 
 	b.WriteString("\n")
-	groupState := MarkerRunning
-	if allDone {
-		groupState = MarkerDone
+	state := MarkerRunning
+	if done {
+		state = MarkerDone
 	}
-	b.WriteString(StyledMarker(groupState))
+	b.WriteString(StyledMarker(state))
 	b.WriteString(" ")
 	b.WriteString(ToolHeaderStyle.Render(header))
 	b.WriteString("\n")
 
-	// Connector with file list
-	var paths []string
-	for _, e := range group.Entries {
-		path := extractPathFromInput(e.Call.Name, e.Call.Content)
-		if path != "" {
-			paths = append(paths, path)
-		}
-	}
+	paths := collectToolPaths(group.Entries)
 	if len(paths) > 0 {
-		summary := strings.Join(paths, ", ")
-		maxLen := width - 8 // indent + connector + padding
-		if maxLen > 0 && len(summary) > maxLen {
-			summary = summary[:maxLen-6] + ", +more"
-		}
-		b.WriteString(transcriptIndent)
-		b.WriteString(TranscriptConnectorStyle.Render(transcriptConnector))
-		b.WriteString("  ")
-		b.WriteString(DimStyle.Render(summary))
+		b.WriteString(renderConnectorLine(strings.Join(paths, ", "), width))
 	}
 	b.WriteString("\n")
 
 	return b.String()
 }
 
-func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
-	var b strings.Builder
+// renderConnectorLine renders a ⎿ connector with truncated summary text.
+func renderConnectorLine(summary string, width int) string {
+	maxLen := width - 8
+	if maxLen > 0 && len(summary) > maxLen {
+		summary = summary[:maxLen-6] + ", +more"
+	}
+	return transcriptIndent +
+		TranscriptConnectorStyle.Render(transcriptConnector) +
+		"  " + DimStyle.Render(summary)
+}
 
+func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
 	header := FormatToolHeader(entry.Call.Name, entry.Call.Content)
 
-	b.WriteString("\n")
-
-	// Tool is still running
 	if entry.Result == nil {
-		b.WriteString(StyledMarker(MarkerRunning))
-		b.WriteString(" ")
-		b.WriteString(ToolHeaderStyle.Render(header))
-		b.WriteString("\n")
-		b.WriteString(transcriptIndent)
-		b.WriteString(TranscriptConnectorStyle.Render(transcriptConnector))
-		b.WriteString("  ")
-		b.WriteString(ToolStatusRunning.Render("⟳ running..."))
-		b.WriteString("\n")
-		return b.String()
+		return renderRunningTool(header)
 	}
+	return renderCompletedTool(entry, header, expanded)
+}
 
-	// Determine marker state from result
+func renderRunningTool(header string) string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(StyledMarker(MarkerRunning))
+	b.WriteString(" ")
+	b.WriteString(ToolHeaderStyle.Render(header))
+	b.WriteString("\n")
+	b.WriteString(transcriptIndent)
+	b.WriteString(TranscriptConnectorStyle.Render(transcriptConnector))
+	b.WriteString("  ")
+	b.WriteString(ToolStatusRunning.Render("⟳ running..."))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderCompletedTool(entry ToolEntry, header string, expanded bool) string {
+	var b strings.Builder
 	isError := entry.Result.Status == domain.ToolError
+
+	b.WriteString("\n")
 	if isError {
 		b.WriteString(StyledMarker(MarkerError))
 	} else {
@@ -492,20 +507,16 @@ func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
 	b.WriteString(ToolHeaderStyle.Render(header))
 	b.WriteString("\n")
 
-	// Connector with summary or expanded content
 	b.WriteString(transcriptIndent)
 	b.WriteString(TranscriptConnectorStyle.Render(transcriptConnector))
 	b.WriteString("  ")
-
 	if expanded {
-		// Show full output
 		output := entry.Result.Content
 		if output == "" {
 			output = "(no output)"
 		}
 		b.WriteString(ToolContentStyle.Render(output))
 	} else {
-		// Show summary
 		summary := FormatToolSummary(entry.Call.Name, entry.Result.Content, isError)
 		b.WriteString(DimStyle.Render(summary))
 	}

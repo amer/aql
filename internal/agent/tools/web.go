@@ -63,40 +63,46 @@ func execWebFetch(ctx context.Context, input json.RawMessage) (string, error) {
 	return string(body), nil
 }
 
+// skipElements are HTML elements whose content is not useful as text.
+var skipElements = map[string]bool{"script": true, "style": true, "noscript": true}
+
+// blockElements are HTML elements that produce line breaks in extracted text.
+var blockElements = map[string]bool{
+	"p": true, "br": true, "div": true, "li": true, "tr": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+}
+
 func extractText(htmlContent string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return htmlContent
 	}
 	var sb strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && (n.Data == "script" || n.Data == "style" || n.Data == "noscript") {
-			return
-		}
-		if n.Type == html.TextNode {
-			text := strings.TrimSpace(n.Data)
-			if text != "" {
-				sb.WriteString(text)
-				sb.WriteString(" ")
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "p", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr":
-				sb.WriteString("\n")
-			}
-		}
-	}
-	walk(doc)
+	walkText(doc, &sb)
 	result := sb.String()
 	if len(result) > maxExtractedTextLen {
 		result = result[:maxExtractedTextLen] + "\n... (truncated)"
 	}
 	return strings.TrimSpace(result)
+}
+
+// walkText recursively extracts visible text from an HTML node tree.
+func walkText(n *html.Node, sb *strings.Builder) {
+	if n.Type == html.ElementNode && skipElements[n.Data] {
+		return
+	}
+	if n.Type == html.TextNode {
+		if text := strings.TrimSpace(n.Data); text != "" {
+			sb.WriteString(text)
+			sb.WriteString(" ")
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		walkText(c, sb)
+	}
+	if n.Type == html.ElementNode && blockElements[n.Data] {
+		sb.WriteString("\n")
+	}
 }
 
 func execWebSearch(ctx context.Context, input json.RawMessage) (string, error) {
@@ -124,50 +130,70 @@ func execWebSearch(ctx context.Context, input json.RawMessage) (string, error) {
 	return parseSearchResults(string(body)), nil
 }
 
+type searchResult struct {
+	title, url, snippet string
+}
+
 func parseSearchResults(htmlContent string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return "failed to parse search results"
 	}
-	type result struct {
-		title, url, snippet string
+
+	results := collectSearchResults(doc)
+	if len(results) == 0 {
+		return "No results found."
 	}
-	var results []result
-	var findResults func(*html.Node)
-	findResults = func(n *html.Node) {
+	return formatSearchResults(results)
+}
+
+// collectSearchResults walks the HTML tree and extracts DuckDuckGo search results.
+func collectSearchResults(n *html.Node) []searchResult {
+	var results []searchResult
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "result__a") {
-			r := result{title: textContent(n)}
-			for _, a := range n.Attr {
-				if a.Key == "href" {
-					r.url = a.Val
-				}
-			}
-			if p := n.Parent; p != nil {
-				for c := p.FirstChild; c != nil; c = c.NextSibling {
-					if c.Type == html.ElementNode && hasClass(c, "result__snippet") {
-						r.snippet = textContent(c)
-					}
-				}
-				if pp := p.Parent; pp != nil {
-					for c := pp.FirstChild; c != nil; c = c.NextSibling {
-						if c.Type == html.ElementNode && hasClass(c, "result__snippet") {
-							r.snippet = textContent(c)
-						}
-					}
-				}
-			}
-			if r.title != "" {
+			if r := extractSearchResult(n); r.title != "" {
 				results = append(results, r)
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			findResults(c)
+			walk(c)
 		}
 	}
-	findResults(doc)
-	if len(results) == 0 {
-		return "No results found."
+	walk(n)
+	return results
+}
+
+// extractSearchResult extracts title, URL, and snippet from a result link node.
+func extractSearchResult(link *html.Node) searchResult {
+	r := searchResult{title: textContent(link)}
+	for _, a := range link.Attr {
+		if a.Key == "href" {
+			r.url = a.Val
+		}
 	}
+	r.snippet = findSnippet(link.Parent)
+	if r.snippet == "" && link.Parent != nil {
+		r.snippet = findSnippet(link.Parent.Parent)
+	}
+	return r
+}
+
+// findSnippet looks for a result__snippet element among a node's children.
+func findSnippet(parent *html.Node) string {
+	if parent == nil {
+		return ""
+	}
+	for c := parent.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && hasClass(c, "result__snippet") {
+			return textContent(c)
+		}
+	}
+	return ""
+}
+
+func formatSearchResults(results []searchResult) string {
 	var sb strings.Builder
 	for i, r := range results {
 		if i >= maxSearchResults {

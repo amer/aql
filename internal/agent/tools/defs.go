@@ -202,46 +202,61 @@ func Definitions() []ToolDef {
 	}
 }
 
+// toolHandler is the uniform signature for all tool implementations.
+type toolHandler func(ctx context.Context, workDir string, input json.RawMessage) (string, error)
+
+// buildRegistry returns a tool name → handler map, binding askFn into ask_user.
+func buildRegistry(askFn AskUserFn) map[string]toolHandler {
+	// Adapters for tools that don't need ctx or workDir
+	withDir := func(fn func(string, json.RawMessage) (string, error)) toolHandler {
+		return func(_ context.Context, workDir string, input json.RawMessage) (string, error) {
+			return fn(workDir, input)
+		}
+	}
+	withCtx := func(fn func(context.Context, json.RawMessage) (string, error)) toolHandler {
+		return func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
+			return fn(ctx, input)
+		}
+	}
+
+	return map[string]toolHandler{
+		"read_file":      withDir(execReadFile),
+		"write_file":     withDir(execWriteFile),
+		"edit":           withDir(execEdit),
+		"list_directory": withDir(execListDirectory),
+		"glob":           withDir(execGlob),
+		"bash":           execBash,
+		"grep":           execGrep,
+		"web_fetch":      withCtx(execWebFetch),
+		"web_search":     withCtx(execWebSearch),
+		"ask_user": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
+			return execAskUser(ctx, input, askFn)
+		},
+	}
+}
+
 // DefaultExecutor returns an ExecutorFn that dispatches to the
 // built-in tool implementations, using askFn for the ask_user tool.
 func DefaultExecutor(askFn AskUserFn) ExecutorFn {
+	registry := buildRegistry(askFn)
 	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
-		return execute(ctx, workDir, name, input, askFn)
+		return execute(ctx, workDir, name, input, registry)
 	}
 }
 
 // Execute runs a tool by name using the default executor with no ask_user support.
 func Execute(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
-	return execute(ctx, workDir, name, input, nil)
+	registry := buildRegistry(nil)
+	return execute(ctx, workDir, name, input, registry)
 }
 
-func execute(ctx context.Context, workDir string, name string, input json.RawMessage, askFn AskUserFn) (string, error) {
+func execute(ctx context.Context, workDir, name string, input json.RawMessage, registry map[string]toolHandler) (string, error) {
 	slog.Debug("executing tool", "tool", name, "workDir", workDir)
-
-	switch name {
-	case "read_file":
-		return execReadFile(workDir, input)
-	case "write_file":
-		return execWriteFile(workDir, input)
-	case "edit":
-		return execEdit(workDir, input)
-	case "list_directory":
-		return execListDirectory(workDir, input)
-	case "bash":
-		return execBash(ctx, workDir, input)
-	case "glob":
-		return execGlob(workDir, input)
-	case "grep":
-		return execGrep(ctx, workDir, input)
-	case "web_fetch":
-		return execWebFetch(ctx, input)
-	case "web_search":
-		return execWebSearch(ctx, input)
-	case "ask_user":
-		return execAskUser(ctx, input, askFn)
-	default:
+	handler, ok := registry[name]
+	if !ok {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+	return handler(ctx, workDir, input)
 }
 
 // parseInput unmarshals JSON tool input into the given struct pointer.

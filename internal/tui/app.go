@@ -116,47 +116,70 @@ type BashFunc func(command string) tea.Cmd
 // that kicks off agent processing.
 type SubmitFunc func(input string) tea.Cmd
 
+// streamState tracks the state of an in-progress API streaming response.
+type streamState struct {
+	active       bool
+	spinnerFrame int
+	spinnerType  SpinnerType
+	start        time.Time   // when current streaming started
+	chars        int         // chars received in current stream
+	phase        StreamPhase // current streaming phase (requesting/responding)
+	cancel       func()      // cancels the in-flight API call context
+}
+
+// modelPickerState tracks the model picker overlay.
+type modelPickerState struct {
+	visible bool
+	idx     int
+	input   string
+	tiers   []ModelTier // dynamic model tiers from API; nil = use defaults
+}
+
+// transcriptSearchState tracks Ctrl+O transcript mode and search.
+type transcriptSearchState struct {
+	mode      bool   // Ctrl+O: expand all tools, enable search
+	searching bool   // actively typing a search query
+	query     string // current transcript search query
+	matches   []int  // block indices matching the search
+	matchIdx  int    // current match index
+}
+
+// paletteState tracks the command palette overlay.
+type paletteState struct {
+	visible  bool
+	selected int
+	filtered []Command
+	maxItems int // high-water mark: max items shown during this palette session
+}
+
 // Model is the main Bubble Tea model for AQL.
 type Model struct {
-	workflowName       string
-	agentNames         []string
-	chat               []ChatEntry
-	inputBuf           *InputBuffer
-	history            *History
-	width              int
-	height             int
-	scrollOffset       int
-	onSubmit           SubmitFunc
-	onBash             BashFunc
-	streaming          bool
-	spinnerFrame       int
-	streamStart        time.Time   // when current streaming started
-	streamChars        int         // chars received in current stream
-	streamPhase        StreamPhase // current streaming phase (requesting/responding)
-	tokenCount         int
-	modelName          string
-	projectPath        string
-	paletteVisible     bool
-	paletteSelected    int
-	paletteFiltered    []Command
-	paletteMaxItems    int // high-water mark: max items shown during this palette session
-	onModelSelected    func(modelID string)
-	modelPickerVisible bool
-	modelPickerIdx     int
-	modelPickerInput   string
-	spinnerType        SpinnerType
-	modelTiers         []ModelTier      // dynamic model tiers from API; nil = use defaults
-	cancelStream       func()           // cancels the in-flight API call context
-	onClear            func()           // called on /clear to reset agent context
-	onCompact          func() tea.Cmd   // called on /compact to summarize context
-	selection          Selection        // mouse text selection state
-	viewLines          []string         // plain text lines from last render (for selection extraction)
-	pendingQuestion    *AgentAskUserMsg // non-nil when agent is waiting for user answer
-	transcriptMode     bool             // Ctrl+O: expand all tools, enable search
-	tsSearching        bool             // actively typing a search query in transcript mode
-	tsSearchQuery      string           // current transcript search query
-	tsMatches          []int            // block indices matching the search
-	tsMatchIdx         int              // current match index
+	workflowName    string
+	agentNames      []string
+	chat            []ChatEntry
+	inputBuf        *InputBuffer
+	history         *History
+	width           int
+	height          int
+	scrollOffset    int
+	tokenCount      int
+	modelName       string
+	projectPath     string
+	selection       Selection        // mouse text selection state
+	viewLines       []string         // plain text lines from last render (for selection extraction)
+	pendingQuestion *AgentAskUserMsg // non-nil when agent is waiting for user answer
+
+	stream   streamState
+	picker   modelPickerState
+	tsSearch transcriptSearchState
+	palette  paletteState
+
+	// Callbacks
+	onSubmit        SubmitFunc
+	onBash          BashFunc
+	onModelSelected func(modelID string)
+	onClear         func()         // called on /clear to reset agent context
+	onCompact       func() tea.Cmd // called on /compact to summarize context
 }
 
 // NewModel creates the initial TUI model.
@@ -211,7 +234,7 @@ func (m *Model) SetOnBash(fn BashFunc) {
 // SetCancelStream sets the function called to cancel an in-flight API call
 // when the user exits during streaming (Ctrl+C / Ctrl+D).
 func (m *Model) SetCancelStream(fn func()) {
-	m.cancelStream = fn
+	m.stream.cancel = fn
 }
 
 // SetOnClear sets the function called when /clear is executed to reset agent context.
@@ -241,13 +264,13 @@ func (m *Model) SetTokenCount(count int) {
 
 // SetModelTiers sets the dynamic model tiers for the model picker.
 func (m *Model) SetModelTiers(tiers []ModelTier) {
-	m.modelTiers = tiers
+	m.picker.tiers = tiers
 }
 
 // GetModelTiers returns the current model tiers, falling back to defaults.
 func (m Model) GetModelTiers() []ModelTier {
-	if len(m.modelTiers) > 0 {
-		return m.modelTiers
+	if len(m.picker.tiers) > 0 {
+		return m.picker.tiers
 	}
 	return DefaultModelTiers()
 }
@@ -261,12 +284,12 @@ func (m Model) IsBootstrapping() bool { return false }
 
 // SetSpinnerType sets the active spinner animation style.
 func (m *Model) SetSpinnerType(st SpinnerType) {
-	m.spinnerType = st
+	m.stream.spinnerType = st
 }
 
 // ActiveSpinnerType returns the current spinner animation style.
 func (m Model) ActiveSpinnerType() SpinnerType {
-	return m.spinnerType
+	return m.stream.spinnerType
 }
 
 // TokenCountMsg updates the token count in the status bar.
@@ -283,7 +306,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.modelPickerVisible {
+		if m.picker.visible {
 			return m.handleModelPickerKey(msg)
 		}
 		return m.handleKey(msg)
@@ -343,7 +366,7 @@ func (m Model) visibleHeight() int {
 	// Reserve lines for: prompt area (4: \n + top-bar + input + bottom-bar),
 	// status bar (2: \n + content), scroll indicator (1: \n + text).
 	reservedLines := 7
-	if m.streaming {
+	if m.stream.active {
 		reservedLines++ // streaming indicator (\n + text)
 	}
 	h := max(m.height-reservedLines, 1)
@@ -396,19 +419,19 @@ func (m Model) applySelectionHighlight(view string) string {
 func (m *Model) updatePalette() {
 	input := m.inputBuf.String()
 	if strings.HasPrefix(input, "/") {
-		m.paletteVisible = true
-		m.paletteFiltered = FilterCommands(SlashCommands(), input)
-		if m.paletteSelected >= len(m.paletteFiltered) {
-			m.paletteSelected = 0
+		m.palette.visible = true
+		m.palette.filtered = FilterCommands(SlashCommands(), input)
+		if m.palette.selected >= len(m.palette.filtered) {
+			m.palette.selected = 0
 		}
 		// Track high-water mark so the palette area never shrinks while typing
-		if len(m.paletteFiltered) > m.paletteMaxItems {
-			m.paletteMaxItems = len(m.paletteFiltered)
+		if len(m.palette.filtered) > m.palette.maxItems {
+			m.palette.maxItems = len(m.palette.filtered)
 		}
 	} else {
-		m.paletteVisible = false
-		m.paletteSelected = 0
-		m.paletteMaxItems = 0
+		m.palette.visible = false
+		m.palette.selected = 0
+		m.palette.maxItems = 0
 	}
 }
 
@@ -455,12 +478,12 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.addStatusChat("Workflow: "+m.workflowName+" · Agents: "+strings.Join(m.agentNames, ", "), AgentActive)
 		return "status", nil
 	case "/model":
-		m.modelPickerVisible = true
-		m.modelPickerIdx = 0
-		m.modelPickerInput = ""
+		m.picker.visible = true
+		m.picker.idx = 0
+		m.picker.input = ""
 		for i, tier := range m.GetModelTiers() {
 			if tier.ModelID == m.modelName {
-				m.modelPickerIdx = i
+				m.picker.idx = i
 				break
 			}
 		}
@@ -478,18 +501,18 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.chat = nil
 		m.addStatusChat("Compacting conversation...", AgentWaiting)
 		m.startStream()
-		m.streamPhase = PhaseRequesting
+		m.stream.phase = PhaseRequesting
 		return "compact", m.onCompact()
 	case "/spinner":
 		types := SpinnerTypes()
 		next := SpinnerBraille
 		for i, st := range types {
-			if st == m.spinnerType {
+			if st == m.stream.spinnerType {
 				next = types[(i+1)%len(types)]
 				break
 			}
 		}
-		m.spinnerType = next
+		m.stream.spinnerType = next
 		def := SpinnerDef(next)
 		m.addStatusChat("Spinner: "+def.Name+" "+def.Frames[0], AgentActive)
 		return "spinner", nil
@@ -508,7 +531,7 @@ func (m Model) View() string {
 	chatLines = append(chatLines, "") // blank separator
 	blocks := BuildTranscriptBlocks(m.chat)
 	for _, block := range blocks {
-		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.transcriptMode))
+		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.tsSearch.mode))
 	}
 
 	// Calculate visible area
@@ -545,14 +568,14 @@ func (m Model) View() string {
 	}
 
 	// Streaming indicator (above prompt, like Claude Code)
-	if m.streaming {
+	if m.stream.active {
 		status := StreamStatus{
-			Elapsed: time.Since(m.streamStart).Truncate(time.Second),
-			Tokens:  EstimateTokens(m.streamChars),
-			Phase:   m.streamPhase,
+			Elapsed: time.Since(m.stream.start).Truncate(time.Second),
+			Tokens:  EstimateTokens(m.stream.chars),
+			Phase:   m.stream.phase,
 		}
 		b.WriteString("\n")
-		b.WriteString(RenderStreamingIndicator(m.spinnerFrame, m.agentName(), status, m.spinnerType))
+		b.WriteString(RenderStreamingIndicator(m.stream.spinnerFrame, m.agentName(), status, m.stream.spinnerType))
 	}
 
 	// Prompt area with separator lines and project badge
@@ -564,19 +587,19 @@ func (m Model) View() string {
 	b.WriteString(RenderPromptArea(m.inputBuf.RenderWithCursor(), promptPath, m.width))
 
 	// Command palette (below prompt, like Claude Code)
-	if m.paletteVisible && len(m.paletteFiltered) > 0 {
+	if m.palette.visible && len(m.palette.filtered) > 0 {
 		b.WriteString("\n")
-		b.WriteString(RenderCommandPalette(m.paletteFiltered, m.paletteSelected, m.width))
+		b.WriteString(RenderCommandPalette(m.palette.filtered, m.palette.selected, m.width))
 		// Pad with empty lines to maintain high-water mark height (prevents prompt bounce)
-		for i := len(m.paletteFiltered); i < m.paletteMaxItems; i++ {
+		for i := len(m.palette.filtered); i < m.palette.maxItems; i++ {
 			b.WriteString("\n")
 		}
 	}
 
 	// Model picker (below prompt)
-	if m.modelPickerVisible {
+	if m.picker.visible {
 		b.WriteString("\n")
-		b.WriteString(RenderModelPicker(m.GetModelTiers(), m.modelPickerIdx, m.modelName, m.width))
+		b.WriteString(RenderModelPicker(m.GetModelTiers(), m.picker.idx, m.modelName, m.width))
 	}
 
 	// Status bar
@@ -651,48 +674,48 @@ func (m Model) Chat() []ChatEntry {
 
 // IsTranscriptMode returns whether transcript mode is active (for testing).
 func (m Model) IsTranscriptMode() bool {
-	return m.transcriptMode
+	return m.tsSearch.mode
 }
 
 // TranscriptSearchQuery returns the current transcript search query (for testing).
 func (m Model) TranscriptSearchQuery() string {
-	return m.tsSearchQuery
+	return m.tsSearch.query
 }
 
 // TranscriptMatches returns the current search match indices (for testing).
 func (m Model) TranscriptMatches() []int {
-	return m.tsMatches
+	return m.tsSearch.matches
 }
 
 // TranscriptMatchIdx returns the current match cursor index (for testing).
 func (m Model) TranscriptMatchIdx() int {
-	return m.tsMatchIdx
+	return m.tsSearch.matchIdx
 }
 
 // handleTranscriptSearchKey handles keystrokes while typing a search query.
 func (m Model) handleTranscriptSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		m.tsSearching = false
+		m.tsSearch.searching = false
 		blocks := BuildTranscriptBlocks(m.chat)
-		m.tsMatches = SearchTranscriptBlocks(blocks, m.tsSearchQuery)
-		m.tsMatchIdx = 0
-		if len(m.tsMatches) > 0 {
+		m.tsSearch.matches = SearchTranscriptBlocks(blocks, m.tsSearch.query)
+		m.tsSearch.matchIdx = 0
+		if len(m.tsSearch.matches) > 0 {
 			m.scrollToTranscriptMatch()
 		}
 	case "esc":
-		m.tsSearching = false
-		m.tsSearchQuery = ""
-		m.tsMatches = nil
+		m.tsSearch.searching = false
+		m.tsSearch.query = ""
+		m.tsSearch.matches = nil
 	case "backspace":
-		if len(m.tsSearchQuery) > 0 {
-			m.tsSearchQuery = m.tsSearchQuery[:len(m.tsSearchQuery)-1]
+		if len(m.tsSearch.query) > 0 {
+			m.tsSearch.query = m.tsSearch.query[:len(m.tsSearch.query)-1]
 		}
 	default:
 		// Only accept printable runes
 		for _, r := range msg.String() {
 			if r >= ' ' {
-				m.tsSearchQuery += string(r)
+				m.tsSearch.query += string(r)
 			}
 		}
 	}
@@ -701,7 +724,7 @@ func (m Model) handleTranscriptSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // scrollToTranscriptMatch scrolls the view to center the current search match.
 func (m *Model) scrollToTranscriptMatch() {
-	if len(m.tsMatches) == 0 {
+	if len(m.tsSearch.matches) == 0 {
 		return
 	}
 	// Approximate: scroll to bottom then let the user navigate
@@ -723,7 +746,7 @@ func (m Model) ScrollOffset() int {
 
 // IsStreaming returns whether the model is currently streaming (for testing).
 func (m Model) IsStreaming() bool {
-	return m.streaming
+	return m.stream.active
 }
 
 // HasSelection returns whether a text selection is active (for testing).
@@ -738,25 +761,25 @@ func (m Model) HasPendingQuestion() bool {
 
 // IsPaletteVisible returns whether the command palette is visible (for testing).
 func (m Model) IsPaletteVisible() bool {
-	return m.paletteVisible
+	return m.palette.visible
 }
 
 // PaletteSelected returns the currently selected palette index (for testing).
 func (m Model) PaletteSelected() int {
-	return m.paletteSelected
+	return m.palette.selected
 }
 
 // PaletteCommands returns the currently filtered palette commands (for testing).
 func (m Model) PaletteCommands() []Command {
-	return m.paletteFiltered
+	return m.palette.filtered
 }
 
 // IsModelPickerVisible returns whether the model picker is visible (for testing).
 func (m Model) IsModelPickerVisible() bool {
-	return m.modelPickerVisible
+	return m.picker.visible
 }
 
 // ModelPickerSelected returns the currently selected picker index (for testing).
 func (m Model) ModelPickerSelected() int {
-	return m.modelPickerIdx
+	return m.picker.idx
 }

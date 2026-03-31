@@ -132,10 +132,21 @@ func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEven
 	return nil, fmt.Errorf("exhausted retries")
 }
 
+// toolResult holds the output of a single tool execution.
+type toolResult struct {
+	output  string
+	isError bool
+}
+
 // executeTools runs all pending tool calls in parallel, emits events to ch,
 // and returns the tool result content blocks for the next API call.
 func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, toolUses []domain.ChatToolUse) []domain.ContentBlock {
-	// Notify TUI of all tool calls up front
+	a.emitToolCallEvents(ch, toolUses)
+	results := a.runToolsParallel(ctx, toolUses)
+	return a.emitToolResults(ch, toolUses, results)
+}
+
+func (a *Agent) emitToolCallEvents(ch chan<- domain.StreamEvent, toolUses []domain.ChatToolUse) {
 	for _, tu := range toolUses {
 		ch <- domain.StreamEvent{
 			AgentName: a.config.Name,
@@ -146,31 +157,30 @@ func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, 
 			},
 		}
 	}
+}
 
-	type toolResult struct {
-		output  string
-		isError bool
-	}
+func (a *Agent) runToolsParallel(ctx context.Context, toolUses []domain.ChatToolUse) []toolResult {
 	results := make([]toolResult, len(toolUses))
-
 	var wg sync.WaitGroup
 	for i, tu := range toolUses {
 		wg.Add(1)
 		go func(idx int, tu domain.ChatToolUse) {
 			defer wg.Done()
 			slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
-			result, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.Name, json.RawMessage(tu.Input))
+			output, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.Name, json.RawMessage(tu.Input))
 			if execErr != nil {
 				results[idx] = toolResult{output: execErr.Error(), isError: true}
 			} else {
-				results[idx] = toolResult{output: result}
+				results[idx] = toolResult{output: output}
 			}
 		}(i, tu)
 	}
 	wg.Wait()
+	return results
+}
 
-	// Emit results and build content blocks in original order
-	var blocks []domain.ContentBlock
+func (a *Agent) emitToolResults(ch chan<- domain.StreamEvent, toolUses []domain.ChatToolUse, results []toolResult) []domain.ContentBlock {
+	blocks := make([]domain.ContentBlock, len(toolUses))
 	for i, tu := range toolUses {
 		r := results[i]
 		ch <- domain.StreamEvent{
@@ -182,7 +192,7 @@ func (a *Agent) executeTools(ctx context.Context, ch chan<- domain.StreamEvent, 
 				IsError:  r.isError,
 			},
 		}
-		blocks = append(blocks, domain.ToolResultContentBlock(tu.ID, r.output, r.isError))
+		blocks[i] = domain.ToolResultContentBlock(tu.ID, r.output, r.isError)
 	}
 	return blocks
 }
