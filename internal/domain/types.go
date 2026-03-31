@@ -1,5 +1,39 @@
 package domain
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Provider-agnostic types: Message, ContentBlock, ToolUseBlock, ToolResultBlock
+//   - Stream event types: StreamEvent, ToolCallEvent, ToolDoneEvent, TokenUsageEvent
+//   - The ChatClient interface (port for LLM providers)
+//   - ChatParams, ChatResponse, ChatToolUse — request/response value types
+//   - ToolDef, ToolCall, ToolStatus — tool-related value types
+//   - ModelInfo — model metadata
+//   - Constants shared across packages (BillingHeader, ClaudeCodeBetas)
+//   - Helper constructors (NewUserMessage, TextBlock, etc.)
+//
+// MUST NOT GO HERE:
+//   - Anything that imports other internal packages — domain has zero internal dependencies
+//   - Implementation logic (no functions with side effects, no I/O)
+//   - Anthropic SDK types — this package is provider-agnostic
+//   - TUI types (Bubble Tea messages) — those belong in internal/tui/types.go
+//   - Mutable state or global variables (except constants)
+//
+// Q: I need a new type that both agent and tui use. Where?
+// A: If it's a domain concept (messages, tools, models), put it here.
+//    If it's a TUI display concept, put it in internal/tui/types.go.
+//
+// Q: Should I add methods to these types?
+// A: Only pure helpers (constructors, formatters). No methods with side effects.
+//
+// Q: Can I add an Anthropic SDK type here?
+// A: No. This package must stay provider-agnostic. SDK types belong in internal/llm.
+//
+// Q: Where do I add a new event type for streaming?
+// A: Add a new field to StreamEvent (union style — exactly one field non-nil per event).
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"context"
 	"time"

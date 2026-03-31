@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/amer/aql/internal/agent"
-	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,24 +55,6 @@ func TestBuildSystemPromptContainsEnvInfo(t *testing.T) {
 	assert.Contains(t, prompt, "# Environment")
 	assert.Contains(t, prompt, "Date:")
 	assert.Contains(t, prompt, "Platform:")
-}
-
-func TestToolDescriptionsPrompt(t *testing.T) {
-	desc := agent.ToolDescriptionsPrompt()
-	assert.Contains(t, desc, "read_file")
-	assert.Contains(t, desc, "write_file")
-	assert.Contains(t, desc, "bash")
-	assert.Contains(t, desc, "edit")
-	assert.Contains(t, desc, "glob")
-	assert.Contains(t, desc, "grep")
-	assert.Contains(t, desc, "ask_user")
-}
-
-func TestToolDescriptionsPrompt_MatchesToolDefs(t *testing.T) {
-	desc := agent.ToolDescriptionsPrompt()
-	for _, td := range tools.Definitions() {
-		assert.Contains(t, desc, td.Name, "tool %q missing from descriptions prompt", td.Name)
-	}
 }
 
 func TestBuildSystemPromptNoClaudeMD(t *testing.T) {
@@ -133,6 +114,57 @@ func TestClearHistory_SafeOnEmptyHistory(t *testing.T) {
 	// Should not panic on empty history
 	a.ClearHistory()
 	assert.Equal(t, 0, a.HistoryLen())
+}
+
+func TestBuildPromptParts_ReturnsNamedParts(t *testing.T) {
+	parts := agent.BuildPromptParts(testConfig(), "# Rules\n- TDD\n", "/tmp")
+
+	names := make([]string, len(parts))
+	for i, p := range parts {
+		names[i] = p.Name
+	}
+
+	assert.Contains(t, names, "role")
+	assert.Contains(t, names, "system")
+	assert.NotContains(t, names, "tools", "tool descriptions should not be in system prompt — they are sent as structured API tools")
+	assert.Contains(t, names, "environment")
+	assert.Contains(t, names, "project-context")
+
+	for _, p := range parts {
+		assert.NotEmpty(t, p.Content, "part %q should have content", p.Name)
+	}
+}
+
+func TestBuildPromptParts_ContentMatchesLegacy(t *testing.T) {
+	cfg := testConfig()
+	claudeMD := "# Project\n- Rule one\n"
+
+	legacy := agent.BuildSystemPrompt(cfg, claudeMD, "/tmp")
+	parts := agent.BuildPromptParts(cfg, claudeMD, "/tmp")
+	joined := agent.JoinPromptParts(parts)
+
+	assert.Equal(t, legacy, joined)
+}
+
+func TestBuildPromptParts_OmitsEmptyParts(t *testing.T) {
+	parts := agent.BuildPromptParts(testConfig(), "", "/tmp")
+
+	names := make([]string, len(parts))
+	for i, p := range parts {
+		names[i] = p.Name
+	}
+
+	assert.NotContains(t, names, "project-context")
+}
+
+func TestJoinPromptParts(t *testing.T) {
+	parts := []agent.PromptPart{
+		{Name: "a", Content: "hello"},
+		{Name: "b", Content: "world"},
+	}
+
+	result := agent.JoinPromptParts(parts)
+	assert.Equal(t, "hello\n\nworld", result)
 }
 
 func TestAgentWithClaudeMD(t *testing.T) {

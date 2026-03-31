@@ -1,5 +1,32 @@
 package agent
 
+// ──────────────────────────────────────────────────────────────────
+// FILE GUIDELINES
+//
+// BELONGS HERE:
+//   - Agent struct, Option pattern (WithChatClient, WithOAuth, etc.),
+//     New() constructor, history management (ClearHistory, ApplyHistory,
+//     ReplaceHistory), system prompt assembly (BuildPromptParts,
+//     JoinPromptParts, LogPromptParts), CLAUDE.md hot-reload
+//     (RefreshClaudeMD), PromptPart type.
+//
+// MUST NOT GO HERE:
+//   - Tool implementations (go to tools/)
+//   - LLM API calls (go to runner.go)
+//   - TUI imports or Bubble Tea types
+//   - Direct history mutation from Run() goroutine (emit events instead)
+//
+// Q: Should I add a new agent configuration option?
+// A: Add a With* functional option function and a field in agentOptions.
+//
+// Q: Should I mutate a.history from Run()?
+// A: Never. Emit HistoryAppendMsg/HistoryReplaceMsg events. The caller
+//    applies them.
+//
+// Q: Where do I add prompt assembly logic?
+// A: Here, in BuildPromptParts(). Each section is a named PromptPart.
+// ──────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"log/slog"
@@ -11,6 +38,12 @@ import (
 	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/domain"
 )
+
+// PromptPart is a named section of the system prompt.
+type PromptPart struct {
+	Name    string
+	Content string
+}
 
 // AskUserFn is the signature for a function that asks the user a question.
 // Canonical definition lives in the tools sub-package.
@@ -99,9 +132,9 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 		askUser:      o.askUser,
 		toolExecutor: toolExec,
 	}
-	a.systemPrompt = BuildSystemPrompt(cfg, claudeMD, workDir)
-
-	slog.Info("agent created", "agent", cfg.Name, "promptLength", len(a.systemPrompt))
+	parts := BuildPromptParts(cfg, claudeMD, workDir)
+	a.systemPrompt = JoinPromptParts(parts)
+	LogPromptParts(cfg.Name, parts)
 	return a, nil
 }
 
@@ -161,8 +194,9 @@ func (a *Agent) RefreshClaudeMD() bool {
 	if err != nil {
 		if a.claudeMD != "" {
 			a.claudeMD = ""
-			a.systemPrompt = BuildSystemPrompt(a.config, "", a.dir)
-			slog.Debug("CLAUDE.md removed, system prompt updated", "agent", a.config.Name)
+			parts := BuildPromptParts(a.config, "", a.dir)
+			a.systemPrompt = JoinPromptParts(parts)
+			LogPromptParts(a.config.Name, parts)
 			return true
 		}
 		return false
@@ -175,46 +209,55 @@ func (a *Agent) RefreshClaudeMD() bool {
 	content := CollectClaudeMD(a.dir)
 	a.claudeMD = content
 	a.claudeMDTime = info.ModTime()
-	a.systemPrompt = BuildSystemPrompt(a.config, content, a.dir)
-	slog.Debug("CLAUDE.md reloaded", "agent", a.config.Name, "length", len(content))
+	parts := BuildPromptParts(a.config, content, a.dir)
+	a.systemPrompt = JoinPromptParts(parts)
+	LogPromptParts(a.config.Name, parts)
 	return true
 }
 
-// ToolDescriptionsPrompt generates a tool listing from ToolDefinitions()
-// so the system prompt always matches the actual registered tools.
-func ToolDescriptionsPrompt() string {
-	defs := tools.Definitions()
-	var b strings.Builder
-	b.WriteString("# Available Tools\n\nYou have these tools available. Use the most appropriate tool for each task:\n")
-	for _, d := range defs {
-		b.WriteString(fmt.Sprintf("- %s: %s\n", d.Name, d.Description))
-	}
-	return b.String()
-}
+// BuildPromptParts constructs the system prompt as named parts.
+func BuildPromptParts(cfg Config, claudeMD string, workDir string) []PromptPart {
+	var parts []PromptPart
 
-// BuildSystemPrompt constructs the system prompt from config, CLAUDE.md content,
-// and environment context.
-func BuildSystemPrompt(cfg Config, claudeMD string, workDir string) string {
-	var parts []string
+	parts = append(parts, PromptPart{Name: "role", Content: fmt.Sprintf("Role: %s", cfg.Role)})
+	parts = append(parts, PromptPart{Name: "system", Content: cfg.SystemPrompt})
 
-	parts = append(parts, fmt.Sprintf("Role: %s", cfg.Role))
-	parts = append(parts, cfg.SystemPrompt)
-
-	// Dynamic tool descriptions from ToolDefinitions()
-	parts = append(parts, ToolDescriptionsPrompt())
-
-	// Environment context: date, platform, shell, git info
 	envInfo := EnvironmentInfo(workDir, cfg.Model)
-	parts = append(parts, envInfo)
+	parts = append(parts, PromptPart{Name: "environment", Content: envInfo})
 
-	gitStatus := GitStatus(workDir)
-	if gitStatus != "" {
-		parts = append(parts, "# Git\n"+gitStatus)
+	if gitStatus := GitStatus(workDir); gitStatus != "" {
+		parts = append(parts, PromptPart{Name: "git", Content: "# Git\n" + gitStatus})
 	}
 
 	if claudeMD != "" {
-		parts = append(parts, "---\nProject context:\n"+claudeMD)
+		parts = append(parts, PromptPart{Name: "project-context", Content: "---\nProject context:\n" + claudeMD})
 	}
 
-	return strings.Join(parts, "\n\n")
+	return parts
+}
+
+// JoinPromptParts concatenates prompt part contents with double newlines.
+func JoinPromptParts(parts []PromptPart) string {
+	strs := make([]string, len(parts))
+	for i, p := range parts {
+		strs[i] = p.Content
+	}
+	return strings.Join(strs, "\n\n")
+}
+
+// LogPromptParts logs each prompt part's name and size at Debug level,
+// and the total at Info level.
+func LogPromptParts(agentName string, parts []PromptPart) {
+	total := 0
+	for _, p := range parts {
+		slog.Debug("prompt part", "agent", agentName, "part", p.Name, "chars", len(p.Content))
+		total += len(p.Content)
+	}
+	slog.Info("system prompt assembled", "agent", agentName, "parts", len(parts), "totalChars", total)
+}
+
+// BuildSystemPrompt constructs the system prompt as a single string.
+// Delegates to BuildPromptParts + JoinPromptParts.
+func BuildSystemPrompt(cfg Config, claudeMD string, workDir string) string {
+	return JoinPromptParts(BuildPromptParts(cfg, claudeMD, workDir))
 }
