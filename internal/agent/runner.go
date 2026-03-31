@@ -77,18 +77,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 				slog.Debug("token usage", "agent", a.config.Name, "input", resp.InputTokens, "output", resp.OutputTokens)
 			}
 
-			// Build assistant message from text + tool_use blocks
-			var assistantBlocks []domain.ContentBlock
-			for _, text := range resp.TextParts {
-				assistantBlocks = append(assistantBlocks, domain.TextBlock(text))
-			}
-			for _, tu := range resp.ToolUses {
-				assistantBlocks = append(assistantBlocks, domain.ToolUseContentBlock(tu.ID, tu.Name, tu.Input))
-			}
-			a.history = append(a.history, domain.Message{
-				Role:    domain.RoleAssistant,
-				Content: assistantBlocks,
-			})
+			a.history = append(a.history, buildAssistantMessage(resp))
 
 			// If no tool uses or stop reason is end_turn, we're done
 			if len(resp.ToolUses) == 0 || resp.StopReason == "end_turn" {
@@ -261,4 +250,17 @@ func (a *Agent) WorkDir() string {
 		return a.dir
 	}
 	return "."
+}
+
+// buildAssistantMessage converts a ChatResponse into a domain.Message
+// containing text blocks and tool_use blocks.
+func buildAssistantMessage(resp *domain.ChatResponse) domain.Message {
+	var blocks []domain.ContentBlock
+	for _, text := range resp.TextParts {
+		blocks = append(blocks, domain.TextBlock(text))
+	}
+	for _, tu := range resp.ToolUses {
+		blocks = append(blocks, domain.ToolUseContentBlock(tu.ID, tu.Name, tu.Input))
+	}
+	return domain.Message{Role: domain.RoleAssistant, Content: blocks}
 }

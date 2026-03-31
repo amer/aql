@@ -4,6 +4,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -125,33 +126,36 @@ func (c *AnthropicClient) SendMessage(ctx context.Context, params domain.ChatPar
 
 // buildAPIParams converts domain.ChatParams into SDK-specific request params.
 func buildAPIParams(params domain.ChatParams) (anthropic.MessageNewParams, []option.RequestOption) {
-	system := []anthropic.TextBlockParam{{Text: params.System}}
-
 	apiParams := anthropic.MessageNewParams{
 		Model:     anthropic.Model(params.Model),
 		MaxTokens: int64(params.MaxTokens),
-		System:    system,
+		System:    []anthropic.TextBlockParam{{Text: params.System}},
 		Messages:  toAPIMessages(params.Messages),
 		Tools:     toAPITools(params.Tools),
 	}
 
 	var reqOpts []option.RequestOption
-
 	if params.OAuthBilling {
-		apiParams.System = append(
-			[]anthropic.TextBlockParam{{Text: domain.BillingHeader}},
-			apiParams.System...,
-		)
-		apiParams.Thinking = anthropic.ThinkingConfigParamUnion{
-			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
-		}
-		apiParams.OutputConfig = anthropic.OutputConfigParam{
-			Effort: anthropic.OutputConfigEffortMedium,
-		}
-		reqOpts = append(reqOpts, option.WithHeader("anthropic-beta", domain.ClaudeCodeBetas))
+		reqOpts = applyOAuthConfig(&apiParams)
 	}
 
 	return apiParams, reqOpts
+}
+
+// applyOAuthConfig injects billing headers, adaptive thinking, and effort
+// config required for OAuth-authenticated requests.
+func applyOAuthConfig(p *anthropic.MessageNewParams) []option.RequestOption {
+	p.System = append(
+		[]anthropic.TextBlockParam{{Text: domain.BillingHeader}},
+		p.System...,
+	)
+	p.Thinking = anthropic.ThinkingConfigParamUnion{
+		OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
+	}
+	p.OutputConfig = anthropic.OutputConfigParam{
+		Effort: anthropic.OutputConfigEffortMedium,
+	}
+	return []option.RequestOption{option.WithHeader("anthropic-beta", domain.ClaudeCodeBetas)}
 }
 
 // toAPIMessages converts domain messages to SDK message params.
@@ -172,11 +176,11 @@ func toAPIContentBlocks(blocks []domain.ContentBlock) []anthropic.ContentBlockPa
 	for i, b := range blocks {
 		switch {
 		case b.ToolUse != nil:
-			var input []byte
+			var input json.RawMessage
 			if b.ToolUse.Input != "" {
-				input = []byte(b.ToolUse.Input)
+				input = json.RawMessage(b.ToolUse.Input)
 			} else {
-				input = []byte("{}")
+				input = json.RawMessage("{}")
 			}
 			result[i] = anthropic.ContentBlockParamUnion{
 				OfToolUse: &anthropic.ToolUseBlockParam{
@@ -239,16 +243,18 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
+// pendingToolUse accumulates input JSON deltas for a single tool_use block.
+type pendingToolUse struct {
+	id       string
+	name     string
+	inputBuf strings.Builder
+}
+
 // consumeStream reads a streaming response, calling onText for text deltas,
 // and returns the accumulated ChatResponse.
 func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], onText func(string)) (*domain.ChatResponse, error) {
-	type pendingToolUse struct {
-		id       string
-		name     string
-		inputBuf strings.Builder
-	}
 
-	var toolUses []pendingToolUse
+	var toolUses []*pendingToolUse
 	var stopReason anthropic.StopReason
 	var inputTokens, outputTokens int64
 	activeBlocks := map[int64]*pendingToolUse{}
@@ -266,7 +272,7 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 			case "tool_use":
 				tu := &pendingToolUse{id: cb.ID, name: cb.Name}
 				activeBlocks[v.Index] = tu
-				toolUses = append(toolUses, *tu)
+				toolUses = append(toolUses, tu)
 			}
 
 		case anthropic.ContentBlockDeltaEvent:
@@ -283,11 +289,6 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 			case anthropic.InputJSONDelta:
 				if tu, ok := activeBlocks[v.Index]; ok {
 					tu.inputBuf.WriteString(d.PartialJSON)
-					for i := range toolUses {
-						if toolUses[i].id == tu.id {
-							toolUses[i].inputBuf = tu.inputBuf
-						}
-					}
 				}
 			}
 
@@ -309,22 +310,12 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 		return nil, streamErr
 	}
 
-	// Build text parts in index order
-	textIndices := make([]int64, 0, len(textBlocks))
-	for idx := range textBlocks {
-		textIndices = append(textIndices, idx)
-	}
-	slices.Sort(textIndices)
+	return buildStreamResponse(textBlocks, toolUses, stopReason, inputTokens, outputTokens), nil
+}
 
-	var textParts []string
-	for _, idx := range textIndices {
-		text := textBlocks[idx].String()
-		if text != "" {
-			textParts = append(textParts, text)
-		}
-	}
-
-	// Convert tool uses to domain type
+// buildStreamResponse assembles the final ChatResponse from accumulated stream state.
+func buildStreamResponse(textBlocks map[int64]*strings.Builder, toolUses []*pendingToolUse, stopReason anthropic.StopReason, inputTokens, outputTokens int64) *domain.ChatResponse {
+	textParts := collectTextParts(textBlocks)
 	chatToolUses := make([]domain.ChatToolUse, len(toolUses))
 	for i, tu := range toolUses {
 		chatToolUses[i] = domain.ChatToolUse{
@@ -342,5 +333,22 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 		StopReason:   string(stopReason),
 		InputTokens:  int(inputTokens),
 		OutputTokens: int(outputTokens),
-	}, nil
+	}
+}
+
+// collectTextParts extracts non-empty text strings from text blocks in index order.
+func collectTextParts(textBlocks map[int64]*strings.Builder) []string {
+	indices := make([]int64, 0, len(textBlocks))
+	for idx := range textBlocks {
+		indices = append(indices, idx)
+	}
+	slices.Sort(indices)
+
+	var parts []string
+	for _, idx := range indices {
+		if text := textBlocks[idx].String(); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return parts
 }
