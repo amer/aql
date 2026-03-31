@@ -29,20 +29,17 @@ type LoginOptions struct {
 	OpenURL func(url string) error
 }
 
-// Login runs the full OAuth PKCE login flow:
-// 1. Starts a local callback server
-// 2. Opens the browser to the authorization URL
-// 3. Waits for the callback with the authorization code
-// 4. Exchanges the code for tokens
-func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
-	tokenURL := opts.TokenURL
-	if tokenURL == "" {
-		tokenURL = DefaultTokenURL
-	}
+// callbackServer holds the state for the local OAuth callback HTTP server.
+type callbackServer struct {
+	server *http.Server
+	codeCh chan string
+	errCh  chan error
+	port   int
+}
 
-	verifier, challenge := GeneratePKCE()
-	state := generateState()
-
+// startCallbackServer creates and starts a local HTTP server that listens for
+// the OAuth callback with the authorization code.
+func startCallbackServer(expectedState string) (*callbackServer, error) {
 	port, err := findAvailablePort()
 	if err != nil {
 		return nil, fmt.Errorf("find available port: %w", err)
@@ -54,8 +51,8 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		gotState := r.URL.Query().Get("state")
-		if gotState != state {
-			errCh <- fmt.Errorf("state mismatch: expected %q, got %q", state, gotState)
+		if gotState != expectedState {
+			errCh <- fmt.Errorf("state mismatch: expected %q, got %q", expectedState, gotState)
 			http.Error(w, "State mismatch", http.StatusBadRequest)
 			return
 		}
@@ -76,30 +73,32 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 		codeCh <- code
 	})
 
-	server := &http.Server{
+	srv := &http.Server{
 		Addr:    fmt.Sprintf("localhost:%d", port),
 		Handler: mux,
 	}
 
 	go func() {
 		slog.Debug("starting OAuth callback server", "port", port)
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			errCh <- fmt.Errorf("callback server: %w", err)
 		}
-	}()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		server.Shutdown(shutdownCtx)
 	}()
 
 	// Give server a moment to start
 	time.Sleep(50 * time.Millisecond)
 
-	authURL := BuildAuthorizeURL(challenge, state, port, opts.Console)
-	slog.Info("opening browser for login", "url", authURL, "console", opts.Console)
+	return &callbackServer{server: srv, codeCh: codeCh, errCh: errCh, port: port}, nil
+}
 
-	opener := opts.OpenURL
+func (cs *callbackServer) shutdown() {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cs.server.Shutdown(shutdownCtx)
+}
+
+// openAuthURL opens the authorization URL in the user's browser.
+func openAuthURL(authURL string, opener func(string) error) {
 	if opener == nil {
 		opener = openBrowser
 	}
@@ -107,26 +106,56 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 		slog.Warn("failed to open browser", "error", err)
 		fmt.Printf("\nOpen this URL in your browser to login:\n%s\n\n", authURL)
 	}
+}
+
+// exchangeAndCreateKey exchanges the authorization code for tokens, then creates an API key.
+func exchangeAndCreateKey(tokenURL, code, verifier, state string, port int) (*Tokens, error) {
+	slog.Debug("received authorization code")
+	tokens, err := ExchangeCode(tokenURL, code, verifier, state, port)
+	if err != nil {
+		return nil, fmt.Errorf("exchange code: %w", err)
+	}
+
+	// Create an API key from the OAuth token — the Messages API requires
+	// a real API key, not the OAuth Bearer token directly.
+	slog.Debug("creating API key from OAuth token")
+	apiKey, err := CreateAPIKey(CreateAPIKeyURL, tokens.AccessToken)
+	if err != nil {
+		return nil, fmt.Errorf("create API key: %w", err)
+	}
+	tokens.APIKey = apiKey
+	slog.Info("login successful", "apiKeyPrefix", apiKey[:min(15, len(apiKey))])
+	return tokens, nil
+}
+
+// Login runs the full OAuth PKCE login flow:
+// 1. Starts a local callback server
+// 2. Opens the browser to the authorization URL
+// 3. Waits for the callback with the authorization code
+// 4. Exchanges the code for tokens
+func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
+	tokenURL := opts.TokenURL
+	if tokenURL == "" {
+		tokenURL = DefaultTokenURL
+	}
+
+	verifier, challenge := GeneratePKCE()
+	state := generateState()
+
+	cs, err := startCallbackServer(state)
+	if err != nil {
+		return nil, err
+	}
+	defer cs.shutdown()
+
+	authURL := BuildAuthorizeURL(challenge, state, cs.port, opts.Console)
+	slog.Info("opening browser for login", "url", authURL, "console", opts.Console)
+	openAuthURL(authURL, opts.OpenURL)
 
 	select {
-	case code := <-codeCh:
-		slog.Debug("received authorization code")
-		tokens, err := ExchangeCode(tokenURL, code, verifier, state, port)
-		if err != nil {
-			return nil, fmt.Errorf("exchange code: %w", err)
-		}
-
-		// Create an API key from the OAuth token — the Messages API requires
-		// a real API key, not the OAuth Bearer token directly.
-		slog.Debug("creating API key from OAuth token")
-		apiKey, err := CreateAPIKey(CreateAPIKeyURL, tokens.AccessToken)
-		if err != nil {
-			return nil, fmt.Errorf("create API key: %w", err)
-		}
-		tokens.APIKey = apiKey
-		slog.Info("login successful", "apiKeyPrefix", apiKey[:min(15, len(apiKey))])
-		return tokens, nil
-	case err := <-errCh:
+	case code := <-cs.codeCh:
+		return exchangeAndCreateKey(tokenURL, code, verifier, state, cs.port)
+	case err := <-cs.errCh:
 		return nil, err
 	case <-ctx.Done():
 		return nil, ctx.Err()

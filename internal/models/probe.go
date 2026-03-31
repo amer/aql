@@ -28,12 +28,11 @@ const (
 	// probeMaxTokensBilling is the max_tokens for an OAuth billing probe.
 	probeMaxTokensBilling = 1024
 
-	// BillingHeader is the Claude Code billing header that enables access to
-	// Opus/Sonnet models via OAuth Console login.
-	BillingHeader = "x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;"
+	// BillingHeader re-exports domain.BillingHeader for backwards compatibility.
+	BillingHeader = domain.BillingHeader
 
-	// ClaudeCodeBetas are the beta feature flags required for Claude Code billing.
-	ClaudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
+	// ClaudeCodeBetas re-exports domain.ClaudeCodeBetas for backwards compatibility.
+	ClaudeCodeBetas = domain.ClaudeCodeBetas
 )
 
 // ClientConfig holds the parameters needed to construct an Anthropic client

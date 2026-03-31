@@ -42,6 +42,13 @@ type ModelInfo struct {
 	CreatedAt      time.Time
 }
 
+// BillingHeader is the Claude Code billing header that enables access to
+// Opus/Sonnet models via OAuth Console login.
+const BillingHeader = "x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;"
+
+// ClaudeCodeBetas are the beta feature flags required for Claude Code billing.
+const ClaudeCodeBetas = "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
+
 // ToolStatus represents the execution state of a tool call.
 type ToolStatus int
 

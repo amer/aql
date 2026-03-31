@@ -276,4 +276,11 @@ var (
 	TranscriptHintStyle = lipgloss.NewStyle().
 				Foreground(mutedColor).
 				Italic(true)
+
+	// Prompt frame
+	PromptLineStyle = lipgloss.NewStyle().
+			Foreground(dimColor)
+
+	PromptBadgeStyle = lipgloss.NewStyle().
+				Foreground(mutedColor)
 )

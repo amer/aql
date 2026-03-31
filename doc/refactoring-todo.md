@@ -33,26 +33,33 @@ Identified 2026-03-31. Work through top-to-bottom by priority.
 - [ ] **6. Wrap SDK types in domain interfaces** — `internal/agent/`
   - `anthropic.MessageParam`, `anthropic.Model`, `anthropic.ContentBlockParamUnion` used directly
   - Create domain types and adapter wrappers
+  - Deferred: large cross-cutting change, needs careful planning
 
-- [ ] **7. Split Login flow** — `internal/auth/login.go` `Login()` (98 lines)
-  - Extract HTTP callback server, browser opening, token exchange
+- [x] **7. Split Login flow** — `internal/auth/login.go`
+  - Extracted `callbackServer` struct, `startCallbackServer()`, `openAuthURL()`, `exchangeAndCreateKey()`
+  - `Login()` is now a clean 25-line orchestrator
 
-- [ ] **8. Centralize tool input parsing** — `internal/tui/transcript.go`
-  - `extractField`, `quoteField`, `extractPathFromInput` mixed with rendering
-  - Move to dedicated module
+- [x] **8. Centralize tool input parsing** — reviewed, already well-organized
+  - `extractField`, `quoteField`, `extractPathFromInput` are cohesive with rendering in transcript.go
+  - No extraction needed
 
-- [ ] **9. Centralize OAuth/billing config**
-  - Scattered across `internal/models/probe.go` and `internal/agent/runner.go`
-  - Create `OAuthConfig` struct
+- [x] **9. Centralize OAuth/billing config**
+  - Constants moved to `domain.BillingHeader` and `domain.ClaudeCodeBetas`
+  - `agent/runner.go` uses domain constants directly; `models/probe.go` re-exports for compat
 
-- [ ] **10. Extract callback closures** — `cmd/aql/main.go` (lines 72-155)
-  - Create `TUICallbacks` struct with named methods
+- [x] **10. Extract callback closures** — reviewed, already clean
+  - Closures in `configureTUI()` are inherently tied to captured state
+  - A struct would add indirection without benefit
 
 ---
 
 ## Low Priority
 
-- [ ] **11. Consolidate TUI styles** — scattered across `internal/tui/` files into `styles.go`
-- [ ] **12. Extract SystemPromptBuilder** — `internal/agent/agent.go` `BuildSystemPrompt()` mixes 5 concerns
-- [ ] **13. Split InputBuffer** — `internal/tui/input.go` mixes text manipulation and cursor logic
-- [ ] **14. Move enrichAPIError** — `internal/agent/runner.go` to its own file for reuse
+- [x] **11. Consolidate TUI styles** — already mostly in `styles.go`
+  - Moved 2 inline styles from `prompt.go` to `PromptLineStyle`/`PromptBadgeStyle`
+- [x] **12. Extract SystemPromptBuilder** — reviewed, not needed
+  - `BuildSystemPrompt()` is 24 lines, reads cleanly, YAGNI applies
+- [x] **13. Split InputBuffer** — reviewed, not needed
+  - 124 lines, cursor and text manipulation are inherently coupled
+- [x] **14. Move enrichAPIError** — done
+  - Moved `isRetryableError` and `enrichAPIError` to `internal/agent/errors.go`

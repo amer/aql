@@ -18,8 +18,8 @@ func RenderPrompt(input string, width int) string {
 func renderPromptFrame(content string, projectName string, width int) string {
 	var b strings.Builder
 
-	lineStyle := lipgloss.NewStyle().Foreground(dimColor)
-	badgeStyle := lipgloss.NewStyle().Foreground(mutedColor)
+	lineStyle := PromptLineStyle
+	badgeStyle := PromptBadgeStyle
 
 	// Top bar: ────────── project-name ──
 	badge := badgeStyle.Render(projectName)
