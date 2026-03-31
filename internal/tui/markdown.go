@@ -25,5 +25,5 @@ func RenderMarkdown(content string, width int) string {
 		return content
 	}
 
-	return strings.TrimRight(rendered, "\n")
+	return strings.Trim(rendered, "\n")
 }
