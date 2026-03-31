@@ -316,6 +316,30 @@ const (
 	transcriptIndent    = "  "
 )
 
+// MarkerState represents the visual state of a ⏺ marker.
+type MarkerState int
+
+const (
+	MarkerActive  MarkerState = iota // default: assistant text (brand/orange)
+	MarkerRunning                    // tool in progress (warning/yellow)
+	MarkerDone                       // tool completed (success/green)
+	MarkerError                      // tool failed (error/red)
+)
+
+// StyledMarker returns the ⏺ character styled for the given state.
+func StyledMarker(state MarkerState) string {
+	switch state {
+	case MarkerRunning:
+		return TranscriptMarkerRunning.Render(transcriptMarker)
+	case MarkerDone:
+		return TranscriptMarkerDone.Render(transcriptMarker)
+	case MarkerError:
+		return TranscriptMarkerError.Render(transcriptMarker)
+	default:
+		return TranscriptMarkerActive.Render(transcriptMarker)
+	}
+}
+
 // RenderTranscriptBlock renders a single transcript block in Claude Code style.
 func RenderTranscriptBlock(block TranscriptBlock, width int, expanded bool) string {
 	switch block.Type {
@@ -340,7 +364,7 @@ func renderAssistantBlock(block TranscriptBlock, width int, expanded bool) strin
 		if rendered == "" {
 			rendered = AgentBody.Render(text)
 		}
-		b.WriteString(TranscriptMarkerStyle.Render(transcriptMarker))
+		b.WriteString(StyledMarker(MarkerActive))
 		b.WriteString(" ")
 		// Indent continuation lines
 		lines := strings.Split(rendered, "\n")
@@ -400,7 +424,11 @@ func renderCollapsedToolGroup(group ToolGroup, width int) string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(TranscriptMarkerStyle.Render(transcriptMarker))
+	groupState := MarkerRunning
+	if allDone {
+		groupState = MarkerDone
+	}
+	b.WriteString(StyledMarker(groupState))
 	b.WriteString(" ")
 	b.WriteString(ToolHeaderStyle.Render(header))
 	b.WriteString("\n")
@@ -435,11 +463,11 @@ func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
 	header := FormatToolHeader(entry.Call.Name, entry.Call.Content)
 
 	b.WriteString("\n")
-	b.WriteString(TranscriptMarkerStyle.Render(transcriptMarker))
-	b.WriteString(" ")
 
 	// Tool is still running
 	if entry.Result == nil {
+		b.WriteString(StyledMarker(MarkerRunning))
+		b.WriteString(" ")
 		b.WriteString(ToolHeaderStyle.Render(header))
 		b.WriteString("\n")
 		b.WriteString(transcriptIndent)
@@ -450,11 +478,14 @@ func renderToolEntry(entry ToolEntry, width int, expanded bool) string {
 		return b.String()
 	}
 
-	// Status indicator in header
+	// Determine marker state from result
 	isError := entry.Result.Status == ToolError
 	if isError {
-		b.WriteString(ToolStatusError.Render("✗ "))
+		b.WriteString(StyledMarker(MarkerError))
+	} else {
+		b.WriteString(StyledMarker(MarkerDone))
 	}
+	b.WriteString(" ")
 	b.WriteString(ToolHeaderStyle.Render(header))
 	b.WriteString("\n")
 

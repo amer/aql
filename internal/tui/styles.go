@@ -253,9 +253,21 @@ var (
 	WelcomeDimStyle = lipgloss.NewStyle().
 			Foreground(dimColor)
 
-	// Transcript view
-	TranscriptMarkerStyle = lipgloss.NewStyle().
+	// Transcript view — marker styles per state
+	TranscriptMarkerActive = lipgloss.NewStyle().
 				Foreground(brandColor).
+				Bold(true)
+
+	TranscriptMarkerRunning = lipgloss.NewStyle().
+				Foreground(warningColor).
+				Bold(true)
+
+	TranscriptMarkerDone = lipgloss.NewStyle().
+				Foreground(successColor).
+				Bold(true)
+
+	TranscriptMarkerError = lipgloss.NewStyle().
+				Foreground(errorColor).
 				Bold(true)
 
 	TranscriptConnectorStyle = lipgloss.NewStyle().

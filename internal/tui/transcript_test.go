@@ -396,7 +396,45 @@ func TestRenderBlock_ToolError(t *testing.T) {
 	result := tui.RenderTranscriptBlock(block, 80, false)
 	stripped := stripAnsi(result)
 	assert.Contains(t, stripped, "Bash(exit 1)")
-	assert.Contains(t, stripped, "✗")
+	assert.Contains(t, stripped, "exit status 1")
+	// Error marker is red ⏺ (verify via raw ANSI output containing error color)
+	assert.Contains(t, result, tui.StyledMarker(tui.MarkerError))
+}
+
+func TestStyledMarker_AllStatesProduceMarker(t *testing.T) {
+	// All states produce the ⏺ character
+	states := []tui.MarkerState{tui.MarkerActive, tui.MarkerRunning, tui.MarkerDone, tui.MarkerError}
+	for _, state := range states {
+		result := tui.StyledMarker(state)
+		assert.Contains(t, result, "⏺", "state %d should produce ⏺ marker", state)
+	}
+}
+
+func TestRenderBlock_RunningMarkerIsYellow(t *testing.T) {
+	block := tui.TranscriptBlock{
+		Type:      tui.BlockAssistant,
+		AgentName: "coder",
+		Tools: []tui.ToolEntry{
+			{Call: tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning}},
+		},
+	}
+	result := tui.RenderTranscriptBlock(block, 80, false)
+	assert.Contains(t, result, tui.StyledMarker(tui.MarkerRunning))
+}
+
+func TestRenderBlock_DoneMarkerIsGreen(t *testing.T) {
+	block := tui.TranscriptBlock{
+		Type:      tui.BlockAssistant,
+		AgentName: "coder",
+		Tools: []tui.ToolEntry{
+			{
+				Call:   tui.ToolCall{Name: "read_file", Content: `{"path":"app.go"}`, Status: tui.ToolRunning},
+				Result: &tui.ToolCall{Content: "contents", Status: tui.ToolDone},
+			},
+		},
+	}
+	result := tui.RenderTranscriptBlock(block, 80, false)
+	assert.Contains(t, result, tui.StyledMarker(tui.MarkerDone))
 }
 
 // --- Phase 7: Transcript search tests ---
