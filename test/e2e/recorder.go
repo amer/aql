@@ -4,19 +4,15 @@ package e2e
 // FILE GUIDELINES
 //
 // BELONGS HERE:
-//   - Exchange — captured HTTP request/response pair (incl. errors),
-//     Recorder — reverse proxy that records all traffic,
+//   - Recorder — reverse proxy that records all traffic,
 //     NewRecorder() — creates a recording proxy for an upstream URL,
-//     Replayer — serves previously recorded exchanges (no network),
-//     NewReplayer() — creates a replay server from exchanges,
-//     SaveExchanges() / LoadExchanges() — JSON serialization,
 //     recordingTransport — wraps RoundTripper to capture bodies,
 //     recordingBody — streams response while accumulating for recording.
 //
 // MUST NOT GO HERE:
+//   - Exchange type and serialization (exchange.go)
+//   - Replayer server (replayer.go)
 //   - Terminal PTY management (terminal.go)
-//   - Screenshot capture (screenshot.go)
-//   - Terminal options (option.go)
 //
 // Q: How do I record API calls?
 // A: Use APIOption(fixtureDir) in scenario tests. Set E2E_RECORD=1
@@ -27,33 +23,15 @@ package e2e
 // ──────────────────────────────────────────────────────────────────
 
 import (
-	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
-
-// Exchange represents a captured HTTP request/response pair.
-// If the request was interrupted (e.g. context canceled), Error is set
-// and StatusCode/ResponseBody may be empty.
-type Exchange struct {
-	Timestamp       time.Time
-	Method          string
-	Path            string
-	RequestHeaders  http.Header
-	RequestBody     string
-	StatusCode      int
-	ResponseHeaders http.Header
-	ResponseBody    string
-	Duration        time.Duration
-	Error           string // non-empty if the request failed
-}
 
 // Recorder is an HTTP reverse proxy that captures all request/response exchanges.
 // It forwards requests to an upstream server and records the traffic.
@@ -117,69 +95,6 @@ func (r *Recorder) SaveJSON(dir string) error {
 	return SaveExchanges(dir, r.Exchanges())
 }
 
-// SaveExchanges writes exchanges to a JSON file in the given directory.
-func SaveExchanges(dir string, exchanges []Exchange) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(exchanges, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "exchanges.json"), data, 0o644)
-}
-
-// LoadExchanges reads exchanges from a JSON file in the given directory.
-func LoadExchanges(dir string) ([]Exchange, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "exchanges.json"))
-	if err != nil {
-		return nil, err
-	}
-	var exchanges []Exchange
-	if err := json.Unmarshal(data, &exchanges); err != nil {
-		return nil, err
-	}
-	return exchanges, nil
-}
-
-// Replayer is an HTTP server that replays previously recorded exchanges
-// in order. No network calls are made.
-type Replayer struct {
-	mu        sync.Mutex
-	exchanges []Exchange
-	index     int
-}
-
-// NewReplayer creates a replay server from a list of exchanges.
-func NewReplayer(exchanges []Exchange) *Replayer {
-	return &Replayer{exchanges: exchanges}
-}
-
-// ServeHTTP implements http.Handler — replays the next exchange in sequence.
-func (r *Replayer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.mu.Lock()
-	if r.index >= len(r.exchanges) {
-		r.mu.Unlock()
-		w.WriteHeader(http.StatusBadGateway)
-		return
-	}
-	ex := r.exchanges[r.index]
-	r.index++
-	r.mu.Unlock()
-
-	for key, vals := range ex.ResponseHeaders {
-		for _, v := range vals {
-			w.Header().Add(key, v)
-		}
-	}
-	if ex.StatusCode != 0 {
-		w.WriteHeader(ex.StatusCode)
-	} else {
-		w.WriteHeader(http.StatusOK)
-	}
-	io.WriteString(w, ex.ResponseBody) //nolint:errcheck
-}
-
 func (r *Recorder) record(ex Exchange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -203,7 +118,7 @@ func (t *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return nil, err
 		}
 		reqBody = string(data)
-		req.Body = io.NopCloser(io.NopCloser(stringReader(reqBody)))
+		req.Body = io.NopCloser(strings.NewReader(reqBody))
 	}
 
 	// Forward request
@@ -267,19 +182,3 @@ func (r *recordingBody) Close() error {
 	}
 	return err
 }
-
-func stringReader(s string) io.Reader {
-	return io.NopCloser(io.LimitReader(
-		readerFunc(func(p []byte) (int, error) {
-			n := copy(p, s)
-			s = s[n:]
-			if len(s) == 0 {
-				return n, io.EOF
-			}
-			return n, nil
-		}), int64(len(s))))
-}
-
-type readerFunc func(p []byte) (int, error)
-
-func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

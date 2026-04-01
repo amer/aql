@@ -10,14 +10,18 @@ package e2e
 //     Screenshot() / SaveScreenshot() — capture terminal state,
 //     WaitFor() / WaitForFunc() — poll until condition met,
 //     APIExchanges() / Logs() — access test artifacts,
-//     ensureBinary() — build-once binary compilation,
-//     projectRoot() — locate the repo root.
+//     setupAPIProxy() — configures stub/replay/record proxy,
+//     copyTokenFile() — copies credentials into workDir.
 //
 // MUST NOT GO HERE:
 //   - Screenshot type and methods (screenshot.go)
-//   - Recorder / Exchange types (recorder.go)
+//   - Exchange type and serialization (exchange.go)
+//   - Recorder proxy (recorder.go), Replayer server (replayer.go)
 //   - Terminal configuration options (option.go)
 //   - Key constants (key.go)
+//   - Binary build caching (build.go)
+//   - Session/artifact directory management (session.go)
+//   - Credential detection (credential.go)
 //
 // Q: How do I add a new interaction method?
 // A: Add it as a method on *Terminal here. Use t.ptyFile for raw I/O
@@ -36,7 +40,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -57,76 +60,6 @@ type Terminal struct {
 	counter    int
 	recorder   *Recorder // points to shared session recorder, nil if disabled
 	fixtureDir string    // where to save recorded fixtures on cleanup
-}
-
-var (
-	builtBinary string
-	buildOnce   sync.Once
-	buildErr    error
-
-	sessionDir  string
-	sessionOnce sync.Once
-
-	sharedRecorder *Recorder
-	sharedProxy    *httptest.Server
-	recorderOnce   sync.Once
-)
-
-// sessionArtifactsDir returns the shared session directory for this test run.
-// Created once per `go test` invocation, timestamped for history.
-func sessionArtifactsDir() string {
-	sessionOnce.Do(func() {
-		ts := time.Now().Format("2006-01-02T15-04-05")
-		sessionDir = filepath.Join(projectRoot(), "test", "e2e", "artifacts", ts)
-	})
-	return sessionDir
-}
-
-// ensureRecorder returns the session-scoped recording proxy.
-// All tests in a run share one proxy so API calls are collected together.
-func ensureRecorder() (*Recorder, *httptest.Server) {
-	recorderOnce.Do(func() {
-		upstream := "https://api.anthropic.com"
-		sharedRecorder = NewRecorder(upstream)
-		sharedProxy = httptest.NewServer(sharedRecorder)
-	})
-	return sharedRecorder, sharedProxy
-}
-
-func ensureBinary() (string, error) {
-	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "aql-e2e-*")
-		if err != nil {
-			buildErr = err
-			return
-		}
-		builtBinary = filepath.Join(dir, "aql")
-		cmd := exec.Command("go", "build", "-o", builtBinary, "./cmd/aql")
-		cmd.Dir = projectRoot()
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			buildErr = fmt.Errorf("build failed: %w\n%s", err, out)
-		}
-	})
-	return builtBinary, buildErr
-}
-
-func projectRoot() string {
-	// Walk up from this file's location to find go.mod
-	dir, err := os.Getwd()
-	if err != nil {
-		panic("cannot get working directory: " + err.Error())
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			panic("cannot find project root (go.mod)")
-		}
-		dir = parent
-	}
 }
 
 // NewTerminal spawns the aql binary in a PTY and returns a Terminal for
@@ -152,38 +85,8 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 		cfg.workDir = t.TempDir()
 	}
 
-	// Copy token file into workDir so the binary can find credentials
-	if src := findTokenFile(); src != "" {
-		dst := filepath.Join(cfg.workDir, tokenFile)
-		if data, err := os.ReadFile(src); err == nil {
-			os.WriteFile(dst, data, 0o600) //nolint:errcheck
-		}
-	}
-
-	// Set up API proxy: stub, replay, or record
-	var recorder *Recorder
-	if cfg.stubAPI {
-		stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{}`)) //nolint:errcheck
-		}))
-		t.Cleanup(stub.Close)
-		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+stub.URL)
-	} else if cfg.replayDir != "" {
-		exchanges, err := LoadExchanges(cfg.replayDir)
-		if err != nil {
-			t.Skipf("e2e: no fixtures in %s (run with E2E_RECORD=1 to capture): %v", cfg.replayDir, err)
-		}
-		replayer := NewReplayer(exchanges)
-		replayServer := httptest.NewServer(replayer)
-		t.Cleanup(replayServer.Close)
-		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+replayServer.URL)
-	} else if cfg.recordAPI {
-		var proxy *httptest.Server
-		recorder, proxy = ensureRecorder()
-		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+proxy.URL)
-	}
+	copyTokenFile(cfg.workDir)
+	recorder := setupAPIProxy(t, &cfg)
 
 	cmd := exec.Command(binary)
 	cmd.Dir = cfg.workDir
@@ -199,8 +102,6 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 		t.Fatalf("e2e: start pty: %v", err)
 	}
 
-	vterm := vt10x.New(vt10x.WithSize(cfg.cols, cfg.rows))
-
 	artDir := filepath.Join(sessionArtifactsDir(), t.Name())
 	if err := os.MkdirAll(artDir, 0o755); err != nil {
 		t.Fatalf("e2e: create artifacts dir: %v", err)
@@ -209,7 +110,7 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 	term := &Terminal{
 		cmd:        cmd,
 		ptyFile:    ptmx,
-		vt:         vterm,
+		vt:         vt10x.New(vt10x.WithSize(cfg.cols, cfg.rows)),
 		done:       make(chan struct{}),
 		cols:       cfg.cols,
 		rows:       cfg.rows,
@@ -220,10 +121,58 @@ func NewTerminal(t *testing.T, opts ...Option) *Terminal {
 	}
 
 	go term.readLoop()
-
 	t.Cleanup(func() { term.cleanup() })
 
 	return term
+}
+
+// copyTokenFile copies the token file into workDir so the binary can find credentials.
+func copyTokenFile(workDir string) {
+	src := findTokenFile()
+	if src == "" {
+		return
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return
+	}
+	os.WriteFile(filepath.Join(workDir, tokenFile), data, 0o600) //nolint:errcheck
+}
+
+// setupAPIProxy configures the API proxy based on the config (stub, replay, or record)
+// and appends the ANTHROPIC_BASE_URL to cfg.env. Returns the recorder if recording.
+func setupAPIProxy(t *testing.T, cfg *config) *Recorder {
+	t.Helper()
+
+	if cfg.stubAPI {
+		stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`)) //nolint:errcheck
+		}))
+		t.Cleanup(stub.Close)
+		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+stub.URL)
+		return nil
+	}
+
+	if cfg.replayDir != "" {
+		exchanges, err := LoadExchanges(cfg.replayDir)
+		if err != nil {
+			t.Skipf("e2e: no fixtures in %s (run with E2E_RECORD=1 to capture): %v", cfg.replayDir, err)
+		}
+		replayServer := httptest.NewServer(NewReplayer(exchanges))
+		t.Cleanup(replayServer.Close)
+		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+replayServer.URL)
+		return nil
+	}
+
+	if cfg.recordAPI {
+		recorder, proxy := ensureRecorder()
+		cfg.env = append(cfg.env, "ANTHROPIC_BASE_URL="+proxy.URL)
+		return recorder
+	}
+
+	return nil
 }
 
 func (t *Terminal) readLoop() {
@@ -360,42 +309,4 @@ func (t *Terminal) Logs() string {
 		return ""
 	}
 	return string(data)
-}
-
-const tokenFile = ".aql_tokens.json"
-
-// HasAPICredentials reports whether API credentials are available,
-// either via ANTHROPIC_API_KEY env var or a .aql_tokens.json file
-// in the project root or home directory.
-func HasAPICredentials() bool {
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return true
-	}
-	if _, err := os.Stat(filepath.Join(projectRoot(), tokenFile)); err == nil {
-		return true
-	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		if _, err := os.Stat(filepath.Join(home, tokenFile)); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// findTokenFile returns the path to the first .aql_tokens.json found
-// (project root, then home), or empty string if none exists.
-func findTokenFile() string {
-	p := filepath.Join(projectRoot(), tokenFile)
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		p = filepath.Join(home, tokenFile)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
 }
