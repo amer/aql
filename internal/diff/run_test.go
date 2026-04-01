@@ -3,6 +3,9 @@ package diff_test
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/amer/aql/internal/diff"
@@ -67,6 +70,39 @@ func TestRunner_Run(t *testing.T) {
 	assert.Equal(t, 3, files[1].LinesAdded)
 	assert.Equal(t, 1, files[1].LinesRemoved)
 	require.Len(t, files[1].Hunks, 1)
+}
+
+func TestRunner_Run_RealGit_SingleLineChange(t *testing.T) {
+	// Integration test: real git repo with a single-line file change.
+	// This reproduces the e2e "No diff content" bug.
+	workDir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = workDir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "command %v failed: %s", args, out)
+	}
+
+	run("git", "init")
+	run("git", "config", "user.email", "test@test.com")
+	run("git", "config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello world\n"), 0o644))
+	run("git", "add", "hello.txt")
+	run("git", "commit", "-m", "initial")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("goodbye world\n"), 0o644))
+
+	runner := diff.NewDefaultRunner()
+	files, stats, err := runner.Run(context.Background(), workDir)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, stats.FilesChanged)
+	assert.Equal(t, 1, stats.Additions)
+	assert.Equal(t, 1, stats.Deletions)
+	require.Len(t, files, 1)
+	assert.Equal(t, "hello.txt", files[0].Path)
+	require.Len(t, files[0].Hunks, 1, "expected 1 hunk — this is the 'No diff content' bug")
+	assert.Len(t, files[0].Hunks[0].Lines, 2)
 }
 
 func TestRunner_Run_numstat_error(t *testing.T) {

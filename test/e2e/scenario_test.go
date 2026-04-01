@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -79,6 +80,66 @@ func TestE2E_RecordAPICall(t *testing.T) {
 	}, 30*time.Second))
 
 	term.SaveScreenshot("after-response")
+}
+
+func TestE2E_SlashDiff(t *testing.T) {
+	workDir := t.TempDir()
+
+	// Initialize a git repo with one committed file, then modify it
+	run := func(args ...string) {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = workDir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "command %v failed: %s", args, out)
+	}
+	run("git", "init")
+	run("git", "config", "user.email", "test@test.com")
+	run("git", "config", "user.name", "Test")
+	os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello world\n"), 0o644)
+	run("git", "add", "hello.txt")
+	run("git", "commit", "-m", "initial")
+
+	// Create an uncommitted change
+	os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("goodbye world\n"), 0o644)
+
+	term := e2e.NewTerminal(t,
+		e2e.WithSize(120, 40),
+		e2e.WithStubAPI(),
+		e2e.WithWorkDir(workDir),
+	)
+
+	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
+		return len(s.Text) > 0
+	}, 10*time.Second))
+
+	term.SaveScreenshot("ready")
+
+	term.Type("/diff")
+	term.SaveScreenshot("after-typing-diff")
+
+	term.SendKey(e2e.KeyEnter)
+
+	// Wait for diff overlay to appear
+	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
+		return s.Contains("hello.txt") || s.Contains("diff") || s.Contains("Changes")
+	}, 10*time.Second))
+
+	term.SaveScreenshot("diff-overlay")
+
+	// Press enter to see file detail
+	term.SendKey(e2e.KeyEnter)
+	time.Sleep(100 * time.Millisecond)
+	term.SaveScreenshot("diff-detail")
+
+	// Press escape to go back to list
+	term.SendKey(e2e.KeyEscape)
+	time.Sleep(100 * time.Millisecond)
+	term.SaveScreenshot("diff-list-again")
+
+	// Press escape to close overlay
+	term.SendKey(e2e.KeyEscape)
+	time.Sleep(100 * time.Millisecond)
+	term.SaveScreenshot("after-close")
 }
 
 // TestE2E_EditFileShowsDiff verifies that when the agent edits a file,

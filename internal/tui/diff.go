@@ -185,18 +185,46 @@ func RenderDiffDetail(file diff.DiffFile, scrollTop, height, width int) string {
 		return b.String()
 	}
 
+	// Compute max line number width across all hunks for alignment.
+	maxLineNum := 0
+	for _, hunk := range file.Hunks {
+		end := hunk.NewStart + hunk.NewCount
+		if end > maxLineNum {
+			maxLineNum = end
+		}
+		oldEnd := hunk.OldStart + hunk.OldCount
+		if oldEnd > maxLineNum {
+			maxLineNum = oldEnd
+		}
+	}
+	numWidth := len(fmt.Sprintf("%d", maxLineNum))
+	if numWidth < 3 {
+		numWidth = 3
+	}
+
 	// Render all hunk lines into a buffer, then apply scroll window.
 	var lines []string
 	for hi, hunk := range file.Hunks {
 		if hi > 0 {
-			lines = append(lines, DimStyle.Render("  ···"))
+			lines = append(lines, DimStyle.Render(strings.Repeat(" ", numWidth+1)+"···"))
 		}
 		hunkHeader := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
 			hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount)
-		lines = append(lines, DiffHunkHeaderStyle.Render("  "+hunkHeader))
+		lines = append(lines, DiffHunkHeaderStyle.Render(strings.Repeat(" ", numWidth+1)+hunkHeader))
 
+		oldLine := hunk.OldStart
+		newLine := hunk.NewStart
 		for _, dl := range hunk.Lines {
-			lines = append(lines, renderDiffLine(dl))
+			lines = append(lines, renderDiffLine(dl, oldLine, newLine, numWidth))
+			switch dl.Type {
+			case diff.DiffContext:
+				oldLine++
+				newLine++
+			case diff.DiffAdded:
+				newLine++
+			case diff.DiffRemoved:
+				oldLine++
+			}
 		}
 	}
 
@@ -249,15 +277,20 @@ func fileLine(f diff.DiffFile, selected bool, maxWidth int) string {
 	return path + "  " + stats
 }
 
-// renderDiffLine renders a single diff line with the appropriate style.
-func renderDiffLine(dl diff.DiffLine) string {
+// renderDiffLine renders a single diff line with line number and sigil.
+// Format: "  N +content" (added), "  N -content" (removed), "  N  content" (context).
+// Removed lines display the old line number; added/context display the new line number.
+func renderDiffLine(dl diff.DiffLine, oldLine, newLine, numWidth int) string {
 	switch dl.Type {
 	case diff.DiffAdded:
-		return DiffAddedStyle.Render("  + " + dl.Content)
+		num := fmt.Sprintf("%*d", numWidth, newLine)
+		return DiffAddedStyle.Render(num + " +" + dl.Content)
 	case diff.DiffRemoved:
-		return DiffRemovedStyle.Render("  - " + dl.Content)
+		num := fmt.Sprintf("%*d", numWidth, oldLine)
+		return DiffRemovedStyle.Render(num + " -" + dl.Content)
 	default:
-		return "    " + dl.Content
+		num := fmt.Sprintf("%*d", numWidth, newLine)
+		return DimStyle.Render(num) + "  " + dl.Content
 	}
 }
 

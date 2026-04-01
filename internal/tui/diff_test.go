@@ -183,6 +183,74 @@ func TestRenderDiffDetail(t *testing.T) {
 	}
 }
 
+func TestRenderDiffDetail_lineNumbers(t *testing.T) {
+	// The diff detail view should show line numbers and sigils like Claude Code:
+	//   1  package main
+	//   2 -// old
+	//   2 +// new
+	//   3  func main() {}
+	file := diff.DiffFile{
+		Path: "main.go",
+		Hunks: []diff.DiffHunk{
+			{
+				OldStart: 1, OldCount: 3,
+				NewStart: 1, NewCount: 3,
+				Lines: []diff.DiffLine{
+					{Type: diff.DiffContext, Content: "package main"},
+					{Type: diff.DiffRemoved, Content: "// old"},
+					{Type: diff.DiffAdded, Content: "// new"},
+					{Type: diff.DiffContext, Content: "func main() {}"},
+				},
+			},
+		},
+	}
+
+	result := tui.RenderDiffDetail(file, 0, 40, 80)
+
+	// Line numbers should be present and right-aligned
+	assert.Contains(t, result, "1 ", "should have line number 1")
+	// Removed lines get a - sigil
+	assert.Contains(t, result, "-// old", "removed lines should have - sigil")
+	// Added lines get a + sigil
+	assert.Contains(t, result, "+// new", "added lines should have + sigil")
+	// Context lines have space sigil (no +/-)
+	assert.Contains(t, result, " package main", "context lines should have space sigil")
+}
+
+func TestRenderDiffDetail_lineNumberTracking(t *testing.T) {
+	// Removed lines show old line numbers, added lines show new line numbers.
+	// After a removal block, the new line numbers adjust.
+	//   10  context before
+	//   11 -removed line
+	//   11 +added line 1
+	//   12 +added line 2
+	//   13  context after
+	file := diff.DiffFile{
+		Path: "test.go",
+		Hunks: []diff.DiffHunk{
+			{
+				OldStart: 10, OldCount: 3,
+				NewStart: 10, NewCount: 4,
+				Lines: []diff.DiffLine{
+					{Type: diff.DiffContext, Content: "context before"},
+					{Type: diff.DiffRemoved, Content: "removed line"},
+					{Type: diff.DiffAdded, Content: "added line 1"},
+					{Type: diff.DiffAdded, Content: "added line 2"},
+					{Type: diff.DiffContext, Content: "context after"},
+				},
+			},
+		},
+	}
+
+	result := tui.RenderDiffDetail(file, 0, 40, 80)
+
+	// Should contain line numbers 10-13
+	assert.Contains(t, result, "10", "should have line number 10")
+	assert.Contains(t, result, "11", "should have line number 11")
+	assert.Contains(t, result, "12", "should have line number 12")
+	assert.Contains(t, result, "13", "should have line number 13")
+}
+
 func TestRenderDiffDetail_scrolling(t *testing.T) {
 	// Create a file with many lines
 	var lines []diff.DiffLine

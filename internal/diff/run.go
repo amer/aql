@@ -55,7 +55,7 @@ func NewDefaultRunner() *Runner {
 func (r *Runner) Run(ctx context.Context, workDir string) ([]DiffFile, DiffStats, error) {
 	slog.Debug("running git diff", "workDir", workDir)
 
-	numstatOut, err := r.run(ctx, workDir, "git", "diff", "HEAD", "--numstat")
+	numstatOut, err := r.run(ctx, workDir, "git", "diff", "HEAD", "--no-ext-diff", "--numstat")
 	if err != nil {
 		return nil, DiffStats{}, fmt.Errorf("git diff --numstat: %w", err)
 	}
@@ -65,7 +65,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) ([]DiffFile, DiffStats
 		return nil, DiffStats{}, nil
 	}
 
-	diffOut, err := r.run(ctx, workDir, "git", "diff", "HEAD")
+	diffOut, err := r.run(ctx, workDir, "git", "diff", "HEAD", "--no-ext-diff")
 	if err != nil {
 		return nil, DiffStats{}, fmt.Errorf("git diff: %w", err)
 	}

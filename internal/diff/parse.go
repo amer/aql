@@ -208,12 +208,22 @@ func parseHunkHeader(line string) DiffHunk {
 	// Format: "@@ -1,3 +1,4 @@" or "@@ -1,3 +1,4 @@ optional context"
 	var oldStart, oldCount, newStart, newCount int
 
-	// Try the full format first, then fall back to count=1 variants.
+	// Git omits ,count when count is 1. Try formats from most to least specific.
 	n, _ := fmt.Sscanf(line, "@@ -%d,%d +%d,%d @@", &oldStart, &oldCount, &newStart, &newCount)
 	if n < 4 {
-		// Handle single-line hunks: "@@ -1 +1,2 @@" means oldCount=1.
-		fmt.Sscanf(line, "@@ -%d +%d,%d @@", &oldStart, &newStart, &newCount)
-		oldCount = 1
+		n, _ = fmt.Sscanf(line, "@@ -%d,%d +%d @@", &oldStart, &oldCount, &newStart)
+		if n == 3 {
+			newCount = 1
+		} else {
+			n, _ = fmt.Sscanf(line, "@@ -%d +%d,%d @@", &oldStart, &newStart, &newCount)
+			if n == 3 {
+				oldCount = 1
+			} else {
+				fmt.Sscanf(line, "@@ -%d +%d @@", &oldStart, &newStart)
+				oldCount = 1
+				newCount = 1
+			}
+		}
 	}
 
 	return DiffHunk{

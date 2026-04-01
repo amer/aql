@@ -5,6 +5,7 @@ import (
 
 	"github.com/amer/aql/internal/diff"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseUnifiedDiff(t *testing.T) {
@@ -176,6 +177,47 @@ index abc..def 100644
 			assert.Equal(t, tt.wantFiles, files)
 		})
 	}
+}
+
+func TestParseUnifiedDiff_SingleLineReplacement(t *testing.T) {
+	// This is the exact format git produces when replacing a single-line file.
+	// The hunk header has no comma counts: @@ -1 +1 @@
+	input := "diff --git a/hello.txt b/hello.txt\n" +
+		"index 3b18e51..a80b5a2 100644\n" +
+		"--- a/hello.txt\n" +
+		"+++ b/hello.txt\n" +
+		"@@ -1 +1 @@\n" +
+		"-hello world\n" +
+		"+goodbye world\n"
+
+	files := diff.ParseUnifiedDiff(input)
+	require.Len(t, files, 1)
+	assert.Equal(t, "hello.txt", files[0].Path)
+	require.Len(t, files[0].Hunks, 1, "expected 1 hunk")
+	assert.Len(t, files[0].Hunks[0].Lines, 2, "expected 2 diff lines")
+	assert.Equal(t, diff.DiffRemoved, files[0].Hunks[0].Lines[0].Type)
+	assert.Equal(t, "hello world", files[0].Hunks[0].Lines[0].Content)
+	assert.Equal(t, diff.DiffAdded, files[0].Hunks[0].Lines[1].Type)
+	assert.Equal(t, "goodbye world", files[0].Hunks[0].Lines[1].Content)
+}
+
+func TestParseHunkHeader_NoCommas(t *testing.T) {
+	// @@ -1 +1 @@ — git omits ,count when count is 1.
+	input := "diff --git a/f.txt b/f.txt\n" +
+		"--- a/f.txt\n" +
+		"+++ b/f.txt\n" +
+		"@@ -1 +1 @@\n" +
+		"-old\n" +
+		"+new\n"
+
+	files := diff.ParseUnifiedDiff(input)
+	require.Len(t, files, 1)
+	require.Len(t, files[0].Hunks, 1)
+	h := files[0].Hunks[0]
+	assert.Equal(t, 1, h.OldStart)
+	assert.Equal(t, 1, h.OldCount, "OldCount should be 1 for @@ -1 +1 @@")
+	assert.Equal(t, 1, h.NewStart)
+	assert.Equal(t, 1, h.NewCount, "NewCount should be 1 for @@ -1 +1 @@")
 }
 
 func TestParseNumstat(t *testing.T) {
