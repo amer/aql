@@ -26,8 +26,6 @@
 ## Reference & Research
 
 - [advanced-go-concurrency-patterns.md](advanced-go-concurrency-patterns.md) — concurrency patterns and Go memory model reference
-- [claude-code-architecture.md](claude-code-architecture.md) — Claude Code source architecture analysis (TypeScript reference)
-- [claude-code-system-prompt.md](claude-code-system-prompt.md) — extracted Claude Code system prompt (v2.1.88)
 - [claude-code-tui-features.md](claude-code-tui-features.md) — comprehensive Claude Code TUI feature reference
 - [go-refactoring-rules.md](go-refactoring-rules.md) — refactoring rules for AI coding agents in Go
 - [status-quo-claude-code-vs-aql.md](status-quo-claude-code-vs-aql.md) — gap analysis snapshot (2026-03-31)
