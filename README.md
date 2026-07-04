@@ -62,7 +62,7 @@ go vet ./...
 
 ## License
 
-TBD
+[MIT](LICENSE)
 
 ---
 
