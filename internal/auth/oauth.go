@@ -4,11 +4,10 @@ package auth
 // FILE GUIDELINES
 //
 // BELONGS HERE:
-//   - Tokens struct and lifecycle (NewTokens, IsExpired, NeedsRefresh)
+//   - Tokens struct and lifecycle (NewTokens, IsExpired)
 //   - PKCE generation (GeneratePKCE)
 //   - OAuth URL building (BuildAuthorizeURL)
 //   - Token exchange (ExchangeCode), API key creation (CreateAPIKey)
-//   - Token refresh (RefreshAccessToken)
 //   - Token persistence (SaveTokens, LoadTokens)
 //   - OAuth constants and endpoints
 //
@@ -55,9 +54,6 @@ const (
 
 	// Token file name.
 	tokenFileName = ".aql_tokens.json"
-
-	// Refresh tokens 5 minutes before they expire.
-	refreshThreshold = 5 * time.Minute
 )
 
 // AllScopes are the OAuth scopes Claude Code requests for full access.
@@ -90,11 +86,6 @@ func NewTokens(accessToken, refreshToken string, expiresInSeconds int) *Tokens {
 // IsExpired returns true if the access token has expired.
 func (t Tokens) IsExpired() bool {
 	return time.Now().After(t.ExpiresAt)
-}
-
-// NeedsRefresh returns true if the token will expire soon and should be refreshed.
-func (t Tokens) NeedsRefresh() bool {
-	return time.Now().After(t.ExpiresAt.Add(-refreshThreshold))
 }
 
 // GeneratePKCE generates a PKCE code verifier and challenge (S256).
@@ -225,37 +216,6 @@ func CreateAPIKey(httpClient *http.Client, createKeyURL, oauthToken string) (str
 	}
 
 	return result.RawKey, nil
-}
-
-// RefreshAccessToken uses a refresh token to get new tokens.
-func RefreshAccessToken(httpClient *http.Client, tokenURL, refreshToken string) (*Tokens, error) {
-	body := map[string]string{
-		"grant_type":    "refresh_token",
-		"refresh_token": refreshToken,
-		"client_id":     ClientID,
-	}
-
-	jsonBody, _ := json.Marshal(body)
-	resp, err := httpClient.Post(tokenURL, "application/json", bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("token refresh request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token refresh failed: %d %s", resp.StatusCode, resp.Status)
-	}
-
-	var result struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode refresh response: %w", err)
-	}
-
-	return NewTokens(result.AccessToken, result.RefreshToken, result.ExpiresIn), nil
 }
 
 // SaveTokens persists tokens to disk with restrictive permissions.

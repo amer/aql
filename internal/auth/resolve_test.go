@@ -24,10 +24,13 @@ func TestResolveAPIKeyFromDirs_OAuth(t *testing.T) {
 	assert.True(t, isOAuth)
 }
 
-func TestResolveAPIKeyFromDirs_ExpiredOAuthFallsBackToEnv(t *testing.T) {
+func TestResolveAPIKeyFromDirs_ExpiredAccessTokenStillUsesAPIKey(t *testing.T) {
 	dir := t.TempDir()
+	// The OAuth access token has expired, but the API key minted from it is a
+	// separate, long-lived credential. Expiry of the short-lived access token
+	// must not cause us to discard a perfectly usable API key.
 	tokens := auth.Tokens{
-		APIKey:    "expired-key",
+		APIKey:    "minted-key",
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
 	}
 	require.NoError(t, auth.SaveTokens(dir, tokens))
@@ -36,8 +39,8 @@ func TestResolveAPIKeyFromDirs_ExpiredOAuthFallsBackToEnv(t *testing.T) {
 
 	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	require.NoError(t, err)
-	assert.Equal(t, "env-key-456", key)
-	assert.False(t, isOAuth)
+	assert.Equal(t, "minted-key", key)
+	assert.True(t, isOAuth)
 }
 
 func TestResolveAPIKeyFromDirs_NoTokensUsesEnv(t *testing.T) {

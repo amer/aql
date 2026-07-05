@@ -89,11 +89,16 @@ func ResolveAPIKeyFromDirs(dirs []string) (apiKey string, isOAuth bool, err erro
 	tokens := loadFirstTokens(dirs)
 
 	switch {
-	case tokens != nil && tokens.IsExpired():
-		slog.Warn("OAuth tokens expired, falling back to API key")
 	case tokens != nil && tokens.APIKey == "":
 		slog.Warn("OAuth tokens present but API key is empty, falling back to API key")
 	case tokens != nil:
+		// The API key minted during login is a long-lived credential,
+		// independent of the short-lived OAuth access token. Use it even if the
+		// access token's ExpiresAt has passed — expiry only governs refresh,
+		// which is not required for API-key authentication.
+		if tokens.IsExpired() {
+			slog.Debug("OAuth access token expired, but minted API key is still valid")
+		}
 		slog.Info("using OAuth authentication", "expiresAt", tokens.ExpiresAt)
 		return tokens.APIKey, true, nil
 	}

@@ -109,44 +109,12 @@ func TestExchangeCode_ServerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "400")
 }
 
-func TestRefreshAccessToken_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]string
-		json.NewDecoder(r.Body).Decode(&req)
-		assert.Equal(t, "refresh_token", req["grant_type"])
-		assert.Equal(t, "old-refresh", req["refresh_token"])
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  "new-access",
-			"refresh_token": "new-refresh",
-			"expires_in":    7200,
-		})
-	}))
-	defer server.Close()
-
-	tokens, err := auth.RefreshAccessToken(http.DefaultClient, server.URL, "old-refresh")
-	require.NoError(t, err)
-	assert.Equal(t, "new-access", tokens.AccessToken)
-	assert.Equal(t, "new-refresh", tokens.RefreshToken)
-}
-
 func TestTokens_IsExpired(t *testing.T) {
 	expired := auth.NewTokens("a", "r", -1)
 	assert.True(t, expired.IsExpired())
 
 	valid := auth.NewTokens("a", "r", 3600)
 	assert.False(t, valid.IsExpired())
-}
-
-func TestTokens_NeedsRefresh(t *testing.T) {
-	// Expires in 2 minutes — within the 5-minute refresh threshold
-	soon := auth.NewTokens("a", "r", 120)
-	assert.True(t, soon.NeedsRefresh())
-
-	// Expires in 1 hour — no refresh needed
-	later := auth.NewTokens("a", "r", 3600)
-	assert.False(t, later.NeedsRefresh())
 }
 
 func TestSaveAndLoadTokens(t *testing.T) {
