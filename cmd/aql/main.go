@@ -133,11 +133,21 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 	// y/n prompt so a prompt-injected model can't silently run commands.
 	approve := newApprover(func(msg any) { program.Send(msg) })
 
+	// Tool-executor options shared by the primary agent and every sub-agent.
+	// Threading these through the spawner (not just the primary executor) keeps
+	// children from silently losing ask_user, the shared HTTP client, or the
+	// approval gate — the bug class the spawner header warns about.
+	sharedToolOpts := []tools.ExecutorOption{
+		tools.WithApprover(approve),
+		tools.WithAskUser(askUser),
+		tools.WithHTTPClient(httpClient),
+	}
+
 	// Build tool executor with the shared HTTP client. The spawner carries the
-	// same approver so sub-agent tool calls are gated too.
+	// same options so sub-agent tool calls are gated and wired identically.
 	spawner := agent.NewSpawner(chatClient, cfg, workDir,
 		agent.WithAgentOptions(baseOpts...),
-		agent.WithToolOptions(tools.WithApprover(approve)),
+		agent.WithToolOptions(sharedToolOpts...),
 	)
 	toolExec := tools.NewExecutor(
 		tools.WithTaskStore(tools.NewTaskStore()),

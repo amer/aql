@@ -143,6 +143,33 @@ func TestSpawner_ChildToolsGatedByApprover(t *testing.T) {
 	assert.Contains(t, approved, "bash", "sub-agent bash must be routed through the approver")
 }
 
+func TestSpawner_ChildInheritsAskUser(t *testing.T) {
+	callCount := 0
+	client := &toolUsingClient{
+		responses: []*domain.ChatResponse{
+			{
+				ToolUses:   []domain.ChatToolUse{{ID: "t1", Name: "ask_user", Input: `{"question":"proceed?"}`}},
+				StopReason: "tool_use",
+			},
+			{TextParts: []string{"done"}, StopReason: "end_turn"},
+		},
+		callCount: &callCount,
+	}
+	var asked []string
+	spawner := agent.NewSpawner(client, spawnerTestConfig(), t.TempDir(),
+		agent.WithToolOptions(tools.WithAskUser(
+			func(_ context.Context, q tools.UserQuestion) (string, error) {
+				asked = append(asked, q.Question)
+				return "yes", nil
+			})),
+	)
+
+	_, err := spawner.Spawn(context.Background(), "ask something")
+
+	require.NoError(t, err)
+	assert.Contains(t, asked, "proceed?", "sub-agent ask_user must reach the inherited AskUserFn")
+}
+
 // toolUsingClient returns different responses on successive calls and
 // records the ChatParams of every call it receives.
 type toolUsingClient struct {
