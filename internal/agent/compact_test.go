@@ -139,6 +139,40 @@ func TestCompactHistory_SingleMessage(t *testing.T) {
 	assert.Contains(t, err.Error(), "fewer than 2 messages")
 }
 
+// capturingChatClient records the params of the last SendMessage call so tests
+// can assert on how compaction configured the request.
+type capturingChatClient struct {
+	lastParams domain.ChatParams
+}
+
+func (c *capturingChatClient) StreamMessage(_ context.Context, _ domain.ChatParams, _ func(string)) (*domain.ChatResponse, error) {
+	return &domain.ChatResponse{}, nil
+}
+
+func (c *capturingChatClient) SendMessage(_ context.Context, params domain.ChatParams) (*domain.ChatResponse, error) {
+	c.lastParams = params
+	return &domain.ChatResponse{TextParts: []string{"a summary"}}, nil
+}
+
+func TestCompactHistory_OAuthAgentSetsBilling(t *testing.T) {
+	client := &capturingChatClient{}
+	a, err := agent.New(agent.Config{
+		Name:         "test-coder",
+		Role:         "Go developer",
+		SystemPrompt: "You are a Go developer.",
+	}, t.TempDir(), agent.WithChatClient(client), agent.WithOAuth())
+	require.NoError(t, err)
+
+	a.ApplyHistory(domain.NewUserMessage("write auth tests"))
+	a.ApplyHistory(domain.NewAssistantMessage("done"))
+
+	_, err = a.CompactHistory(context.Background())
+	require.NoError(t, err)
+
+	assert.True(t, client.lastParams.OAuthBilling,
+		"compaction on an OAuth session must set OAuthBilling")
+}
+
 func TestAutoCompactThreshold_IsReasonable(t *testing.T) {
 	// 80% of 200k context window
 	assert.Equal(t, 160_000, agent.AutoCompactThreshold)

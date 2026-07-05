@@ -104,10 +104,11 @@ func (a *Agent) summarizeHistory(ctx context.Context, history []domain.Message) 
 	)
 
 	resp, err := a.chatClient.SendMessage(ctx, domain.ChatParams{
-		Model:     model,
-		MaxTokens: compactMaxTokens,
-		System:    compactSystemPrompt,
-		Messages:  []domain.Message{domain.NewUserMessage(formatted)},
+		Model:        model,
+		MaxTokens:    compactMaxTokens,
+		System:       compactSystemPrompt,
+		Messages:     []domain.Message{domain.NewUserMessage(formatted)},
+		OAuthBilling: a.isOAuth,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("compact API call: %w", err)
