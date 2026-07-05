@@ -5,7 +5,6 @@ package models
 //
 // BELONGS HERE:
 //   - LoadOrDefault() — startup model resolution (saved → cached → default)
-//   - ModelToTier() — converts ModelInfo for display
 //   - ProbeAndUpdate() — background model probe + cache update
 //
 // MUST NOT GO HERE:
@@ -19,7 +18,6 @@ package models
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/amer/aql/internal/domain"
@@ -34,7 +32,12 @@ func LoadOrDefault(workDir string) (modelID string, cached []domain.ModelInfo) {
 		slog.Warn("failed to load saved model", "error", err)
 	}
 
-	cached, _ = LoadModelCache(workDir)
+	cached, err = LoadModelCache(workDir)
+	if err != nil {
+		// A missing cache is normal on first run; log at debug so a real
+		// read/parse failure is still traceable without startup noise.
+		slog.Debug("failed to load model cache", "error", err)
+	}
 	if savedModel == "" && len(cached) > 0 {
 		savedModel = cached[0].ID
 		slog.Info("auto-selected model from cache", "model", savedModel)
@@ -44,11 +47,6 @@ func LoadOrDefault(workDir string) (modelID string, cached []domain.ModelInfo) {
 	}
 
 	return savedModel, cached
-}
-
-// ModelToTier converts a ModelInfo to a display-friendly tier description.
-func ModelToTier(m domain.ModelInfo) (label, modelID, description string) {
-	return m.DisplayName, m.ID, fmt.Sprintf("%dk context", m.MaxInputTokens/1000)
 }
 
 // ProbeAndUpdate probes usable models in the background, updates the cache,
