@@ -6,6 +6,7 @@ package tools
 // BELONGS HERE:
 //   - execWebFetch — URL fetching with HTML text extraction
 //   - execWebSearch — DuckDuckGo search
+//   - FetchGuard, blockPrivateNetworks, isPrivateIP — SSRF protection
 //   - HTML parsing helpers (extractText, walkText, parseSearchResults,
 //     collectSearchResults)
 //   - Response size and search result constants
@@ -18,6 +19,11 @@ package tools
 // Q: Should I add a new search provider?
 // A: Replace or extend execWebSearch here. The tool definition in
 //    defs.go stays the same.
+//
+// Q: Why does web_fetch resolve the host before requesting?
+// A: SSRF protection — the URL is untrusted agent input and must not be
+//    allowed to reach loopback, private, or link-local (cloud metadata)
+//    addresses. Only web_fetch is guarded; web_search's host is ours.
 // ──────────────────────────────────────────────────────────────────
 
 import (
@@ -26,6 +32,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -33,6 +40,37 @@ import (
 
 	"golang.org/x/net/html"
 )
+
+// FetchGuard decides whether web_fetch may request u. It returns a non-empty
+// human-readable reason when the URL must be refused, or "" to allow it.
+type FetchGuard func(u *url.URL) string
+
+// blockPrivateNetworks is the default FetchGuard. It rejects non-HTTP(S)
+// schemes and any host that resolves to a loopback, private, link-local,
+// unspecified, or multicast address — the ranges an SSRF attack targets
+// (169.254.169.254 cloud metadata, 127.0.0.1, 10/8, intranet, etc.).
+func blockPrivateNetworks(u *url.URL) string {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "refusing to fetch non-HTTP(S) URL: scheme " + u.Scheme
+	}
+	ips, err := net.LookupIP(u.Hostname())
+	if err != nil {
+		return "cannot resolve host: " + err.Error()
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return "refusing to fetch private or loopback address: " + ip.String()
+		}
+	}
+	return ""
+}
+
+// isPrivateIP reports whether ip is in a range web_fetch must never reach.
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast()
+}
 
 const (
 	// maxResponseBodyBytes is the max bytes read from HTTP response bodies.
@@ -45,14 +83,21 @@ const (
 	maxSearchResults = 10
 )
 
-func execWebFetch(ctx context.Context, client *http.Client, input json.RawMessage) (string, error) {
+func execWebFetch(ctx context.Context, client *http.Client, guard FetchGuard, input json.RawMessage) (string, error) {
 	params, errMsg := parseInput[struct {
 		URL string `json:"url"`
 	}](input)
 	if errMsg != "" {
 		return errMsg, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, params.URL, nil)
+	u, err := url.Parse(params.URL)
+	if err != nil {
+		return "invalid URL: " + err.Error(), nil
+	}
+	if reason := guard(u); reason != "" {
+		return reason, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return "invalid URL: " + err.Error(), nil
 	}

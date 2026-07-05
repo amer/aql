@@ -207,7 +207,7 @@ func Definitions() []ToolDef {
 type toolHandler func(ctx context.Context, workDir string, input json.RawMessage) (string, error)
 
 // buildRegistry returns a tool name → handler map, binding askFn and webClient into handlers.
-func buildRegistry(askFn AskUserFn, webClient *http.Client) map[string]toolHandler {
+func buildRegistry(askFn AskUserFn, webClient *http.Client, fetchGuard FetchGuard) map[string]toolHandler {
 	// Adapters for tools that don't need ctx or workDir
 	withDir := func(fn func(string, json.RawMessage) (string, error)) toolHandler {
 		return func(_ context.Context, workDir string, input json.RawMessage) (string, error) {
@@ -223,7 +223,7 @@ func buildRegistry(askFn AskUserFn, webClient *http.Client) map[string]toolHandl
 		"bash":           execBash,
 		"grep":           execGrep,
 		"web_fetch": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
-			return execWebFetch(ctx, webClient, input)
+			return execWebFetch(ctx, webClient, fetchGuard, input)
 		},
 		"web_search": func(ctx context.Context, _ string, input json.RawMessage) (string, error) {
 			return execWebSearch(ctx, webClient, input)
@@ -244,6 +244,7 @@ type executorOpts struct {
 	agentSpawner AgentSpawner
 	httpClient   *http.Client
 	approve      ApproverFn
+	fetchGuard   FetchGuard
 }
 
 // WithAskUser sets the function called when the agent uses ask_user.
@@ -272,6 +273,13 @@ func WithApprover(fn ApproverFn) ExecutorOption {
 	return func(o *executorOpts) { o.approve = fn }
 }
 
+// WithFetchGuard overrides the SSRF guard for web_fetch. The default guard
+// (blockPrivateNetworks) refuses loopback, private, and link-local hosts; tests
+// that fetch httptest servers on 127.0.0.1 inject a permissive guard.
+func WithFetchGuard(g FetchGuard) ExecutorOption {
+	return func(o *executorOpts) { o.fetchGuard = g }
+}
+
 // NewExecutor creates an ExecutorFn with the given options.
 func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 	var o executorOpts
@@ -282,7 +290,11 @@ func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 	if webClient == nil {
 		webClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	registry := buildRegistry(o.askFn, webClient)
+	fetchGuard := o.fetchGuard
+	if fetchGuard == nil {
+		fetchGuard = blockPrivateNetworks
+	}
+	registry := buildRegistry(o.askFn, webClient, fetchGuard)
 	if o.taskStore != nil {
 		registerTaskTools(registry, o.taskStore)
 	}

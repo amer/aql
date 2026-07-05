@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,12 @@ import (
 // store). It exists so tests can invoke a tool by name without production code
 // exposing a public one-shot Execute that only tests need.
 func execTool(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
-	return tools.NewExecutor(tools.WithTaskStore(tools.NewTaskStore()))(ctx, workDir, name, input)
+	// Tests fetch httptest servers on 127.0.0.1, so the default SSRF guard
+	// (which blocks loopback) is replaced with a permissive one here.
+	return tools.NewExecutor(
+		tools.WithTaskStore(tools.NewTaskStore()),
+		tools.WithFetchGuard(func(*url.URL) string { return "" }),
+	)(ctx, workDir, name, input)
 }
 
 func writeTestFile(t *testing.T, dir, name, content string) string {
@@ -373,7 +379,10 @@ func TestWithHTTPClient_UsedByWebFetch(t *testing.T) {
 		}),
 	}
 
-	exec := tools.NewExecutor(tools.WithHTTPClient(customClient))
+	exec := tools.NewExecutor(
+		tools.WithHTTPClient(customClient),
+		tools.WithFetchGuard(func(*url.URL) string { return "" }),
+	)
 	result, err := exec(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 
@@ -387,6 +396,20 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 // --- web_fetch ---
+
+func TestWebFetch_BlocksLinkLocalMetadataAddress(t *testing.T) {
+	// A default executor keeps the SSRF guard enabled. 169.254.169.254 is the
+	// cloud metadata endpoint (a link-local address) the agent must never reach.
+	exec := tools.NewExecutor(tools.WithTaskStore(tools.NewTaskStore()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := exec(ctx, ".", "web_fetch",
+		json.RawMessage(`{"url":"http://169.254.169.254/latest/meta-data/"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result, "refusing")
+}
 
 func TestWebFetch_PlainText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
