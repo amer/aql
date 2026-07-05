@@ -12,8 +12,9 @@ package e2e
 //   - Exchange type and serialization (exchange.go)
 //
 // Q: How does replay work?
-// A: Exchanges are served sequentially, regardless of request path.
-//    When all exchanges are exhausted, returns 502.
+// A: Exchanges are keyed by "METHOD PATH" and served in recorded order within
+//    each key. This keeps replay deterministic when a background GET /v1/models
+//    probe races the POST /v1/messages chat. Exhausted or unknown keys 502.
 // ──────────────────────────────────────────────────────────────────
 
 import (
@@ -22,29 +23,38 @@ import (
 	"sync"
 )
 
-// Replayer is an HTTP server that replays previously recorded exchanges
-// in order. No network calls are made.
+// Replayer is an HTTP server that replays previously recorded exchanges,
+// matching each request to the exchange recorded for its method and path.
+// No network calls are made.
 type Replayer struct {
-	mu        sync.Mutex
-	exchanges []Exchange
-	index     int
+	mu     sync.Mutex
+	queues map[string][]Exchange
 }
 
 // NewReplayer creates a replay server from a list of exchanges.
 func NewReplayer(exchanges []Exchange) *Replayer {
-	return &Replayer{exchanges: exchanges}
+	queues := make(map[string][]Exchange)
+	for _, ex := range exchanges {
+		key := ex.Method + " " + ex.Path
+		queues[key] = append(queues[key], ex)
+	}
+	return &Replayer{queues: queues}
 }
 
-// ServeHTTP implements http.Handler — replays the next exchange in sequence.
+// ServeHTTP implements http.Handler — replays the next exchange recorded for
+// the request's method and path.
 func (r *Replayer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	key := req.Method + " " + req.URL.Path
+
 	r.mu.Lock()
-	if r.index >= len(r.exchanges) {
+	queue := r.queues[key]
+	if len(queue) == 0 {
 		r.mu.Unlock()
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	ex := r.exchanges[r.index]
-	r.index++
+	ex := queue[0]
+	r.queues[key] = queue[1:]
 	r.mu.Unlock()
 
 	for key, vals := range ex.ResponseHeaders {

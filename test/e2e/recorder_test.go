@@ -316,6 +316,33 @@ func TestReplayer_ServesRecordedExchanges(t *testing.T) {
 	assert.Equal(t, `{"models":[]}`, string(body))
 }
 
+func TestReplayer_MatchesByMethodAndPath(t *testing.T) {
+	// A chat session issues a background GET /v1/models probe concurrently with
+	// the POST /v1/messages chat. The replayer must serve each request the
+	// exchange recorded for its own method+path, regardless of arrival order —
+	// otherwise a probe that races ahead steals the chat's response.
+	exchanges := []e2e.Exchange{
+		{Method: "GET", Path: "/v1/models", StatusCode: http.StatusOK, ResponseBody: `{"data":[]}`},
+		{Method: "POST", Path: "/v1/messages", StatusCode: http.StatusOK, ResponseBody: `{"id":"msg_1"}`},
+	}
+
+	server := httptest.NewServer(e2e.NewReplayer(exchanges))
+	defer server.Close()
+
+	// POST arrives first (opposite of recorded order).
+	resp, err := http.Post(server.URL+"/v1/messages", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, `{"id":"msg_1"}`, string(body))
+
+	resp, err = http.Get(server.URL + "/v1/models")
+	require.NoError(t, err)
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, `{"data":[]}`, string(body))
+}
+
 func TestReplayer_Returns502WhenExhausted(t *testing.T) {
 	replayer := e2e.NewReplayer([]e2e.Exchange{
 		{
