@@ -56,7 +56,12 @@ func isRetryableError(err error) bool {
 		}
 		return false
 	}
-	// Streaming errors aren't typed — check the error message
+	// Streaming (SSE) errors arrive as an `event: error` payload, not an HTTP
+	// response, so they carry no status code to switch on. The only signal we
+	// have is the error text, which embeds the API's stable error `type`
+	// (api_error, overloaded_error) or its message. Substring matching is
+	// deliberate here — the alternative is plumbing a typed error up from the
+	// SSE decoder, which isn't worth it for these fixed contract strings.
 	msg := err.Error()
 	return strings.Contains(msg, "api_error") ||
 		strings.Contains(msg, "overloaded_error") ||
