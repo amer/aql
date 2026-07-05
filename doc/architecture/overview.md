@@ -32,7 +32,9 @@
                                     │  read, write,   │
                                     │  edit, shell,   │
                                     │  glob, web,     │
-                                    │  ask_user       │
+                                    │  ask_user,      │
+                                    │  task_*, agent  │
+                                    │  (sub-agents)   │
                                     └───────┬─────────┘
                                             │ domain.ChatClient
                                             ▼
@@ -50,16 +52,16 @@
 
 ## Package Responsibilities
 
-| Package        | Role                                                  |
-| -------------- | ----------------------------------------------------- |
-| `domain/`      | Pure types + interfaces (zero deps)                   |
-| `llm/`         | Anthropic SDK adapter                                 |
-| `agent/`       | Agentic loop: conversation, tools, retry, compaction  |
-| `agent/tools/` | Tool definitions + executors (file, shell, web, glob) |
-| `stream/`      | Translates domain events → TUI messages               |
-| `tui/`         | Terminal UI (Bubble Tea)                              |
-| `auth/`        | OAuth PKCE + API key resolution                       |
-| `models/`      | Model listing, probing, persistence                   |
+| Package        | Role                                                                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `domain/`      | Pure types + interfaces (zero deps)                                                                                               |
+| `llm/`         | Anthropic SDK adapter                                                                                                             |
+| `agent/`       | Agentic loop: conversation, tools, retry, compaction, sub-agent spawning (children inherit parent options via `WithAgentOptions`) |
+| `agent/tools/` | Tool definitions + executors (file, shell, web, glob, tasks, agent)                                                               |
+| `stream/`      | Translates domain events → TUI messages                                                                                           |
+| `tui/`         | Terminal UI (Bubble Tea)                                                                                                          |
+| `auth/`        | OAuth PKCE + API key resolution                                                                                                   |
+| `models/`      | Model listing, probing, persistence                                                                                               |
 
 ## Data Flow — Race-Free History
 

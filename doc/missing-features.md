@@ -81,12 +81,11 @@ CC has modes like `plan` (read-only), `acceptEdits`, `fullAuto`. Users cycle wit
 
 CC's Agent tool spawns child agents with isolated conversations, optional worktree isolation, and background execution.
 
-### 3.1 Basic sub-agent spawning
+### 3.1 Basic sub-agent spawning — IMPLEMENTED
 
 An `agent` tool that creates a child `Agent` with its own history, runs a prompt, returns the result.
 
-**How**: New tool in `tools.go`. Create a child `Agent` (same config, fresh history, custom system prompt). Call `agent.Run()` in a goroutine. Collect the final text response. Return it as the tool result. Cap recursion depth.
-**Scope**: `agent` | **Size**: L
+**Status**: Implemented in `internal/agent/spawner.go` (Spawner, depth-capped, registered as the `agent` tool via `tools.WithAgentSpawner`). Children inherit the parent's agent options (OAuth billing, etc.) via `WithAgentOptions`.
 
 ### 3.2 Background agents
 
@@ -289,7 +288,7 @@ CC appends `Co-Authored-By: Claude <model> <noreply@anthropic.com>` to all commi
 | 9   | Session persistence (6.1, 6.2)                  | M    | Resume interrupted work                         |
 | 10  | Rewind (12.3)                                   | M    | Undo bad agent turns                            |
 | 11  | Plan mode (5)                                   | M    | Safe exploration before committing to changes   |
-| 12  | Sub-agents (3.1)                                | L    | Parallel work, research delegation              |
+| 12  | Sub-agents (3.1) — done                         | L    | Parallel work, research delegation              |
 | 13  | `@` file mentions (12.6)                        | M    | Quick file inclusion                            |
 | 14  | Memory injection (1.4)                          | M    | Cross-session context                           |
 | 15  | Extended thinking toggle (12.4)                 | S    | User control over reasoning visibility          |

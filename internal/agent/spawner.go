@@ -4,7 +4,8 @@ package agent
 // FILE GUIDELINES
 //
 // BELONGS HERE:
-//   - Spawner struct, NewSpawner() with SpawnerOption pattern,
+//   - Spawner struct, NewSpawner() with SpawnerOption pattern
+//     (WithMaxDepth, WithAgentOptions),
 //     Spawn() — creates and runs child agents, depth limiting,
 //     NewToolExecutor() — convenience wiring function.
 //
@@ -18,6 +19,11 @@ package agent
 //
 // Q: Where do I configure sub-agent tools?
 // A: In Spawn(), which calls tools.NewExecutor(). Add options there.
+//
+// Q: How does a child inherit parent configuration (e.g. OAuth)?
+// A: Via WithAgentOptions. The spawner applies those options to every
+//    child it creates, recursively. Never hand-pick individual options
+//    in Spawn() — that is how the sub-agent OAuth bug happened.
 // ──────────────────────────────────────────────────────────────────
 
 import (

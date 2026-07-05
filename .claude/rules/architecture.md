@@ -10,21 +10,21 @@ Unwritten rules derived from the codebase. These are patterns consistently follo
 
 ## Quick Reference
 
-| #   | Rule                                                                              | Enforced By                             |
-| --- | --------------------------------------------------------------------------------- | --------------------------------------- |
+| #   | Rule                                                                                 | Enforced By                             |
+| --- | ------------------------------------------------------------------------------------ | --------------------------------------- |
 | 1   | **Dependency direction**: domain <- agent <- stream -> tui. TUI never imports agent. | Import graph                            |
-| 2   | **History ownership**: Run() emits events, never writes `a.history`               | Race detector                           |
-| 3   | **Event channel protocol**: buffered, closed on exit, terminal = Done/Error       | Deadlock if violated                    |
-| 4   | **Tool errors are strings**, not Go errors                                        | Runner marks `isError` wrong otherwise  |
-| 5   | **Functional options** for all constructors                                       | Convention across agent, tools, spawner |
-| 6   | **TUI callbacks via Set\*()**, never direct imports                               | Dependency inversion from agent         |
-| 7   | **Bubble Tea messages are value types**                                           | Immutability convention                 |
-| 8   | **Two-phase transcript**: group then render                                       | ToolID matching breaks if bypassed      |
-| 9   | **Three-part tool registration**: definition + handler + display mapping          | `DispatchesAllKnownTools` test          |
-| 10  | **workDir threaded as parameter**, never `os.Getwd()`                             | Testability with `t.TempDir()`          |
-| 11  | **Stream adapter translates, never filters**                                      | Filtering belongs in TUI handlers       |
-| 12  | **External test packages**, testify, table-driven, fakes over mocks               | Convention                              |
-| 13  | **Silent tools** suppressed at earliest identification point                      | ask*user in adapter, task*\* in TUI     |
+| 2   | **History ownership**: Run() emits events, never writes `a.history`                  | Race detector                           |
+| 3   | **Event channel protocol**: buffered, closed on exit, terminal = Done/Error          | Deadlock if violated                    |
+| 4   | **Tool errors are strings**, not Go errors                                           | Runner marks `isError` wrong otherwise  |
+| 5   | **Functional options** for all constructors                                          | Convention across agent, tools, spawner |
+| 6   | **TUI callbacks via Set\*()**, never direct imports                                  | Dependency inversion from agent         |
+| 7   | **Bubble Tea messages are value types**                                              | Immutability convention                 |
+| 8   | **Two-phase transcript**: group then render                                          | ToolID matching breaks if bypassed      |
+| 9   | **Three-part tool registration**: definition + handler + display mapping             | `DispatchesAllKnownTools` test          |
+| 10  | **workDir threaded as parameter**, never `os.Getwd()`                                | Testability with `t.TempDir()`          |
+| 11  | **Stream adapter translates, never filters**                                         | Filtering belongs in TUI handlers       |
+| 12  | **External test packages**, testify, table-driven, fakes over mocks                  | Convention                              |
+| 13  | **Silent tools** suppressed at earliest identification point                         | ask*user in adapter, task*\* in TUI     |
 
 ---
 
@@ -99,10 +99,12 @@ All constructors that accept configuration use the functional options pattern:
 ```go
 agent.New(cfg, workDir, agent.WithChatClient(c), agent.WithOAuth())
 tools.NewExecutor(tools.WithAskUser(fn), tools.WithTaskStore(store))
-agent.NewSpawner(client, cfg, workDir, agent.WithMaxDepth(3))
+agent.NewSpawner(client, cfg, workDir, agent.WithAgentOptions(baseOpts...))
 ```
 
 **Rule:** New optional dependencies get a `With*` option function. Don't add parameters to the constructor signature. Don't use config structs for optional values — the option pattern composes better and has zero-value defaults.
+
+**Rule:** Spawners receive the parent's base agent options via `WithAgentOptions` so sub-agents inherit them (OAuth billing, etc.). Never construct a child agent from a hand-picked subset of options — that is how children silently lose configuration.
 
 ---
 
