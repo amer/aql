@@ -24,6 +24,7 @@ package models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -218,5 +219,30 @@ func probeModel(ctx context.Context, client anthropic.Client, modelID string, wi
 	}
 
 	_, err := client.Messages.New(ctx, params, reqOpts...)
-	return err == nil
+	if err == nil {
+		return true
+	}
+	if probeErrorIsDefinitive(err) {
+		slog.Debug("model definitively inaccessible", "model", modelID, "error", err)
+	} else {
+		// Network blip, rate limit, or server error — we can't tell whether
+		// the model is usable. Treat it as unavailable conservatively, but log
+		// loudly so a transient outage isn't mistaken for a missing model.
+		slog.Warn("model probe inconclusive; treating as unavailable", "model", modelID, "error", err)
+	}
+	return false
+}
+
+// probeErrorIsDefinitive reports whether err means the account definitively
+// cannot use the model (auth failure or not found), as opposed to a transient
+// failure (rate limit, server error, network) where the result is inconclusive.
+func probeErrorIsDefinitive(err error) bool {
+	var apiErr *anthropic.Error
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+			return true
+		}
+	}
+	return false
 }
