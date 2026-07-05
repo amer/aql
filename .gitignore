@@ -35,7 +35,9 @@ aql.log
 
 # OS
 .DS_Store
-aql
+
+# aql binary at repo root (not the cmd/aql source directory)
+/aql
 
 # E2E test artifacts
 test/e2e/artifacts/

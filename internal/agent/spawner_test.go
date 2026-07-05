@@ -11,12 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeChatClient returns a canned response for testing.
+// fakeChatClient returns a canned response and records the ChatParams
+// of every call it receives.
 type fakeChatClient struct {
 	response *domain.ChatResponse
+	captured []domain.ChatParams
 }
 
-func (f *fakeChatClient) StreamMessage(_ context.Context, _ domain.ChatParams, onText func(string)) (*domain.ChatResponse, error) {
+func (f *fakeChatClient) StreamMessage(_ context.Context, params domain.ChatParams, onText func(string)) (*domain.ChatResponse, error) {
+	f.captured = append(f.captured, params)
 	for _, t := range f.response.TextParts {
 		onText(t)
 	}
@@ -148,6 +151,24 @@ func (t *toolUsingClient) StreamMessage(_ context.Context, params domain.ChatPar
 
 func (t *toolUsingClient) SendMessage(_ context.Context, _ domain.ChatParams) (*domain.ChatResponse, error) {
 	return t.responses[0], nil
+}
+
+// TestSpawner_WithAgentOptions_ChildCarriesOAuthBilling pins the
+// WithAgentOptions contract: a child spawned from an OAuth-configured
+// spawner requests with the billing flag and the OAuth max-tokens limit.
+func TestSpawner_WithAgentOptions_ChildCarriesOAuthBilling(t *testing.T) {
+	client := &fakeChatClient{
+		response: &domain.ChatResponse{TextParts: []string{"ok"}, StopReason: "end_turn"},
+	}
+	spawner := agent.NewSpawner(client, spawnerTestConfig(), t.TempDir(),
+		agent.WithAgentOptions(agent.WithOAuth()))
+
+	_, err := spawner.Spawn(context.Background(), "task")
+
+	require.NoError(t, err)
+	require.NotEmpty(t, client.captured)
+	assert.True(t, client.captured[0].OAuthBilling)
+	assert.Equal(t, 16384, client.captured[0].MaxTokens)
 }
 
 // TestAgent_SubAgentsInheritOAuth reproduces the bug where sub-agents

@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -121,8 +122,15 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 	// (sent via X-Api-Key header), the OAuth flag only controls billing headers
 	chatClient := llm.NewAnthropicClient(llm.WithAPIKey(apiKey), llm.WithHTTPClient(httpClient))
 
+	// Options shared by the primary agent and every spawned sub-agent,
+	// so children inherit OAuth billing and any future base configuration.
+	baseOpts := []agent.Option{agent.WithChatClient(chatClient)}
+	if useOAuth {
+		baseOpts = append(baseOpts, agent.WithOAuth())
+	}
+
 	// Build tool executor with the shared HTTP client
-	spawner := agent.NewSpawner(chatClient, cfg, workDir)
+	spawner := agent.NewSpawner(chatClient, cfg, workDir, agent.WithAgentOptions(baseOpts...))
 	toolExec := tools.NewExecutor(
 		tools.WithTaskStore(tools.NewTaskStore()),
 		tools.WithAgentSpawner(spawner),
@@ -130,14 +138,10 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		tools.WithHTTPClient(httpClient),
 	)
 
-	opts := []agent.Option{
-		agent.WithChatClient(chatClient),
+	opts := append(slices.Clone(baseOpts),
 		agent.WithAskUser(askUser),
 		agent.WithToolExecutor(toolExec),
-	}
-	if useOAuth {
-		opts = append(opts, agent.WithOAuth())
-	}
+	)
 
 	coder, err := agent.New(cfg, workDir, opts...)
 	if err != nil {
