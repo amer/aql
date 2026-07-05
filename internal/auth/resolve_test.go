@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveAPIKey_OAuthFromWorkDir(t *testing.T) {
+func TestResolveAPIKeyFromDirs_OAuth(t *testing.T) {
 	dir := t.TempDir()
 	tokens := auth.Tokens{
 		APIKey:    "oauth-key-123",
@@ -18,13 +18,13 @@ func TestResolveAPIKey_OAuthFromWorkDir(t *testing.T) {
 	}
 	require.NoError(t, auth.SaveTokens(dir, tokens))
 
-	key, isOAuth, err := auth.ResolveAPIKey(dir)
+	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	require.NoError(t, err)
 	assert.Equal(t, "oauth-key-123", key)
 	assert.True(t, isOAuth)
 }
 
-func TestResolveAPIKey_ExpiredOAuthFallsBackToEnv(t *testing.T) {
+func TestResolveAPIKeyFromDirs_ExpiredOAuthFallsBackToEnv(t *testing.T) {
 	dir := t.TempDir()
 	tokens := auth.Tokens{
 		APIKey:    "expired-key",
@@ -34,31 +34,31 @@ func TestResolveAPIKey_ExpiredOAuthFallsBackToEnv(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "env-key-456")
 
-	key, isOAuth, err := auth.ResolveAPIKey(dir)
+	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	require.NoError(t, err)
 	assert.Equal(t, "env-key-456", key)
 	assert.False(t, isOAuth)
 }
 
-func TestResolveAPIKey_NoTokensUsesEnv(t *testing.T) {
+func TestResolveAPIKeyFromDirs_NoTokensUsesEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTHROPIC_API_KEY", "env-key-789")
 
-	key, isOAuth, err := auth.ResolveAPIKey(dir)
+	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	require.NoError(t, err)
 	assert.Equal(t, "env-key-789", key)
 	assert.False(t, isOAuth)
 }
 
-func TestResolveAPIKey_NoTokensNoEnv(t *testing.T) {
+func TestResolveAPIKeyFromDirs_NoTokensNoEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	_, _, err := auth.ResolveAPIKey(dir)
+	_, _, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	assert.Error(t, err)
 }
 
-func TestResolveAPIKey_EmptyOAuthKeyFallsBackToEnv(t *testing.T) {
+func TestResolveAPIKeyFromDirs_EmptyOAuthKeyFallsBackToEnv(t *testing.T) {
 	dir := t.TempDir()
 	// Unexpired tokens but with an empty API key (e.g. a partially written
 	// file, or a subscription login where key creation never ran).
@@ -70,29 +70,25 @@ func TestResolveAPIKey_EmptyOAuthKeyFallsBackToEnv(t *testing.T) {
 
 	t.Setenv("ANTHROPIC_API_KEY", "env-fallback-key")
 
-	key, isOAuth, err := auth.ResolveAPIKey(dir)
+	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{dir})
 	require.NoError(t, err)
 	assert.Equal(t, "env-fallback-key", key)
 	assert.False(t, isOAuth)
 }
 
-func TestResolveAPIKey_OAuthFromHomeDir(t *testing.T) {
-	workDir := t.TempDir()
-	homeDir := t.TempDir()
-	tokens := auth.Tokens{
-		APIKey:    "home-oauth-key",
+func TestResolveAPIKeyFromDirs_SearchesInOrder(t *testing.T) {
+	// The first dir holding valid tokens wins; later dirs are not consulted.
+	first := t.TempDir()
+	second := t.TempDir()
+	require.NoError(t, auth.SaveTokens(second, auth.Tokens{
+		APIKey:    "second-dir-key",
 		ExpiresAt: time.Now().Add(1 * time.Hour),
-	}
-	require.NoError(t, auth.SaveTokens(homeDir, tokens))
-
-	// Override HOME so LoadTokens finds it
-	t.Setenv("HOME", homeDir)
-	// Clear any env key to ensure OAuth path is taken
+	}))
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	key, isOAuth, err := auth.ResolveAPIKey(workDir)
+	key, isOAuth, err := auth.ResolveAPIKeyFromDirs([]string{first, second})
 	require.NoError(t, err)
-	assert.Equal(t, "home-oauth-key", key)
+	assert.Equal(t, "second-dir-key", key)
 	assert.True(t, isOAuth)
 }
 

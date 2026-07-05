@@ -14,6 +14,10 @@ package auth
 //
 // Q: Should I add a new auth source?
 // A: Add it to ResolveAPIKey() in the fallback chain.
+//
+// Q: Why does ResolveAPIKeyFromDirs take dirs explicitly?
+// A: So tests inject a temp dir and never read the developer's real
+//    credentials. defaultTokenSearchDirs() is the production composition.
 // ──────────────────────────────────────────────────────────────────
 
 import (
@@ -39,12 +43,13 @@ func credentialDir() (string, error) {
 	return filepath.Join(base, "aql"), nil
 }
 
-// tokenSearchDirs is the ordered list of directories searched for saved tokens.
-// workDir comes first so a project can override credentials, then the canonical
-// credential dir, then the home dir for backwards compatibility with older
-// versions that saved there.
-func tokenSearchDirs(workDir string) []string {
-	dirs := []string{workDir}
+// defaultTokenSearchDirs is the ordered list of directories searched for saved
+// tokens in production: the canonical credential dir first, then the home dir
+// for backwards compatibility with older versions that saved there. The working
+// directory is deliberately excluded — a hostile repo could otherwise commit a
+// token file and hijack the session (see credentialDir's own comment).
+func defaultTokenSearchDirs() []string {
+	var dirs []string
 	if dir, err := credentialDir(); err == nil {
 		dirs = append(dirs, dir)
 	}
@@ -57,8 +62,8 @@ func tokenSearchDirs(workDir string) []string {
 // loadFirstTokens returns the first readable token file across the search dirs.
 // Read failures are logged (not silently swallowed) so a corrupt token file is
 // diagnosable rather than looking identical to "no login".
-func loadFirstTokens(workDir string) *Tokens {
-	for _, dir := range tokenSearchDirs(workDir) {
+func loadFirstTokens(dirs []string) *Tokens {
+	for _, dir := range dirs {
 		tokens, err := LoadTokens(dir)
 		if err != nil {
 			slog.Warn("failed to load tokens", "dir", dir, "err", err)
@@ -71,11 +76,17 @@ func loadFirstTokens(workDir string) *Tokens {
 	return nil
 }
 
-// ResolveAPIKey determines the API key and authentication method.
-// It checks OAuth tokens (see tokenSearchDirs), falling back to the
-// ANTHROPIC_API_KEY environment variable.
-func ResolveAPIKey(workDir string) (apiKey string, isOAuth bool, err error) {
-	tokens := loadFirstTokens(workDir)
+// ResolveAPIKey determines the API key and authentication method using the
+// production token search dirs (see defaultTokenSearchDirs).
+func ResolveAPIKey() (apiKey string, isOAuth bool, err error) {
+	return ResolveAPIKeyFromDirs(defaultTokenSearchDirs())
+}
+
+// ResolveAPIKeyFromDirs checks OAuth tokens across the given dirs (in order),
+// falling back to the ANTHROPIC_API_KEY environment variable. Dirs are injected
+// so tests stay hermetic and never read the developer's real credentials.
+func ResolveAPIKeyFromDirs(dirs []string) (apiKey string, isOAuth bool, err error) {
+	tokens := loadFirstTokens(dirs)
 
 	switch {
 	case tokens != nil && tokens.IsExpired():

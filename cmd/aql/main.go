@@ -82,7 +82,7 @@ func run() error {
 		return err
 	}
 
-	apiKey, useOAuth, err := auth.ResolveAPIKey(workDir)
+	apiKey, useOAuth, err := auth.ResolveAPIKey()
 	if err != nil {
 		return err
 	}
