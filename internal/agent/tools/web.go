@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -154,6 +155,14 @@ func parseSearchResults(htmlContent string) string {
 
 	results := collectSearchResults(doc)
 	if len(results) == 0 {
+		// A non-empty body that yields zero results usually means the
+		// upstream HTML changed shape (class names, layout) and our
+		// selectors are stale — surface it rather than looking like a
+		// genuine empty result set.
+		if strings.TrimSpace(htmlContent) != "" {
+			slog.Warn("web_search parsed zero results from non-empty response",
+				"body_bytes", len(htmlContent))
+		}
 		return "No results found."
 	}
 	return formatSearchResults(results)
