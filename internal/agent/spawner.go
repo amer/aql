@@ -95,14 +95,7 @@ func (s *Spawner) Spawn(ctx context.Context, prompt string) (string, error) {
 	}
 
 	// Child spawner at incremented depth
-	childSpawner := &Spawner{
-		client:    s.client,
-		config:    childCfg,
-		workDir:   s.workDir,
-		maxDepth:  s.maxDepth,
-		depth:     s.depth + 1,
-		agentOpts: s.agentOpts,
-	}
+	childSpawner := s.child(childCfg)
 
 	// Inherited options first, required wiring last so it always wins.
 	childOpts := append(slices.Clone(s.agentOpts),
@@ -133,6 +126,19 @@ func (s *Spawner) Spawn(ctx context.Context, prompt string) (string, error) {
 	result := strings.Join(textParts, "")
 	slog.Debug("sub-agent completed", "depth", s.depth+1, "resultLength", len(result))
 	return result, nil
+}
+
+// child returns a spawner one nesting level deeper, inheriting the parent's
+// client, workDir, depth limit, and agent options. Routing through NewSpawner
+// keeps child construction in one place, so a new Spawner field can't be
+// silently dropped by a hand-built literal here.
+func (s *Spawner) child(cfg Config) *Spawner {
+	c := NewSpawner(s.client, cfg, s.workDir,
+		WithMaxDepth(s.maxDepth),
+		WithAgentOptions(s.agentOpts...),
+	)
+	c.depth = s.depth + 1
+	return c
 }
 
 // NewToolExecutor creates a tool executor with full sub-agent support.
