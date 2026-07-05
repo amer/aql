@@ -51,6 +51,22 @@ func TestDefinitions_AllHaveDescriptionsAndSchemas(t *testing.T) {
 	}
 }
 
+// TestDefinitions_MatchesGolden pins the exact tool definitions (names,
+// descriptions, JSON schemas) the LLM sees. It guards against accidental
+// wording or schema drift and lets Definitions() be refactored safely: the
+// serialized output must stay byte-for-byte identical.
+func TestDefinitions_MatchesGolden(t *testing.T) {
+	got, err := json.MarshalIndent(tools.Definitions(), "", "  ")
+	require.NoError(t, err)
+	got = append(got, '\n')
+
+	want, err := os.ReadFile("testdata/definitions.golden.json")
+	require.NoError(t, err)
+
+	assert.Equal(t, string(want), string(got),
+		"tool definitions changed; if intentional, regenerate testdata/definitions.golden.json")
+}
+
 // ToAPITools moved to internal/llm adapter — tested via llm package
 
 // --- read_file ---

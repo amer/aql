@@ -1,0 +1,288 @@
+[
+  {
+    "Name": "read_file",
+    "Description": "Read the contents of a file at the given path. Returns the file content as text.",
+    "InputSchema": {
+      "properties": {
+        "path": {
+          "description": "Absolute or relative path to the file to read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "write_file",
+    "Description": "Write content to a file at the given path. Creates the file if it doesn't exist, overwrites if it does.",
+    "InputSchema": {
+      "properties": {
+        "content": {
+          "description": "Content to write to the file",
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute or relative path to the file to write",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "edit",
+    "Description": "Apply a targeted find/replace edit to a file. More efficient than rewriting the entire file with write_file.",
+    "InputSchema": {
+      "properties": {
+        "file_path": {
+          "description": "Absolute or relative path to the file to edit",
+          "type": "string"
+        },
+        "new_string": {
+          "description": "The text to replace old_string with. Must be different from old_string.",
+          "type": "string"
+        },
+        "old_string": {
+          "description": "The exact text to find and replace. Must match the file content exactly.",
+          "type": "string"
+        },
+        "replace_all": {
+          "description": "If true, replace all occurrences. If false (default), old_string must be unique in the file.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "list_directory",
+    "Description": "List the files and directories at the given path. Returns one entry per line.",
+    "InputSchema": {
+      "properties": {
+        "path": {
+          "description": "Absolute or relative path to the directory to list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "bash",
+    "Description": "Execute a shell command and return its combined stdout/stderr output. Use this for running tests, builds, git commands, etc.",
+    "InputSchema": {
+      "properties": {
+        "command": {
+          "description": "The shell command to execute",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "glob",
+    "Description": "Find files matching a glob pattern. Returns matching file paths sorted by modification time (newest first).",
+    "InputSchema": {
+      "properties": {
+        "path": {
+          "description": "Base directory to search in. Defaults to working directory.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "web_fetch",
+    "Description": "Fetch the contents of a URL. Returns the page content as text. For HTML pages, extracts readable text content.",
+    "InputSchema": {
+      "properties": {
+        "url": {
+          "description": "The URL to fetch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "web_search",
+    "Description": "Search the web for a query. Returns a list of search results with titles, URLs, and snippets.",
+    "InputSchema": {
+      "properties": {
+        "query": {
+          "description": "The search query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "ask_user",
+    "Description": "Ask the user a clarifying question when you need more information to proceed. Pauses execution until the user responds.",
+    "InputSchema": {
+      "properties": {
+        "question": {
+          "description": "The question to ask the user",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "grep",
+    "Description": "Search for a pattern in files. Returns matching lines with file paths and line numbers.",
+    "InputSchema": {
+      "properties": {
+        "include": {
+          "description": "Glob pattern to filter files (e.g. *.go)",
+          "type": "string"
+        },
+        "path": {
+          "description": "Directory or file to search in",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regular expression pattern to search for",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "agent",
+    "Description": "Spawn a sub-agent to handle a task independently. The sub-agent has its own conversation context and tool access. Use for parallel research, code exploration, or independent subtasks.",
+    "InputSchema": {
+      "properties": {
+        "description": {
+          "description": "A short (3-5 word) description of the task",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The task for the sub-agent to perform",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "task_create",
+    "Description": "Create a new task to track a unit of work. Returns the created task with its ID.",
+    "InputSchema": {
+      "properties": {
+        "description": {
+          "description": "A description of the task to create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "task_update",
+    "Description": "Update the status of an existing task. Valid statuses: pending, in_progress, completed.",
+    "InputSchema": {
+      "properties": {
+        "id": {
+          "description": "The task ID to update",
+          "type": "integer"
+        },
+        "status": {
+          "description": "New status: pending, in_progress, or completed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "task_list",
+    "Description": "List all tracked tasks with their current status.",
+    "InputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "Name": "notebook_edit",
+    "Description": "Edit a Jupyter notebook cell. Replaces the source of a cell at the given index, optionally changing the cell type.",
+    "InputSchema": {
+      "properties": {
+        "cell_index": {
+          "description": "Zero-based index of the cell to edit",
+          "type": "integer"
+        },
+        "cell_type": {
+          "description": "Optional: change cell type (code or markdown)",
+          "type": "string"
+        },
+        "new_source": {
+          "description": "New source content for the cell",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path to the .ipynb notebook file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "cell_index",
+        "new_source"
+      ],
+      "type": "object"
+    }
+  }
+]

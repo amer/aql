@@ -61,260 +61,144 @@ type AskUserFn func(ctx context.Context, q UserQuestion) (string, error)
 // ExecutorFn is the signature for a function that executes a tool by name.
 type ExecutorFn func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error)
 
-// Definitions returns the set of tools available to agents.
+// prop describes a single JSON-schema property of type string/integer/boolean.
+func prop(typ, desc string) map[string]any {
+	return map[string]any{"type": typ, "description": desc}
+}
+
+// objectSchema builds a JSON-schema object from its properties. Any property
+// names listed in required are marked required (in the given order); pass none
+// for a schema with no required fields.
+func objectSchema(props map[string]any, required ...string) map[string]any {
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+// Definitions returns the set of tools available to agents, in the order the
+// LLM sees them. The exact serialized output is pinned by
+// TestDefinitions_MatchesGolden.
 func Definitions() []ToolDef {
 	return []ToolDef{
 		{
 			Name:        "read_file",
 			Description: "Read the contents of a file at the given path. Returns the file content as text.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Absolute or relative path to the file to read",
-					},
-				},
-				"required": []string{"path"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"path": prop("string", "Absolute or relative path to the file to read"),
+			}, "path"),
 		},
 		{
 			Name:        "write_file",
 			Description: "Write content to a file at the given path. Creates the file if it doesn't exist, overwrites if it does.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Absolute or relative path to the file to write",
-					},
-					"content": map[string]any{
-						"type":        "string",
-						"description": "Content to write to the file",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"path":    prop("string", "Absolute or relative path to the file to write"),
+				"content": prop("string", "Content to write to the file"),
+			}, "path", "content"),
 		},
 		{
 			Name:        "edit",
 			Description: "Apply a targeted find/replace edit to a file. More efficient than rewriting the entire file with write_file.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path": map[string]any{
-						"type":        "string",
-						"description": "Absolute or relative path to the file to edit",
-					},
-					"old_string": map[string]any{
-						"type":        "string",
-						"description": "The exact text to find and replace. Must match the file content exactly.",
-					},
-					"new_string": map[string]any{
-						"type":        "string",
-						"description": "The text to replace old_string with. Must be different from old_string.",
-					},
-					"replace_all": map[string]any{
-						"type":        "boolean",
-						"description": "If true, replace all occurrences. If false (default), old_string must be unique in the file.",
-					},
-				},
-				"required": []string{"file_path", "old_string", "new_string"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"file_path":   prop("string", "Absolute or relative path to the file to edit"),
+				"old_string":  prop("string", "The exact text to find and replace. Must match the file content exactly."),
+				"new_string":  prop("string", "The text to replace old_string with. Must be different from old_string."),
+				"replace_all": prop("boolean", "If true, replace all occurrences. If false (default), old_string must be unique in the file."),
+			}, "file_path", "old_string", "new_string"),
 		},
 		{
 			Name:        "list_directory",
 			Description: "List the files and directories at the given path. Returns one entry per line.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Absolute or relative path to the directory to list",
-					},
-				},
-				"required": []string{"path"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"path": prop("string", "Absolute or relative path to the directory to list"),
+			}, "path"),
 		},
 		{
 			Name:        "bash",
 			Description: "Execute a shell command and return its combined stdout/stderr output. Use this for running tests, builds, git commands, etc.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{
-						"type":        "string",
-						"description": "The shell command to execute",
-					},
-				},
-				"required": []string{"command"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"command": prop("string", "The shell command to execute"),
+			}, "command"),
 		},
 		{
 			Name:        "glob",
 			Description: "Find files matching a glob pattern. Returns matching file paths sorted by modification time (newest first).",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching.",
-					},
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Base directory to search in. Defaults to working directory.",
-					},
-				},
-				"required": []string{"pattern"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"pattern": prop("string", "Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching."),
+				"path":    prop("string", "Base directory to search in. Defaults to working directory."),
+			}, "pattern"),
 		},
 		{
 			Name:        "web_fetch",
 			Description: "Fetch the contents of a URL. Returns the page content as text. For HTML pages, extracts readable text content.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"url": map[string]any{
-						"type":        "string",
-						"description": "The URL to fetch",
-					},
-				},
-				"required": []string{"url"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"url": prop("string", "The URL to fetch"),
+			}, "url"),
 		},
 		{
 			Name:        "web_search",
 			Description: "Search the web for a query. Returns a list of search results with titles, URLs, and snippets.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The search query",
-					},
-				},
-				"required": []string{"query"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"query": prop("string", "The search query"),
+			}, "query"),
 		},
 		{
 			Name:        "ask_user",
 			Description: "Ask the user a clarifying question when you need more information to proceed. Pauses execution until the user responds.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"question": map[string]any{
-						"type":        "string",
-						"description": "The question to ask the user",
-					},
-				},
-				"required": []string{"question"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"question": prop("string", "The question to ask the user"),
+			}, "question"),
 		},
 		{
 			Name:        "grep",
 			Description: "Search for a pattern in files. Returns matching lines with file paths and line numbers.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "Regular expression pattern to search for",
-					},
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Directory or file to search in",
-					},
-					"include": map[string]any{
-						"type":        "string",
-						"description": "Glob pattern to filter files (e.g. *.go)",
-					},
-				},
-				"required": []string{"pattern"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"pattern": prop("string", "Regular expression pattern to search for"),
+				"path":    prop("string", "Directory or file to search in"),
+				"include": prop("string", "Glob pattern to filter files (e.g. *.go)"),
+			}, "pattern"),
 		},
 		{
 			Name:        "agent",
 			Description: "Spawn a sub-agent to handle a task independently. The sub-agent has its own conversation context and tool access. Use for parallel research, code exploration, or independent subtasks.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"prompt": map[string]any{
-						"type":        "string",
-						"description": "The task for the sub-agent to perform",
-					},
-					"description": map[string]any{
-						"type":        "string",
-						"description": "A short (3-5 word) description of the task",
-					},
-				},
-				"required": []string{"prompt"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"prompt":      prop("string", "The task for the sub-agent to perform"),
+				"description": prop("string", "A short (3-5 word) description of the task"),
+			}, "prompt"),
 		},
 		{
 			Name:        "task_create",
 			Description: "Create a new task to track a unit of work. Returns the created task with its ID.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"description": map[string]any{
-						"type":        "string",
-						"description": "A description of the task to create",
-					},
-				},
-				"required": []string{"description"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"description": prop("string", "A description of the task to create"),
+			}, "description"),
 		},
 		{
 			Name:        "task_update",
 			Description: "Update the status of an existing task. Valid statuses: pending, in_progress, completed.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"id": map[string]any{
-						"type":        "integer",
-						"description": "The task ID to update",
-					},
-					"status": map[string]any{
-						"type":        "string",
-						"description": "New status: pending, in_progress, or completed",
-					},
-				},
-				"required": []string{"id", "status"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"id":     prop("integer", "The task ID to update"),
+				"status": prop("string", "New status: pending, in_progress, or completed"),
+			}, "id", "status"),
 		},
 		{
 			Name:        "task_list",
 			Description: "List all tracked tasks with their current status.",
-			InputSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
+			InputSchema: objectSchema(map[string]any{}),
 		},
 		{
 			Name:        "notebook_edit",
 			Description: "Edit a Jupyter notebook cell. Replaces the source of a cell at the given index, optionally changing the cell type.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Path to the .ipynb notebook file",
-					},
-					"cell_index": map[string]any{
-						"type":        "integer",
-						"description": "Zero-based index of the cell to edit",
-					},
-					"new_source": map[string]any{
-						"type":        "string",
-						"description": "New source content for the cell",
-					},
-					"cell_type": map[string]any{
-						"type":        "string",
-						"description": "Optional: change cell type (code or markdown)",
-					},
-				},
-				"required": []string{"path", "cell_index", "new_source"},
-			},
+			InputSchema: objectSchema(map[string]any{
+				"path":       prop("string", "Path to the .ipynb notebook file"),
+				"cell_index": prop("integer", "Zero-based index of the cell to edit"),
+				"new_source": prop("string", "New source content for the cell"),
+				"cell_type":  prop("string", "Optional: change cell type (code or markdown)"),
+			}, "path", "cell_index", "new_source"),
 		},
 	}
 }
