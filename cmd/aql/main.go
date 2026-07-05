@@ -148,7 +148,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		return err
 	}
 
-	var streamCancel context.CancelFunc
+	var streamCancel streamCanceller
 
 	model := configureTUI(cfg, workDir, cachedModels, coder, &streamCancel, &program)
 
@@ -179,13 +179,13 @@ func configureTUI(
 	workDir string,
 	cachedModels []domain.ModelInfo,
 	coder *agent.Agent,
-	streamCancel *context.CancelFunc,
+	streamCancel *streamCanceller,
 	program **tea.Program,
 ) tui.Model {
 	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := context.WithCancel(context.Background())
-			*streamCancel = cancel
+			streamCancel.set(cancel)
 			(*program).Send(tui.AgentStreamStartMsg{AgentName: "coder"})
 			ch := coder.Run(ctx, input)
 			go stream.ForwardWithHistory(ctx, ch,
@@ -226,11 +226,7 @@ func configureTUI(
 			return tui.CompactDoneMsg{Summary: summary, Err: err}
 		}
 	})
-	model.SetCancelStream(func() {
-		if *streamCancel != nil {
-			(*streamCancel)()
-		}
-	})
+	model.SetCancelStream(streamCancel.cancelActive)
 	diffRunner := diff.NewDefaultRunner()
 	model.SetOnDiff(func() tea.Cmd {
 		return func() tea.Msg {
