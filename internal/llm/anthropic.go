@@ -13,8 +13,9 @@ package llm
 //   - applyOAuthConfig — billing headers + thinking
 //   - Type conversion functions (toAPIMessages, toAPIContentBlocks,
 //     toAPITools)
-//   - consumeStream — SSE stream processing
-//   - pendingToolUse accumulator
+//   - consumeStream — SSE stream processing (text, thinking, tool_use,
+//     token usage from message_start + message_delta)
+//   - pendingToolUse / pendingThinking accumulators
 //
 // MUST NOT GO HERE:
 //   - Domain type definitions (domain/types.go)
@@ -31,8 +32,9 @@ package llm
 // A: Update applyOAuthConfig() here.
 //
 // Q: How do streaming events work?
-// A: consumeStream() reads the SSE stream, accumulates text/tool
-//    blocks, calls onText for deltas.
+// A: consumeStream() reads the SSE stream, accumulates text/thinking/tool
+//    blocks, captures input_tokens from message_start, calls onText for
+//    text deltas.
 // ──────────────────────────────────────────────────────────────────
 
 import (
@@ -154,14 +156,23 @@ func (c *AnthropicClient) SendMessage(ctx context.Context, params domain.ChatPar
 	}
 
 	var textParts []string
+	var thinking []domain.ChatThinking
+	var toolUses []domain.ChatToolUse
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			textParts = append(textParts, block.Text)
+		case "thinking":
+			thinking = append(thinking, domain.ChatThinking{Text: block.Thinking, Signature: block.Signature})
+		case "tool_use":
+			toolUses = append(toolUses, domain.ChatToolUse{ID: block.ID, Name: block.Name, Input: string(block.Input)})
 		}
 	}
 
 	return &domain.ChatResponse{
 		TextParts:    textParts,
+		Thinking:     thinking,
+		ToolUses:     toolUses,
 		StopReason:   string(resp.StopReason),
 		InputTokens:  int(resp.Usage.InputTokens),
 		OutputTokens: int(resp.Usage.OutputTokens),
@@ -219,6 +230,8 @@ func toAPIContentBlocks(blocks []domain.ContentBlock) []anthropic.ContentBlockPa
 	result := make([]anthropic.ContentBlockParamUnion, len(blocks))
 	for i, b := range blocks {
 		switch {
+		case b.Thinking != nil:
+			result[i] = anthropic.NewThinkingBlock(b.Thinking.Signature, b.Thinking.Text)
 		case b.ToolUse != nil:
 			var input json.RawMessage
 			if b.ToolUse.Input != "" {
@@ -294,25 +307,48 @@ type pendingToolUse struct {
 	inputBuf strings.Builder
 }
 
+// pendingThinking accumulates thinking-text deltas and the signature for a
+// single thinking block.
+type pendingThinking struct {
+	textBuf   strings.Builder
+	signature string
+}
+
 // consumeStream reads a streaming response, calling onText for text deltas,
 // and returns the accumulated ChatResponse.
 func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], onText func(string)) (*domain.ChatResponse, error) {
 
 	var toolUses []*pendingToolUse
+	var thinking []*pendingThinking
 	var stopReason anthropic.StopReason
 	var inputTokens, outputTokens int64
 	activeBlocks := map[int64]*pendingToolUse{}
 	textBlocks := map[int64]*strings.Builder{}
+	thinkingBlocks := map[int64]*pendingThinking{}
 
 	for stream.Next() {
 		evt := stream.Current()
 
 		switch v := evt.AsAny().(type) {
+		case anthropic.MessageStartEvent:
+			// message_start is the documented carrier of input_tokens; without
+			// this the response reports 0 and auto-compact never fires.
+			if v.Message.Usage.InputTokens > 0 {
+				inputTokens = v.Message.Usage.InputTokens
+			}
+			if v.Message.Usage.OutputTokens > 0 {
+				outputTokens = v.Message.Usage.OutputTokens
+			}
+
 		case anthropic.ContentBlockStartEvent:
 			cb := v.ContentBlock
 			switch cb.Type {
 			case "text":
 				textBlocks[v.Index] = &strings.Builder{}
+			case "thinking":
+				th := &pendingThinking{}
+				thinkingBlocks[v.Index] = th
+				thinking = append(thinking, th)
 			case "tool_use":
 				tu := &pendingToolUse{id: cb.ID, name: cb.Name}
 				activeBlocks[v.Index] = tu
@@ -334,6 +370,14 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 				if tu, ok := activeBlocks[v.Index]; ok {
 					tu.inputBuf.WriteString(d.PartialJSON)
 				}
+			case anthropic.ThinkingDelta:
+				if th, ok := thinkingBlocks[v.Index]; ok {
+					th.textBuf.WriteString(d.Thinking)
+				}
+			case anthropic.SignatureDelta:
+				if th, ok := thinkingBlocks[v.Index]; ok {
+					th.signature = d.Signature
+				}
 			}
 
 		case anthropic.MessageDeltaEvent:
@@ -354,12 +398,19 @@ func consumeStream(stream *ssestream.Stream[anthropic.MessageStreamEventUnion], 
 		return nil, streamErr
 	}
 
-	return buildStreamResponse(textBlocks, toolUses, stopReason, inputTokens, outputTokens), nil
+	return buildStreamResponse(textBlocks, thinking, toolUses, stopReason, inputTokens, outputTokens), nil
 }
 
 // buildStreamResponse assembles the final ChatResponse from accumulated stream state.
-func buildStreamResponse(textBlocks map[int64]*strings.Builder, toolUses []*pendingToolUse, stopReason anthropic.StopReason, inputTokens, outputTokens int64) *domain.ChatResponse {
+func buildStreamResponse(textBlocks map[int64]*strings.Builder, thinking []*pendingThinking, toolUses []*pendingToolUse, stopReason anthropic.StopReason, inputTokens, outputTokens int64) *domain.ChatResponse {
 	textParts := collectTextParts(textBlocks)
+	chatThinking := make([]domain.ChatThinking, len(thinking))
+	for i, th := range thinking {
+		chatThinking[i] = domain.ChatThinking{
+			Text:      th.textBuf.String(),
+			Signature: th.signature,
+		}
+	}
 	chatToolUses := make([]domain.ChatToolUse, len(toolUses))
 	for i, tu := range toolUses {
 		chatToolUses[i] = domain.ChatToolUse{
@@ -369,10 +420,11 @@ func buildStreamResponse(textBlocks map[int64]*strings.Builder, toolUses []*pend
 		}
 	}
 
-	slog.Debug("stream consumed", "textParts", len(textParts), "toolUses", len(chatToolUses), "stopReason", stopReason)
+	slog.Debug("stream consumed", "textParts", len(textParts), "thinking", len(chatThinking), "toolUses", len(chatToolUses), "stopReason", stopReason)
 
 	return &domain.ChatResponse{
 		TextParts:    textParts,
+		Thinking:     chatThinking,
 		ToolUses:     chatToolUses,
 		StopReason:   string(stopReason),
 		InputTokens:  int(inputTokens),

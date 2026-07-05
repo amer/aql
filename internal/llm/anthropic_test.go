@@ -101,6 +101,122 @@ func TestStreamMessage_TokenCounts(t *testing.T) {
 	assert.Equal(t, 10, resp.OutputTokens)
 }
 
+func TestStreamMessage_InputTokensFromMessageStart(t *testing.T) {
+	// The real API reports input_tokens only in message_start; message_delta
+	// carries the running output_tokens. consumeStream must read input_tokens
+	// from message_start or auto-compact never fires.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, sseInputTokensOnlyInStart("ok", 4200, 7))
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	resp, err := client.StreamMessage(
+		context.Background(),
+		domain.ChatParams{
+			Model:     "claude-sonnet-4-6",
+			System:    "test",
+			Messages:  []domain.Message{domain.NewUserMessage("hi")},
+			MaxTokens: 1024,
+		},
+		nil,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 4200, resp.InputTokens, "input_tokens must come from message_start")
+	assert.Equal(t, 7, resp.OutputTokens)
+}
+
+func TestStreamMessage_CapturesThinking(t *testing.T) {
+	// With OAuth adaptive thinking, the response carries a thinking block with a
+	// signature. It must be captured so the next turn can replay it (the API
+	// rejects a tool_use turn whose preceding thinking block was dropped).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, sseThinkingThenText("let me think", "sig-abc", "done"))
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	resp, err := client.StreamMessage(
+		context.Background(),
+		domain.ChatParams{
+			Model:     "claude-sonnet-4-6",
+			System:    "test",
+			Messages:  []domain.Message{domain.NewUserMessage("hi")},
+			MaxTokens: 1024,
+		},
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, resp.Thinking, 1)
+	assert.Equal(t, "let me think", resp.Thinking[0].Text)
+	assert.Equal(t, "sig-abc", resp.Thinking[0].Signature)
+	assert.Equal(t, []string{"done"}, resp.TextParts)
+}
+
+func TestSendMessage_ReplaysThinkingBlock(t *testing.T) {
+	// A thinking ContentBlock in history must be serialized back to the API with
+	// its signature intact.
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	_, err := client.SendMessage(context.Background(), domain.ChatParams{
+		Model:     "claude-sonnet-4-6",
+		System:    "test",
+		MaxTokens: 1024,
+		Messages: []domain.Message{
+			{Role: domain.RoleAssistant, Content: []domain.ContentBlock{
+				domain.ThinkingContentBlock("reasoning here", "sig-xyz"),
+				domain.TextBlock("answer"),
+			}},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"thinking":"reasoning here"`)
+	assert.Contains(t, string(body), `"signature":"sig-xyz"`)
+}
+
+func TestSendMessage_CollectsToolUses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"checking"},{"type":"tool_use","id":"tu_9","name":"read_file","input":{"path":"x.go"}}],"stop_reason":"tool_use","usage":{"input_tokens":5,"output_tokens":3}}`)
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropicClient(llm.WithBaseURL(server.URL), llm.WithAPIKey("test-key"))
+
+	resp, err := client.SendMessage(context.Background(), domain.ChatParams{
+		Model:     "claude-sonnet-4-6",
+		System:    "test",
+		MaxTokens: 1024,
+		Messages:  []domain.Message{domain.NewUserMessage("hi")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.ToolUses, 1)
+	assert.Equal(t, "tu_9", resp.ToolUses[0].ID)
+	assert.Equal(t, "read_file", resp.ToolUses[0].Name)
+	assert.JSONEq(t, `{"path":"x.go"}`, resp.ToolUses[0].Input)
+	assert.Equal(t, "tool_use", resp.StopReason)
+}
+
 func TestStreamMessage_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -673,6 +789,74 @@ event: message_stop
 data: {"type":"message_stop"}
 
 `, inputTokens, textJSON, inputTokens, outputTokens)
+	return sb.String()
+}
+
+// sseThinkingThenText emits a thinking block (with a signature) followed by a
+// text block, mirroring an OAuth adaptive-thinking response.
+func sseThinkingThenText(thinking, signature, text string) string {
+	var sb strings.Builder
+	thinkingJSON, _ := json.Marshal(thinking)
+	sigJSON, _ := json.Marshal(signature)
+	textJSON, _ := json.Marshal(text)
+	fmt.Fprintf(&sb, `event: message_start
+data: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":%s}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":%s}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":%s}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`, thinkingJSON, sigJSON, textJSON)
+	return sb.String()
+}
+
+// sseInputTokensOnlyInStart mirrors the real API: input_tokens appears in
+// message_start, and message_delta reports only the running output_tokens.
+func sseInputTokensOnlyInStart(text string, inputTokens, outputTokens int) string {
+	var sb strings.Builder
+	textJSON, _ := json.Marshal(text)
+	fmt.Fprintf(&sb, `event: message_start
+data: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":null,"usage":{"input_tokens":%d,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":%s}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":%d}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`, inputTokens, textJSON, outputTokens)
 	return sb.String()
 }
 

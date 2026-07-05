@@ -320,9 +320,14 @@ func (a *Agent) WorkDir() string {
 }
 
 // buildAssistantMessage converts a ChatResponse into a domain.Message
-// containing text blocks and tool_use blocks.
+// containing thinking blocks, text blocks, and tool_use blocks. Thinking blocks
+// come first (as the API emits them) and must be preserved with their
+// signatures, or a follow-up tool_use turn is rejected with a 400.
 func buildAssistantMessage(resp *domain.ChatResponse) domain.Message {
 	var blocks []domain.ContentBlock
+	for _, th := range resp.Thinking {
+		blocks = append(blocks, domain.ThinkingContentBlock(th.Text, th.Signature))
+	}
 	for _, text := range resp.TextParts {
 		blocks = append(blocks, domain.TextBlock(text))
 	}

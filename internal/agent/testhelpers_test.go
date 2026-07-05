@@ -51,11 +51,13 @@ func jsonToSSE(jsonBody []byte) []byte {
 	}
 
 	var blocks []struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Signature string          `json:"signature"`
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
 	}
 	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
 		panic("jsonToSSE content: " + err.Error())
@@ -70,6 +72,14 @@ func jsonToSSE(jsonBody []byte) []byte {
 	// content blocks
 	for i, block := range blocks {
 		switch block.Type {
+		case "thinking":
+			fmt.Fprintf(&sb, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":%d,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n", i)
+			thinkingJSON, _ := json.Marshal(block.Thinking)
+			fmt.Fprintf(&sb, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":%d,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":%s}}\n\n", i, thinkingJSON)
+			sigJSON, _ := json.Marshal(block.Signature)
+			fmt.Fprintf(&sb, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":%d,\"delta\":{\"type\":\"signature_delta\",\"signature\":%s}}\n\n", i, sigJSON)
+			fmt.Fprintf(&sb, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":%d}\n\n", i)
+
 		case "text":
 			fmt.Fprintf(&sb, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":%d,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n", i)
 			// Emit text as a single delta

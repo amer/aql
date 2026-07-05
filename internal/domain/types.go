@@ -123,6 +123,7 @@ func NewAssistantMessage(text string) Message {
 // ContentBlock is a union type: exactly one field is non-zero.
 type ContentBlock struct {
 	Text       string
+	Thinking   *ThinkingBlock
 	ToolUse    *ToolUseBlock
 	ToolResult *ToolResultBlock
 }
@@ -130,6 +131,18 @@ type ContentBlock struct {
 // TextBlock creates a text content block.
 func TextBlock(text string) ContentBlock {
 	return ContentBlock{Text: text}
+}
+
+// ThinkingContentBlock creates a thinking content block. The signature must be
+// preserved and replayed on later turns or the API rejects the assistant turn.
+func ThinkingContentBlock(text, signature string) ContentBlock {
+	return ContentBlock{Thinking: &ThinkingBlock{Text: text, Signature: signature}}
+}
+
+// ThinkingBlock represents an extended-thinking block emitted by the assistant.
+type ThinkingBlock struct {
+	Text      string
+	Signature string
 }
 
 // ToolUseContentBlock creates a tool_use content block.
@@ -191,11 +204,19 @@ type ToolDef struct {
 
 // ChatResponse holds the accumulated result of a streamed LLM response.
 type ChatResponse struct {
-	TextParts    []string      // ordered text blocks from the response
-	ToolUses     []ChatToolUse // tool_use blocks the LLM wants to invoke
-	StopReason   string        // "end_turn", "tool_use", etc.
+	TextParts    []string       // ordered text blocks from the response
+	Thinking     []ChatThinking // thinking blocks (must be replayed with signatures)
+	ToolUses     []ChatToolUse  // tool_use blocks the LLM wants to invoke
+	StopReason   string         // "end_turn", "tool_use", etc.
 	InputTokens  int
 	OutputTokens int
+}
+
+// ChatThinking represents a thinking block from the response, including the
+// signature required to replay it on subsequent turns.
+type ChatThinking struct {
+	Text      string
+	Signature string
 }
 
 // ChatToolUse represents a tool invocation requested by the LLM.
