@@ -6,7 +6,8 @@ package tools
 // BELONGS HERE:
 //   - execGlob handler
 //   - walkGlob — directory walking
-//   - matchesPattern — glob matching with ** support
+//   - matchesPattern — glob matching entry point (path or base name)
+//   - matchGlob, matchSegments — segment-based ** matching
 //   - formatGlobResults, fileEntry type, maxGlobResults constant
 //
 // MUST NOT GO HERE:
@@ -88,20 +89,45 @@ func walkGlob(baseDir, pattern string) ([]fileEntry, error) {
 
 // matchesPattern checks if a file matches a glob pattern by relative path or name.
 func matchesPattern(pattern, relPath, name string) bool {
-	if matched, _ := filepath.Match(pattern, relPath); matched {
+	if matchGlob(pattern, relPath) {
 		return true
 	}
-	if matched, _ := filepath.Match(pattern, name); matched {
-		return true
+	// A pattern with no directory separator also matches by base name, so
+	// "*.ts" finds files at any depth without an explicit "**/" prefix.
+	if !strings.Contains(pattern, "/") {
+		if matched, _ := filepath.Match(pattern, name); matched {
+			return true
+		}
 	}
-	if strings.Contains(pattern, "**") {
-		trimmed := strings.TrimPrefix(pattern, "**/")
-		if matched, _ := filepath.Match(trimmed, name); matched {
-			return true
+	return false
+}
+
+// matchGlob reports whether path matches pattern, treating "**" as a wildcard
+// for zero or more path segments. Other segments follow filepath.Match
+// semantics, where "*" matches within a single segment only.
+func matchGlob(pattern, path string) bool {
+	return matchSegments(strings.Split(pattern, "/"), strings.Split(path, "/"))
+}
+
+// matchSegments matches path segments against pattern segments, expanding "**"
+// to span any number of intervening segments.
+func matchSegments(pat, path []string) bool {
+	if len(pat) == 0 {
+		return len(path) == 0
+	}
+	if pat[0] == "**" {
+		for i := 0; i <= len(path); i++ {
+			if matchSegments(pat[1:], path[i:]) {
+				return true
+			}
 		}
-		if matched, _ := filepath.Match(trimmed, relPath); matched {
-			return true
-		}
+		return false
+	}
+	if len(path) == 0 {
+		return false
+	}
+	if matched, _ := filepath.Match(pat[0], path[0]); matched {
+		return matchSegments(pat[1:], path[1:])
 	}
 	return false
 }

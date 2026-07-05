@@ -312,6 +312,22 @@ func TestGlob_NoMatches(t *testing.T) {
 	assert.Contains(t, result, "No files matched")
 }
 
+func TestGlob_DoublestarWithPrefixMatchesAllDepths(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "src/a.ts", "direct")
+	writeTestFile(t, dir, "src/nested/b.ts", "one deep")
+	writeTestFile(t, dir, "src/nested/more/c.ts", "two deep")
+	writeTestFile(t, dir, "other/d.ts", "outside src")
+
+	result, err := execTool(context.Background(), dir, "glob",
+		json.RawMessage(`{"pattern":"src/**/*.ts","path":"`+dir+`"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result, "src/a.ts")
+	assert.Contains(t, result, "b.ts")
+	assert.Contains(t, result, "c.ts")
+	assert.NotContains(t, result, "d.ts")
+}
+
 func TestGlob_SkipsHiddenDirs(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, ".hidden/secret.go", "package secret")
