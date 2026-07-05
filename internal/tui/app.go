@@ -394,12 +394,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		}
 		return "cleared", nil
 	case "/help":
-		var lines []string
-		lines = append(lines, "Available commands:")
-		for _, c := range SlashCommands() {
-			lines = append(lines, "  "+c.Name+" — "+c.Description)
-		}
-		m.addStatusChat(strings.Join(lines, "\n"), AgentActive)
+		m.showHelp()
 		return "help", nil
 	case "/agents":
 		m.addStatusChat("Active agents: "+strings.Join(m.agentNames, ", "), AgentActive)
@@ -408,15 +403,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.addStatusChat("Workflow: "+m.workflowName+" · Agents: "+strings.Join(m.agentNames, ", "), AgentActive)
 		return "status", nil
 	case "/model":
-		m.picker.visible = true
-		m.picker.idx = 0
-		m.picker.input = ""
-		for i, tier := range m.GetModelTiers() {
-			if tier.ModelID == m.modelName {
-				m.picker.idx = i
-				break
-			}
-		}
+		m.openModelPicker()
 		m.inputBuf.Clear()
 		return "model", nil
 	case "/cost":
@@ -434,16 +421,7 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.stream.phase = PhaseRequesting
 		return "compact", m.onCompact()
 	case "/tasks":
-		if len(m.taskPanel.tasks) == 0 {
-			m.addStatusChat("No tasks tracked yet", AgentActive)
-			return "tasks", nil
-		}
-		m.taskPanel.visible = !m.taskPanel.visible
-		if m.taskPanel.visible {
-			m.addStatusChat("Task panel shown (ctrl+t to toggle)", AgentActive)
-		} else {
-			m.addStatusChat("Task panel hidden (ctrl+t to toggle)", AgentActive)
-		}
+		m.toggleTaskPanel()
 		return "tasks", nil
 	case "/diff":
 		if m.onDiff == nil {
@@ -454,20 +432,48 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 		m.inputBuf.Clear()
 		return "diff", m.onDiff()
 	case "/spinner":
-		types := SpinnerTypes()
-		next := SpinnerBraille
-		for i, st := range types {
-			if st == m.stream.spinnerType {
-				next = types[(i+1)%len(types)]
-				break
-			}
-		}
-		m.stream.spinnerType = next
-		def := SpinnerDef(next)
-		m.addStatusChat("Spinner: "+def.Name+" "+def.Frames[0], AgentActive)
+		m.cycleSpinner()
 		return "spinner", nil
 	}
 	return "", nil
+}
+
+// showHelp appends the list of available slash commands to the transcript.
+func (m *Model) showHelp() {
+	lines := []string{"Available commands:"}
+	for _, c := range SlashCommands() {
+		lines = append(lines, "  "+c.Name+" — "+c.Description)
+	}
+	m.addStatusChat(strings.Join(lines, "\n"), AgentActive)
+}
+
+// toggleTaskPanel flips task-panel visibility, or reports when none exist.
+func (m *Model) toggleTaskPanel() {
+	if len(m.taskPanel.tasks) == 0 {
+		m.addStatusChat("No tasks tracked yet", AgentActive)
+		return
+	}
+	m.taskPanel.visible = !m.taskPanel.visible
+	if m.taskPanel.visible {
+		m.addStatusChat("Task panel shown (ctrl+t to toggle)", AgentActive)
+	} else {
+		m.addStatusChat("Task panel hidden (ctrl+t to toggle)", AgentActive)
+	}
+}
+
+// cycleSpinner advances the streaming spinner to the next style.
+func (m *Model) cycleSpinner() {
+	types := SpinnerTypes()
+	next := SpinnerBraille
+	for i, st := range types {
+		if st == m.stream.spinnerType {
+			next = types[(i+1)%len(types)]
+			break
+		}
+	}
+	m.stream.spinnerType = next
+	def := SpinnerDef(next)
+	m.addStatusChat("Spinner: "+def.Name+" "+def.Frames[0], AgentActive)
 }
 
 // View implements tea.Model.
@@ -479,41 +485,8 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
-	// Render chat as transcript blocks, with welcome banner at top
-	var chatLines []string
-	welcome := RenderWelcome(m.welcomeData())
-	chatLines = append(chatLines, welcome)
-	chatLines = append(chatLines, "") // blank separator
-	blocks := BuildTranscriptBlocks(m.chat)
-	for _, block := range blocks {
-		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.tsSearch.mode))
-	}
-
-	// Calculate visible area
-	vh := m.visibleHeight()
-
-	chatContent := strings.Join(chatLines, "\n")
-	contentLines := strings.Split(chatContent, "\n")
-
-	// Clamp scrollOffset to valid range
-	maxOffset := max(len(contentLines)-vh, 0)
-	offset := min(m.scrollOffset, maxOffset)
-
-	// Slice the visible window: end is from-bottom, start is end-vh
-	end := len(contentLines) - offset
-	start := max(end-vh, 0)
-	if end < 0 {
-		end = 0
-	}
-
-	visible := contentLines[start:end]
-
-	// Pad above content so short conversations sit close to the prompt.
-	padding := vh - len(visible)
-	for range padding {
-		b.WriteString("\n")
-	}
-	b.WriteString(strings.Join(visible, "\n"))
+	viewport, offset := m.renderTranscriptViewport()
+	b.WriteString(viewport)
 
 	// Scroll indicator when not at bottom
 	if offset > 0 {
@@ -540,6 +513,49 @@ func (m Model) View() string {
 			b.WriteString(panel)
 		}
 	}
+
+	b.WriteString(m.renderPromptSection())
+
+	// Apply selection highlight (reverse video) if active
+	if m.selection.Active() {
+		return m.applySelectionHighlight(b.String())
+	}
+
+	return b.String()
+}
+
+// renderTranscriptViewport renders the welcome banner and chat transcript,
+// clamps the scroll window to the visible height, and pads short
+// conversations down to the prompt. It returns the rendered content and the
+// clamped scroll offset (0 = at bottom) so the caller can show a scroll hint.
+func (m Model) renderTranscriptViewport() (string, int) {
+	chatLines := []string{RenderWelcome(m.welcomeData()), ""} // banner + blank separator
+	for _, block := range BuildTranscriptBlocks(m.chat) {
+		chatLines = append(chatLines, RenderTranscriptBlock(block, m.width, m.tsSearch.mode))
+	}
+
+	vh := m.visibleHeight()
+	contentLines := strings.Split(strings.Join(chatLines, "\n"), "\n")
+
+	// Clamp scrollOffset to valid range, then slice the window from the bottom.
+	offset := min(m.scrollOffset, max(len(contentLines)-vh, 0))
+	end := max(len(contentLines)-offset, 0)
+	start := max(end-vh, 0)
+	visible := contentLines[start:end]
+
+	var b strings.Builder
+	// Pad above content so short conversations sit close to the prompt.
+	for range vh - len(visible) {
+		b.WriteString("\n")
+	}
+	b.WriteString(strings.Join(visible, "\n"))
+	return b.String(), offset
+}
+
+// renderPromptSection renders everything from the prompt area down: the input
+// prompt, the command palette or model picker overlay, and the status bar.
+func (m Model) renderPromptSection() string {
+	var b strings.Builder
 
 	// Prompt area with separator lines and project badge
 	b.WriteString("\n")
@@ -576,11 +592,6 @@ func (m Model) View() string {
 		}
 	}
 	b.WriteString(RenderStatusBar(m.modelName, m.tokenCount, m.width, hints...))
-
-	// Apply selection highlight (reverse video) if active
-	if m.selection.Active() {
-		return m.applySelectionHighlight(b.String())
-	}
 
 	return b.String()
 }
