@@ -155,6 +155,8 @@ func forwardEvent(evt domain.StreamEvent, send SendFunc) bool {
 			InputTokens:  evt.TokenUsage.InputTokens,
 			OutputTokens: evt.TokenUsage.OutputTokens,
 		})
+	case evt.StreamReset:
+		send(tui.AgentStreamResetMsg{AgentName: evt.AgentName})
 	case evt.Text != "":
 		send(tui.AgentStreamDeltaMsg{AgentName: evt.AgentName, Delta: evt.Text})
 	case evt.History != nil:

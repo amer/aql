@@ -7,7 +7,7 @@ package tui
 //   - All Bubble Tea message handling — handleKey (keyboard),
 //     handleModelPickerKey, handleTranscriptModeKey, handleMsg
 //     (non-key messages), handleSubmit, handleStreamStart/Delta/
-//     Done/Error, handleToolCall (including task tool suppression),
+//     Reset/Done/Error, handleToolCall (including task tool suppression),
 //     handleAskUser, handleBashResult, handleCompactDone,
 //     startStream, selectModel.
 //
@@ -339,6 +339,8 @@ func (m Model) handleMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStreamStart()
 	case AgentStreamDeltaMsg:
 		return m.handleStreamDelta(msg)
+	case AgentStreamResetMsg:
+		m.handleStreamReset(msg)
 	case TokenUsageMsg:
 		m.tokenCount = msg.InputTokens + msg.OutputTokens
 	case AgentStreamDoneMsg:
@@ -434,6 +436,22 @@ func (m Model) handleStreamDelta(msg AgentStreamDeltaMsg) (tea.Model, tea.Cmd) {
 		return m, SpinnerTickFor(m.stream.spinnerType)
 	}
 	return m, nil
+}
+
+// handleStreamReset discards the partial text of the in-progress agent entry
+// after a mid-stream retry. The retry re-streams the full text as fresh deltas,
+// so the abandoned partial must be cleared or it would be prepended to the
+// retry's output. Only the trailing entry for this agent is in-flight.
+func (m *Model) handleStreamReset(msg AgentStreamResetMsg) {
+	if len(m.chat) == 0 {
+		return
+	}
+	last := &m.chat[len(m.chat)-1]
+	if last.Type != EntryAgentText || last.AgentName != msg.AgentName {
+		return
+	}
+	m.stream.chars -= len(last.Content)
+	last.Content = ""
 }
 
 func (m *Model) handleStreamDone() {

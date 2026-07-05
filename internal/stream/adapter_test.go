@@ -42,6 +42,18 @@ func TestForward_TextDelta(t *testing.T) {
 	assert.Equal(t, tui.AgentStreamDoneMsg{AgentName: "coder"}, msgs[1])
 }
 
+func TestForward_StreamReset(t *testing.T) {
+	ch := make(chan domain.StreamEvent, 3)
+	ch <- domain.StreamEvent{AgentName: "coder", Text: "partial"}
+	ch <- domain.StreamEvent{AgentName: "coder", StreamReset: true}
+	ch <- domain.StreamEvent{AgentName: "coder", Done: true}
+	close(ch)
+
+	msgs := collectMessages(ch)
+	require.Len(t, msgs, 3)
+	assert.Equal(t, tui.AgentStreamResetMsg{AgentName: "coder"}, msgs[1])
+}
+
 func TestForward_Error(t *testing.T) {
 	ch := make(chan domain.StreamEvent, 1)
 	ch <- domain.StreamEvent{AgentName: "coder", Error: assert.AnError}

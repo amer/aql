@@ -41,15 +41,16 @@ import (
 
 // StreamEvent represents a chunk of output from the agent.
 type StreamEvent struct {
-	AgentName  string
-	Text       string
-	Done       bool
-	Error      error
-	ToolCall   *ToolCallEvent     // non-nil when agent invokes a tool
-	ToolDone   *ToolDoneEvent     // non-nil when a tool finishes
-	TokenUsage *TokenUsageEvent   // non-nil after each API response with precise token counts
-	History    *HistoryAppendMsg  // non-nil when the caller should append a message to history
-	Replace    *HistoryReplaceMsg // non-nil when the caller should replace history entirely (compaction)
+	AgentName   string
+	Text        string
+	Done        bool
+	StreamReset bool // true when a mid-stream retry discards partial text already emitted this turn
+	Error       error
+	ToolCall    *ToolCallEvent     // non-nil when agent invokes a tool
+	ToolDone    *ToolDoneEvent     // non-nil when a tool finishes
+	TokenUsage  *TokenUsageEvent   // non-nil after each API response with precise token counts
+	History     *HistoryAppendMsg  // non-nil when the caller should append a message to history
+	Replace     *HistoryReplaceMsg // non-nil when the caller should replace history entirely (compaction)
 }
 
 // HistoryAppendMsg tells the caller to append a message to the agent's history.

@@ -82,6 +82,19 @@ func TestModelStreamDelta(t *testing.T) {
 	assert.True(t, m.IsStreaming())
 }
 
+func TestModelStreamReset(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+
+	// First attempt streams partial text, then a reset discards it, then the
+	// retry streams the full text. The transcript must show only the retry text.
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "Hello wor"})
+	m = applyMsg(m, tui.AgentStreamResetMsg{AgentName: "coder"})
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "Hello world"})
+
+	require.Len(t, m.Chat(), 1)
+	assert.Equal(t, "Hello world", m.Chat()[0].Content)
+}
+
 func TestModelStreamDone(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 

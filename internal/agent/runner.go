@@ -180,11 +180,18 @@ func (a *Agent) abandonTurn(ch chan<- domain.StreamEvent, preTurn []domain.Messa
 
 // streamWithRetry performs the streaming API call with retry logic for transient errors.
 func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEvent, params domain.ChatParams) (*domain.ChatResponse, error) {
+	// emittedText tracks whether the current attempt streamed any text before
+	// failing. A retry re-runs StreamMessage from scratch and re-emits the full
+	// text, so without a reset the caller would concatenate the failed attempt's
+	// partial text with the retry's full text.
+	var emittedText bool
 	onText := func(text string) {
+		emittedText = true
 		ch <- domain.StreamEvent{AgentName: a.config.Name, Text: text}
 	}
 
 	for attempt := 0; attempt <= maxStreamRetries; attempt++ {
+		emittedText = false
 		resp, err := a.chatClient.StreamMessage(ctx, params, onText)
 		if err == nil {
 			return resp, nil
@@ -192,6 +199,12 @@ func (a *Agent) streamWithRetry(ctx context.Context, ch chan<- domain.StreamEven
 
 		if !isRetryableError(err) || attempt == maxStreamRetries {
 			return nil, err
+		}
+
+		// Tell the caller to discard the partial text this attempt emitted so
+		// the retry's fresh stream doesn't append onto it.
+		if emittedText {
+			ch <- domain.StreamEvent{AgentName: a.config.Name, StreamReset: true}
 		}
 
 		delay := streamRetryBaseDelay * time.Duration(1<<attempt)

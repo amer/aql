@@ -83,6 +83,13 @@ type AgentStreamDoneMsg struct {
 	AgentName string
 }
 
+// AgentStreamResetMsg is sent when a mid-stream retry discards the partial text
+// already streamed this turn. The handler clears the in-progress agent text
+// entry so the retry's fresh stream doesn't append onto the abandoned partial.
+type AgentStreamResetMsg struct {
+	AgentName string
+}
+
 // AgentStreamErrorMsg is sent when streaming encounters an error.
 type AgentStreamErrorMsg struct {
 	AgentName string
