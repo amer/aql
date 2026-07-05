@@ -207,6 +207,12 @@ type ChatToolUse struct {
 
 // BillingHeader is the Claude Code billing header that enables access to
 // Opus/Sonnet models via OAuth Console login.
+//
+// The cc_version / cch values mirror a specific Claude Code release and will
+// drift as that client updates. If billing-gated probes start failing with
+// 401/403, refresh these by capturing the header the official Claude Code CLI
+// sends (cc_version tracks its package version). This is a compatibility
+// shim, not a stable API — treat the exact string as disposable.
 const BillingHeader = "x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;"
 
 // ClaudeCodeBetas are the beta feature flags required for Claude Code billing.
