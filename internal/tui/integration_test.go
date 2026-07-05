@@ -925,6 +925,26 @@ func TestIntegration_EscDuringStreamingDoesNotQuit(t *testing.T) {
 	assert.False(t, m.IsStreaming(), "esc should have interrupted streaming")
 }
 
+func TestIntegration_LateDeltaAfterEscDoesNotRestartStream(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "working..."})
+	require.True(t, m.IsStreaming())
+
+	// Esc interrupts the stream.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+	require.False(t, m.IsStreaming())
+
+	// A delta that was already in flight arrives after the interrupt. It must
+	// not restart the stream — otherwise the spinner runs forever and input is
+	// blocked until a second Esc (C3).
+	updated2, cmd := m.Update(tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "late"})
+	m = updated2.(tui.Model)
+	assert.False(t, m.IsStreaming(), "late delta after esc must not restart the stream")
+	assert.Nil(t, cmd, "late delta after esc must not emit a spinner tick")
+}
+
 func TestIntegration_CtrlCCancelsStreamContext(t *testing.T) {
 	m := testModel(nil)
 

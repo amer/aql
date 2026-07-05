@@ -197,6 +197,7 @@ func (m *Model) handleEscKey() {
 			m.stream.cancel()
 		}
 		m.stream.active = false
+		m.stream.interrupted = true
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
 			Content: "Interrupted",
@@ -394,6 +395,12 @@ func (m Model) handleStreamStart() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleStreamDelta(msg AgentStreamDeltaMsg) (tea.Model, tea.Cmd) {
+	// A delta arriving after the user pressed Esc was already in flight when the
+	// stream was cancelled. Ignoring it keeps the stream stopped — restarting
+	// here would leave the spinner running forever with no producer (C3).
+	if m.stream.interrupted && !m.stream.active {
+		return m, nil
+	}
 	wasStreaming := m.stream.active
 	if !wasStreaming {
 		m.startStream()
@@ -526,6 +533,7 @@ func (m *Model) startStream() {
 	m.stream.start = time.Now()
 	m.stream.chars = 0
 	m.stream.active = true
+	m.stream.interrupted = false
 }
 
 // selectModel handles model selection from the picker or custom input.

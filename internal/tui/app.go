@@ -49,6 +49,7 @@ type streamState struct {
 	chars        int         // chars received in current stream
 	phase        StreamPhase // current streaming phase (requesting/responding)
 	cancel       func()      // cancels the in-flight API call context
+	interrupted  bool        // user pressed Esc; suppress late in-flight deltas
 }
 
 // modelPickerState tracks the model picker overlay.
