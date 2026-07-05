@@ -5,7 +5,7 @@ package agent
 //
 // BELONGS HERE:
 //   - Spawner struct, NewSpawner() with SpawnerOption pattern
-//     (WithMaxDepth, WithAgentOptions),
+//     (WithMaxDepth, WithAgentOptions, WithToolOptions),
 //     Spawn() — creates and runs child agents, depth limiting,
 //     NewToolExecutor() — convenience wiring function.
 //
@@ -47,6 +47,7 @@ type Spawner struct {
 	maxDepth  int
 	depth     int
 	agentOpts []Option
+	toolOpts  []tools.ExecutorOption
 }
 
 // SpawnerOption configures spawner creation.
@@ -62,6 +63,13 @@ func WithMaxDepth(n int) SpawnerOption {
 // instead of silently dropping it.
 func WithAgentOptions(opts ...Option) SpawnerOption {
 	return func(s *Spawner) { s.agentOpts = slices.Clone(opts) }
+}
+
+// WithToolOptions sets tool-executor options applied to every child agent's
+// executor (e.g. WithApprover), so sub-agents inherit the same tool policy as
+// the parent instead of running side-effecting tools ungated.
+func WithToolOptions(opts ...tools.ExecutorOption) SpawnerOption {
+	return func(s *Spawner) { s.toolOpts = slices.Clone(opts) }
 }
 
 // NewSpawner creates a spawner that can create child agents.
@@ -97,13 +105,17 @@ func (s *Spawner) Spawn(ctx context.Context, prompt string) (string, error) {
 	// Child spawner at incremented depth
 	childSpawner := s.child(childCfg)
 
+	// Child executor: inherited tool policy first (e.g. WithApprover), required
+	// wiring last so it always wins.
+	execOpts := append(slices.Clone(s.toolOpts),
+		tools.WithTaskStore(tools.NewTaskStore()),
+		tools.WithAgentSpawner(childSpawner),
+	)
+
 	// Inherited options first, required wiring last so it always wins.
 	childOpts := append(slices.Clone(s.agentOpts),
 		WithChatClient(s.client),
-		WithToolExecutor(tools.NewExecutor(
-			tools.WithTaskStore(tools.NewTaskStore()),
-			tools.WithAgentSpawner(childSpawner),
-		)),
+		WithToolExecutor(tools.NewExecutor(execOpts...)),
 	)
 
 	childAgent, err := New(childCfg, s.workDir, childOpts...)
@@ -136,6 +148,7 @@ func (s *Spawner) child(cfg Config) *Spawner {
 	c := NewSpawner(s.client, cfg, s.workDir,
 		WithMaxDepth(s.maxDepth),
 		WithAgentOptions(s.agentOpts...),
+		WithToolOptions(s.toolOpts...),
 	)
 	c.depth = s.depth + 1
 	return c

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/amer/aql/internal/agent"
+	"github.com/amer/aql/internal/agent/tools"
 	"github.com/amer/aql/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,6 +114,33 @@ func TestSpawner_ToolUseLoop(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "tool output was: hi")
+}
+
+func TestSpawner_ChildToolsGatedByApprover(t *testing.T) {
+	callCount := 0
+	client := &toolUsingClient{
+		responses: []*domain.ChatResponse{
+			{
+				ToolUses:   []domain.ChatToolUse{{ID: "t1", Name: "bash", Input: `{"command":"echo hi"}`}},
+				StopReason: "tool_use",
+			},
+			{TextParts: []string{"done"}, StopReason: "end_turn"},
+		},
+		callCount: &callCount,
+	}
+	var approved []string
+	spawner := agent.NewSpawner(client, spawnerTestConfig(), t.TempDir(),
+		agent.WithToolOptions(tools.WithApprover(
+			func(_ context.Context, req tools.ApprovalRequest) (bool, error) {
+				approved = append(approved, req.Tool)
+				return true, nil
+			})),
+	)
+
+	_, err := spawner.Spawn(context.Background(), "run echo")
+
+	require.NoError(t, err)
+	assert.Contains(t, approved, "bash", "sub-agent bash must be routed through the approver")
 }
 
 // toolUsingClient returns different responses on successive calls and

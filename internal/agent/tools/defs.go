@@ -243,6 +243,7 @@ type executorOpts struct {
 	taskStore    *TaskStore
 	agentSpawner AgentSpawner
 	httpClient   *http.Client
+	approve      ApproverFn
 }
 
 // WithAskUser sets the function called when the agent uses ask_user.
@@ -265,6 +266,12 @@ func WithHTTPClient(c *http.Client) ExecutorOption {
 	return func(o *executorOpts) { o.httpClient = c }
 }
 
+// WithApprover gates side-effecting tools (bash, write_file, edit,
+// notebook_edit) behind fn. Without it, those tools run ungated.
+func WithApprover(fn ApproverFn) ExecutorOption {
+	return func(o *executorOpts) { o.approve = fn }
+}
+
 // NewExecutor creates an ExecutorFn with the given options.
 func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 	var o executorOpts
@@ -280,9 +287,10 @@ func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 		registerTaskTools(registry, o.taskStore)
 	}
 	registerAgentTool(registry, o.agentSpawner)
-	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+	dispatch := func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
 		return execute(ctx, workDir, name, input, registry)
 	}
+	return gate(o.approve, dispatch)
 }
 
 func execute(ctx context.Context, workDir, name string, input json.RawMessage, registry map[string]toolHandler) (string, error) {

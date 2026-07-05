@@ -129,13 +129,22 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 		baseOpts = append(baseOpts, agent.WithOAuth())
 	}
 
-	// Build tool executor with the shared HTTP client
-	spawner := agent.NewSpawner(chatClient, cfg, workDir, agent.WithAgentOptions(baseOpts...))
+	// Gate side-effecting tools (bash/write_file/edit/notebook_edit) behind a
+	// y/n prompt so a prompt-injected model can't silently run commands.
+	approve := newApprover(func(msg any) { program.Send(msg) })
+
+	// Build tool executor with the shared HTTP client. The spawner carries the
+	// same approver so sub-agent tool calls are gated too.
+	spawner := agent.NewSpawner(chatClient, cfg, workDir,
+		agent.WithAgentOptions(baseOpts...),
+		agent.WithToolOptions(tools.WithApprover(approve)),
+	)
 	toolExec := tools.NewExecutor(
 		tools.WithTaskStore(tools.NewTaskStore()),
 		tools.WithAgentSpawner(spawner),
 		tools.WithAskUser(askUser),
 		tools.WithHTTPClient(httpClient),
+		tools.WithApprover(approve),
 	)
 
 	opts := append(slices.Clone(baseOpts),
