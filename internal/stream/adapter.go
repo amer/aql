@@ -8,6 +8,9 @@ package stream
 //     (without history)
 //   - ForwardWithHistory() — same but applies history mutations
 //     via callbacks
+//   - drain/drainHistory — cancellation-path drainers that keep the
+//     producer from blocking on a full buffer
+//   - applyHistory — applies a single event's history mutation
 //   - forwardEvent — single event translation
 //   - forwardToolCall/forwardToolDone — tool event mapping
 //   - SendFunc/HistoryCallbacks types
@@ -43,12 +46,15 @@ import (
 type SendFunc func(msg any)
 
 // Forward reads domain.StreamEvents from ch and translates them into
-// TUI messages via send. It blocks until the channel is closed, the
-// context is cancelled, or a terminal event (Done/Error) is received.
+// TUI messages via send. It blocks until the channel is closed or a terminal
+// event (Done/Error) is received. On cancellation it stops forwarding but keeps
+// draining ch until the producer closes it, so the producer never blocks on a
+// full buffer (see drain).
 func Forward(ctx context.Context, ch <-chan domain.StreamEvent, send SendFunc) {
 	for {
 		select {
 		case <-ctx.Done():
+			drain(ch)
 			return
 		case evt, ok := <-ch:
 			if !ok {
@@ -58,6 +64,15 @@ func Forward(ctx context.Context, ch <-chan domain.StreamEvent, send SendFunc) {
 				return
 			}
 		}
+	}
+}
+
+// drain consumes the remaining events on ch until it closes, discarding them.
+// The agent's Run goroutine sends unconditionally on a buffered channel; if the
+// consumer stopped reading on cancellation, a full buffer would block that
+// goroutine forever, leaking it and the open HTTP stream.
+func drain(ch <-chan domain.StreamEvent) {
+	for range ch {
 	}
 }
 
@@ -82,21 +97,42 @@ func ForwardWithHistory(ctx context.Context, ch <-chan domain.StreamEvent, send 
 	for {
 		select {
 		case <-ctx.Done():
+			// Cancelled (e.g. the user pressed Esc). The TUI has already reset
+			// its own streaming state, so forwarding further events would
+			// restart it. Keep draining and applying history mutations until the
+			// producer closes: draining stops the Run goroutine blocking on a
+			// full buffer, and applying history prevents a dropped tool_result
+			// from leaving a dangling tool_use that the API rejects next turn.
+			drainHistory(ch, history)
 			return
 		case evt, ok := <-ch:
 			if !ok {
 				return
 			}
-			if evt.History != nil && history.Append != nil {
-				history.Append(evt.History.Message)
-			}
-			if evt.Replace != nil && history.Replace != nil {
-				history.Replace(evt.Replace.Messages)
-			}
+			applyHistory(evt, history)
 			if forwardEvent(evt, send) {
 				return
 			}
 		}
+	}
+}
+
+// applyHistory applies any history mutation carried by evt via the callbacks.
+func applyHistory(evt domain.StreamEvent, history HistoryCallbacks) {
+	if evt.History != nil && history.Append != nil {
+		history.Append(evt.History.Message)
+	}
+	if evt.Replace != nil && history.Replace != nil {
+		history.Replace(evt.Replace.Messages)
+	}
+}
+
+// drainHistory consumes ch until it closes, applying every history mutation but
+// forwarding nothing to the TUI. Used on the cancellation path so history stays
+// consistent while the stream is torn down.
+func drainHistory(ch <-chan domain.StreamEvent, history HistoryCallbacks) {
+	for evt := range ch {
+		applyHistory(evt, history)
 	}
 }
 

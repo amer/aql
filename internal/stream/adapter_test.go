@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/amer/aql/internal/domain"
 	"github.com/amer/aql/internal/stream"
@@ -150,17 +151,59 @@ func TestForward_ToolError(t *testing.T) {
 	assert.Equal(t, domain.ToolError, toolMsg.ToolCall.Status)
 }
 
-func TestForward_ContextCancelled(t *testing.T) {
-	ch := make(chan domain.StreamEvent) // unbuffered, will block
+func TestForward_ContextCancelledDrainsAndReturns(t *testing.T) {
+	// On cancellation Forward must keep draining the channel until the producer
+	// closes it — otherwise the producer blocks forever on a full buffer (C1).
+	// Buffered + pre-closed so this is deterministic: the test asserts Forward
+	// returns rather than hanging.
+	ch := make(chan domain.StreamEvent, 2)
+	ch <- domain.StreamEvent{AgentName: "coder", Text: "late delta"}
+	ch <- domain.StreamEvent{AgentName: "coder", Done: true}
+	close(ch)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	var msgs []any
-	send := func(msg any) {
-		msgs = append(msgs, msg)
+	done := make(chan struct{})
+	go func() {
+		stream.Forward(ctx, ch, func(any) {})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Forward did not return after cancellation — channel was not drained")
+	}
+}
+
+func TestForwardWithHistory_CancelledStillAppliesHistory(t *testing.T) {
+	// C2: on cancellation the assistant tool_use message may already be applied
+	// while its tool_result is still in flight. Dropping the tool_result leaves
+	// a dangling tool_use that the API rejects. ForwardWithHistory must apply
+	// every history event even when the context is cancelled.
+	assistantToolUse := domain.Message{
+		Role:    domain.RoleAssistant,
+		Content: []domain.ContentBlock{domain.ToolUseContentBlock("t1", "bash", `{}`)},
+	}
+	toolResult := domain.Message{
+		Role:    domain.RoleUser,
+		Content: []domain.ContentBlock{domain.ToolResultContentBlock("t1", "ok", false)},
 	}
 
-	stream.Forward(ctx, ch, send)
-	assert.Empty(t, msgs, "should return immediately on cancelled context")
+	ch := make(chan domain.StreamEvent, 3)
+	ch <- domain.StreamEvent{History: &domain.HistoryAppendMsg{Message: assistantToolUse}}
+	ch <- domain.StreamEvent{History: &domain.HistoryAppendMsg{Message: toolResult}}
+	ch <- domain.StreamEvent{Done: true}
+	close(ch)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var applied []domain.Message
+	stream.ForwardWithHistory(ctx, ch, func(any) {}, stream.HistoryCallbacks{
+		Append: func(m domain.Message) { applied = append(applied, m) },
+	})
+
+	assert.Len(t, applied, 2, "both history messages must be applied despite cancellation")
 }
