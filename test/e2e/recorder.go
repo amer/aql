@@ -7,7 +7,8 @@ package e2e
 //   - Recorder — reverse proxy that records all traffic,
 //     NewRecorder() — creates a recording proxy for an upstream URL,
 //     recordingTransport — wraps RoundTripper to capture bodies,
-//     recordingBody — streams response while accumulating for recording.
+//     recordingBody — streams response while accumulating for recording,
+//     scrubHeaders() — redacts credential headers before an exchange is stored.
 //
 // MUST NOT GO HERE:
 //   - Exchange type and serialization (exchange.go)
@@ -96,9 +97,32 @@ func (r *Recorder) SaveJSON(dir string) error {
 }
 
 func (r *Recorder) record(ex Exchange) {
+	scrubHeaders(ex.RequestHeaders)
+	scrubHeaders(ex.ResponseHeaders)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.exchanges = append(r.exchanges, ex)
+}
+
+// sensitiveHeaders are request/response headers that carry credentials and
+// must never be written to committed fixtures. Keys are in canonical form.
+var sensitiveHeaders = map[string]bool{
+	"X-Api-Key":           true,
+	"Authorization":       true,
+	"Proxy-Authorization": true,
+	"Cookie":              true,
+	"Set-Cookie":          true,
+}
+
+// scrubHeaders replaces the values of credential-bearing headers with REDACTED,
+// in place. It is the single point that stops E2E_RECORD=1 runs from leaking a
+// live API key into git-committed testdata.
+func scrubHeaders(h http.Header) {
+	for name := range h {
+		if sensitiveHeaders[http.CanonicalHeaderKey(name)] {
+			h[name] = []string{"REDACTED"}
+		}
+	}
 }
 
 // recordingTransport wraps an http.RoundTripper to capture request/response bodies.

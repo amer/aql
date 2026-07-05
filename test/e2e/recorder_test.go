@@ -89,6 +89,7 @@ func TestRecorder_CapturesHeaders(t *testing.T) {
 
 	req, _ := http.NewRequest("POST", proxy.URL+"/v1/messages", strings.NewReader("body"))
 	req.Header.Set("X-Api-Key", "test-key")
+	req.Header.Set("Authorization", "Bearer secret-token")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -96,7 +97,12 @@ func TestRecorder_CapturesHeaders(t *testing.T) {
 	resp.Body.Close()
 
 	ex := rec.Exchanges()[0]
-	assert.Equal(t, "test-key", ex.RequestHeaders.Get("X-Api-Key"))
+	// Credentials must never reach committed fixtures — they are redacted at
+	// capture time so an E2E_RECORD=1 run can't leak a live key into git.
+	assert.Equal(t, "REDACTED", ex.RequestHeaders.Get("X-Api-Key"))
+	assert.Equal(t, "REDACTED", ex.RequestHeaders.Get("Authorization"))
+	// Non-sensitive headers are preserved verbatim.
+	assert.Equal(t, "application/json", ex.RequestHeaders.Get("Content-Type"))
 	assert.Equal(t, "abc123", ex.ResponseHeaders.Get("X-Request-Id"))
 }
 
