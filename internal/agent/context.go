@@ -19,6 +19,7 @@ package agent
 // ──────────────────────────────────────────────────────────────────
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,14 @@ func CollectClaudeMD(dirs ...string) string {
 		seen[abs] = true
 
 		content, err := LoadClaudeMD(abs)
-		if err != nil || content == "" {
+		if err != nil {
+			// Not-exist is already folded into a nil error, so a real error
+			// here (permission, I/O) means we silently dropped project
+			// context — surface it rather than swallow it.
+			slog.Warn("failed to read CLAUDE.md", "dir", abs, "error", err)
+			continue
+		}
+		if content == "" {
 			continue
 		}
 		parts = append(parts, content)
