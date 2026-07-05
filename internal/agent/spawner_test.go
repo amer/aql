@@ -112,13 +112,16 @@ func TestSpawner_ToolUseLoop(t *testing.T) {
 	assert.Contains(t, result, "tool output was: hi")
 }
 
-// toolUsingClient returns different responses on successive calls.
+// toolUsingClient returns different responses on successive calls and
+// records the ChatParams of every call it receives.
 type toolUsingClient struct {
 	responses []*domain.ChatResponse
 	callCount *int
+	captured  []domain.ChatParams
 }
 
 func (t *toolUsingClient) StreamMessage(_ context.Context, params domain.ChatParams, onText func(string)) (*domain.ChatResponse, error) {
+	t.captured = append(t.captured, params)
 	idx := *t.callCount
 	if idx >= len(t.responses) {
 		idx = len(t.responses) - 1
@@ -147,6 +150,46 @@ func (t *toolUsingClient) SendMessage(_ context.Context, _ domain.ChatParams) (*
 	return t.responses[0], nil
 }
 
+// TestAgent_SubAgentsInheritOAuth reproduces the bug where sub-agents
+// spawned from an OAuth-authenticated parent made API calls without the
+// OAuth billing configuration. The scripted client makes the parent spawn
+// a child, and the child spawn a grandchild; every API call at every depth
+// must carry the parent's OAuth billing flag.
+func TestAgent_SubAgentsInheritOAuth(t *testing.T) {
+	callCount := 0
+	client := &toolUsingClient{
+		responses: []*domain.ChatResponse{
+			{
+				ToolUses: []domain.ChatToolUse{
+					{ID: "tool_1", Name: "agent", Input: `{"prompt":"sub task","description":"test"}`},
+				},
+				StopReason: "tool_use",
+			},
+			{
+				ToolUses: []domain.ChatToolUse{
+					{ID: "tool_2", Name: "agent", Input: `{"prompt":"nested sub task","description":"test"}`},
+				},
+				StopReason: "tool_use",
+			},
+			{TextParts: []string{"done"}, StopReason: "end_turn"},
+		},
+		callCount: &callCount,
+	}
+	coder, err := agent.New(spawnerTestConfig(), t.TempDir(),
+		agent.WithChatClient(client), agent.WithOAuth())
+	require.NoError(t, err)
+
+	for evt := range coder.Run(context.Background(), "do it") {
+		require.NoError(t, evt.Error)
+	}
+
+	// parent, child, grandchild, then unwinding end_turns
+	require.GreaterOrEqual(t, len(client.captured), 3)
+	for i, p := range client.captured {
+		assert.True(t, p.OAuthBilling, "API call %d must carry OAuth billing", i)
+	}
+}
+
 func spawnerTestConfig() agent.Config {
 	return agent.Config{
 		Name:         "test-agent",
@@ -172,7 +215,7 @@ func TestSpawner_ImplementsInterface(t *testing.T) {
 	} = spawner
 
 	// Also test round-trip through tools executor
-	exec := agent.NewToolExecutor(spawnerTestConfig(), client, t.TempDir())
+	exec := agent.NewToolExecutor(spawnerTestConfig(), client, t.TempDir(), nil)
 	result, err := exec(context.Background(), t.TempDir(), "agent",
 		json.RawMessage(`{"prompt":"hello","description":"test"}`))
 	require.NoError(t, err)

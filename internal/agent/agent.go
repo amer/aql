@@ -119,7 +119,9 @@ func New(cfg Config, workDir string, opts ...Option) (*Agent, error) {
 
 	toolExec := o.toolExecutor
 	if toolExec == nil {
-		toolExec = NewToolExecutor(cfg, o.chatClient, workDir, o.askUser)
+		// Pass this agent's own options down so spawned sub-agents
+		// inherit them (OAuth billing, etc.).
+		toolExec = NewToolExecutor(cfg, o.chatClient, workDir, o.askUser, opts...)
 	}
 
 	a := &Agent{
