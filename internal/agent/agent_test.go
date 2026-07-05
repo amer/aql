@@ -40,8 +40,15 @@ func TestNewAgent(t *testing.T) {
 	assert.Equal(t, "coder", a.Name())
 }
 
+// buildPrompt assembles the system prompt via the production path
+// (BuildPromptParts + JoinPromptParts) so these tests exercise what agents
+// actually send, not a convenience wrapper.
+func buildPrompt(cfg agent.Config, claudeMD, workDir string) string {
+	return agent.JoinPromptParts(agent.BuildPromptParts(cfg, claudeMD, workDir))
+}
+
 func TestBuildSystemPrompt(t *testing.T) {
-	prompt := agent.BuildSystemPrompt(testConfig(), "# Project Rules\n- Use TDD\n", "/tmp")
+	prompt := buildPrompt(testConfig(), "# Project Rules\n- Use TDD\n", "/tmp")
 
 	assert.Contains(t, prompt, "You are a senior Go developer.")
 	assert.Contains(t, prompt, "Write clean Go code")
@@ -50,7 +57,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 }
 
 func TestBuildSystemPromptContainsEnvInfo(t *testing.T) {
-	prompt := agent.BuildSystemPrompt(testConfig(), "", "/tmp")
+	prompt := buildPrompt(testConfig(), "", "/tmp")
 
 	assert.Contains(t, prompt, "# Environment")
 	assert.Contains(t, prompt, "Date:")
@@ -58,7 +65,7 @@ func TestBuildSystemPromptContainsEnvInfo(t *testing.T) {
 }
 
 func TestBuildSystemPromptNoClaudeMD(t *testing.T) {
-	prompt := agent.BuildSystemPrompt(testConfig(), "", "/tmp")
+	prompt := buildPrompt(testConfig(), "", "/tmp")
 
 	assert.Contains(t, prompt, "You are a senior Go developer.")
 	assert.NotContains(t, prompt, "Project Rules")
@@ -133,17 +140,6 @@ func TestBuildPromptParts_ReturnsNamedParts(t *testing.T) {
 	for _, p := range parts {
 		assert.NotEmpty(t, p.Content, "part %q should have content", p.Name)
 	}
-}
-
-func TestBuildPromptParts_ContentMatchesLegacy(t *testing.T) {
-	cfg := testConfig()
-	claudeMD := "# Project\n- Rule one\n"
-
-	legacy := agent.BuildSystemPrompt(cfg, claudeMD, "/tmp")
-	parts := agent.BuildPromptParts(cfg, claudeMD, "/tmp")
-	joined := agent.JoinPromptParts(parts)
-
-	assert.Equal(t, legacy, joined)
 }
 
 func TestBuildPromptParts_OmitsEmptyParts(t *testing.T) {

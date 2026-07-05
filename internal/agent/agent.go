@@ -302,9 +302,3 @@ func LogPromptParts(agentName string, parts []PromptPart) {
 	}
 	slog.Info("system prompt assembled", "agent", agentName, "parts", len(parts), "totalChars", total)
 }
-
-// BuildSystemPrompt constructs the system prompt as a single string.
-// Delegates to BuildPromptParts + JoinPromptParts.
-func BuildSystemPrompt(cfg Config, claudeMD string, workDir string) string {
-	return JoinPromptParts(BuildPromptParts(cfg, claudeMD, workDir))
-}
