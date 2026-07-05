@@ -5,6 +5,7 @@ package agent
 //
 // BELONGS HERE:
 //   - Run() method — the core streaming + tool loop, streamWithRetry(),
+//     abandonTurn() — rolls history back to the pre-turn state on failure,
 //     executeTools() and its helpers (emitToolCallEvents, runToolsParallel,
 //     emitToolResults), buildChatParamsFrom(), maybeAutoCompact(),
 //     buildAssistantMessage(), constants (maxToolIterations,
@@ -89,6 +90,13 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		slog.Debug("agent run started", "agent", a.config.Name, "messageLength", len(userMessage))
 		start := time.Now()
 
+		// preTurnHistory is the last API-valid state (ends with an assistant
+		// message or is empty). If this turn ends without a final assistant
+		// reply — API error or tool-iteration limit — we roll history back to it
+		// so it never terminates on a user role. snapshotHistory returns a
+		// len==cap copy, so the append below allocates and leaves this untouched.
+		preTurnHistory := localHistory
+
 		userMsg := domain.NewUserMessage(userMessage)
 		localHistory = append(localHistory, userMsg)
 		ch <- domain.StreamEvent{AgentName: a.config.Name, History: &domain.HistoryAppendMsg{Message: userMsg}}
@@ -107,6 +115,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 			resp, err := a.streamWithRetry(ctx, ch, params)
 			if err != nil {
 				slog.Error("API error", "agent", a.config.Name, "error", err, "duration", time.Since(start), "iteration", iteration)
+				a.abandonTurn(ch, preTurnHistory)
 				ch <- domain.StreamEvent{
 					AgentName: a.config.Name,
 					Error:     enrichAPIError(err, model),
@@ -148,10 +157,25 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		}
 
 		slog.Warn("agent hit tool use iteration limit", "agent", a.config.Name)
+		a.abandonTurn(ch, preTurnHistory)
 		ch <- domain.StreamEvent{AgentName: a.config.Name, Done: true}
 	}()
 
 	return ch
+}
+
+// abandonTurn restores history to preTurn, the last API-valid state before the
+// current turn began. A turn that ends without a final assistant reply (API
+// error or tool-iteration limit) otherwise leaves the appended user or
+// tool-result message trailing; the next turn's user message would then be a
+// second consecutive user role and the API rejects it with a 400. Emitting a
+// replace (not a direct write) keeps all history mutation in the caller's
+// goroutine, per the runner's history-ownership contract.
+func (a *Agent) abandonTurn(ch chan<- domain.StreamEvent, preTurn []domain.Message) {
+	ch <- domain.StreamEvent{
+		AgentName: a.config.Name,
+		Replace:   &domain.HistoryReplaceMsg{Messages: preTurn},
+	}
 }
 
 // streamWithRetry performs the streaming API call with retry logic for transient errors.
