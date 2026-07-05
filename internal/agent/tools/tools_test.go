@@ -16,6 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// execTool runs a single tool with a default executor (no ask_user, fresh task
+// store). It exists so tests can invoke a tool by name without production code
+// exposing a public one-shot Execute that only tests need.
+func execTool(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
+	return tools.NewExecutor(tools.WithTaskStore(tools.NewTaskStore()))(ctx, workDir, name, input)
+}
+
 func writeTestFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -75,7 +82,7 @@ func TestReadFile_ReturnsFileContents(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "hello.txt", "hello world\nsecond line")
 
-	result, err := tools.Execute(context.Background(), dir, "read_file",
+	result, err := execTool(context.Background(), dir, "read_file",
 		json.RawMessage(`{"path":"hello.txt"}`))
 	require.NoError(t, err)
 	assert.Equal(t, "hello world\nsecond line", result)
@@ -83,7 +90,7 @@ func TestReadFile_ReturnsFileContents(t *testing.T) {
 
 func TestReadFile_MissingFile(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "read_file",
+	result, err := execTool(context.Background(), dir, "read_file",
 		json.RawMessage(`{"path":"nope.txt"}`))
 	assert.NoError(t, err)
 	assert.Contains(t, result, "no such file")
@@ -93,7 +100,7 @@ func TestReadFile_MissingFile(t *testing.T) {
 
 func TestWriteFile_CreatesFileAndVerifyContents(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "write_file",
+	result, err := execTool(context.Background(), dir, "write_file",
 		json.RawMessage(`{"path":"out.txt","content":"written content"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "out.txt")
@@ -105,7 +112,7 @@ func TestWriteFile_CreatesFileAndVerifyContents(t *testing.T) {
 
 func TestWriteFile_CreatesNestedDirectories(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "write_file",
+	result, err := execTool(context.Background(), dir, "write_file",
 		json.RawMessage(`{"path":"a/b/c.txt","content":"deep"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "c.txt")
@@ -121,7 +128,7 @@ func TestEdit_SingleReplace(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"hello","new_string":"goodbye"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Edited")
@@ -135,7 +142,7 @@ func TestEdit_ReplaceAll(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "aaa bbb aaa")
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"aaa","new_string":"xxx","replace_all":true}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "2 replacements")
@@ -149,7 +156,7 @@ func TestEdit_AmbiguousMatchFails(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "aaa bbb aaa")
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"aaa","new_string":"xxx"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "matches 2 times")
@@ -163,7 +170,7 @@ func TestEdit_NotFoundInFile(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"zzz","new_string":"xxx"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "not found")
@@ -173,7 +180,7 @@ func TestEdit_SameStringsFails(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "f.txt", "hello world")
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"f.txt","old_string":"hello","new_string":"hello"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "identical")
@@ -181,7 +188,7 @@ func TestEdit_SameStringsFails(t *testing.T) {
 
 func TestEdit_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"nope.txt","old_string":"a","new_string":"b"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "no such file")
@@ -192,7 +199,7 @@ func TestEdit_MultilineContent(t *testing.T) {
 	original := "line1\nline2\nline3\nline4"
 	writeTestFile(t, dir, "multi.txt", original)
 
-	result, err := tools.Execute(context.Background(), dir, "edit",
+	result, err := execTool(context.Background(), dir, "edit",
 		json.RawMessage(`{"file_path":"multi.txt","old_string":"line2\nline3","new_string":"replaced2\nreplaced3"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Edited")
@@ -209,7 +216,7 @@ func TestListDirectory_ShowsFilesAndDirs(t *testing.T) {
 	writeTestFile(t, dir, "a.go", "package a")
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0755))
 
-	result, err := tools.Execute(context.Background(), dir, "list_directory",
+	result, err := execTool(context.Background(), dir, "list_directory",
 		json.RawMessage(fmt.Sprintf(`{"path":"%s"}`, dir)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "a.go")
@@ -220,7 +227,7 @@ func TestListDirectory_ShowsFilesAndDirs(t *testing.T) {
 
 func TestBash_ExecutesCommand(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "bash",
+	result, err := execTool(context.Background(), dir, "bash",
 		json.RawMessage(`{"command":"echo hello from bash"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "hello from bash")
@@ -228,7 +235,7 @@ func TestBash_ExecutesCommand(t *testing.T) {
 
 func TestBash_ReportsExitError(t *testing.T) {
 	dir := t.TempDir()
-	result, err := tools.Execute(context.Background(), dir, "bash",
+	result, err := execTool(context.Background(), dir, "bash",
 		json.RawMessage(`{"command":"exit 1"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "exit")
@@ -242,7 +249,7 @@ func TestGlob_MatchesGoFiles(t *testing.T) {
 	writeTestFile(t, dir, "b.go", "package b")
 	writeTestFile(t, dir, "c.txt", "not go")
 
-	result, err := tools.Execute(context.Background(), dir, "glob",
+	result, err := execTool(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "a.go")
@@ -255,7 +262,7 @@ func TestGlob_RecursiveDoublestar(t *testing.T) {
 	writeTestFile(t, dir, "sub/deep.go", "package deep")
 	writeTestFile(t, dir, "top.go", "package top")
 
-	result, err := tools.Execute(context.Background(), dir, "glob",
+	result, err := execTool(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"**/*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "deep.go")
@@ -266,7 +273,7 @@ func TestGlob_NoMatches(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "a.txt", "text")
 
-	result, err := tools.Execute(context.Background(), dir, "glob",
+	result, err := execTool(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "No files matched")
@@ -277,7 +284,7 @@ func TestGlob_SkipsHiddenDirs(t *testing.T) {
 	writeTestFile(t, dir, ".hidden/secret.go", "package secret")
 	writeTestFile(t, dir, "visible.go", "package visible")
 
-	result, err := tools.Execute(context.Background(), dir, "glob",
+	result, err := execTool(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"**/*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "visible.go")
@@ -289,7 +296,7 @@ func TestGlob_SortedByModTime(t *testing.T) {
 	writeTestFile(t, dir, "old.go", "old")
 	writeTestFile(t, dir, "new.go", "new")
 
-	result, err := tools.Execute(context.Background(), dir, "glob",
+	result, err := execTool(context.Background(), dir, "glob",
 		json.RawMessage(`{"pattern":"*.go","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	lines := strings.Split(result, "\n")
@@ -304,7 +311,7 @@ func TestGrep_FindsPattern(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "test.go", "func main() {\n\tfmt.Println(\"hello\")\n}")
 
-	result, err := tools.Execute(context.Background(), dir, "grep",
+	result, err := execTool(context.Background(), dir, "grep",
 		json.RawMessage(`{"pattern":"Println","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Println")
@@ -315,7 +322,7 @@ func TestGrep_NoMatch(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "test.go", "package main")
 
-	result, err := tools.Execute(context.Background(), dir, "grep",
+	result, err := execTool(context.Background(), dir, "grep",
 		json.RawMessage(`{"pattern":"zzznope","path":"`+dir+`"}`))
 	require.NoError(t, err)
 	assert.Empty(t, result)
@@ -361,7 +368,7 @@ func TestWebFetch_PlainText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := tools.Execute(context.Background(), ".", "web_fetch",
+	result, err := execTool(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Equal(t, "plain text content", result)
@@ -374,7 +381,7 @@ func TestWebFetch_HTMLExtractsText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := tools.Execute(context.Background(), ".", "web_fetch",
+	result, err := execTool(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "visible text")
@@ -388,14 +395,14 @@ func TestWebFetch_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := tools.Execute(context.Background(), ".", "web_fetch",
+	result, err := execTool(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "HTTP 404")
 }
 
 func TestWebFetch_InvalidURL(t *testing.T) {
-	result, err := tools.Execute(context.Background(), ".", "web_fetch",
+	result, err := execTool(context.Background(), ".", "web_fetch",
 		json.RawMessage(`{"url":"not a url"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "error")
@@ -416,7 +423,7 @@ func TestWebFetch_StripsScriptsAndStyles(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result, err := tools.Execute(context.Background(), ".", "web_fetch",
+	result, err := execTool(context.Background(), ".", "web_fetch",
 		json.RawMessage(fmt.Sprintf(`{"url":"%s"}`, srv.URL)))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Title")
@@ -470,7 +477,7 @@ func TestAskUser_WithFunc(t *testing.T) {
 }
 
 func TestAskUser_NoFunc(t *testing.T) {
-	result, err := tools.Execute(context.Background(), ".", "ask_user",
+	result, err := execTool(context.Background(), ".", "ask_user",
 		json.RawMessage(`{"question":"hello?"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "not available")
@@ -494,7 +501,7 @@ func TestAskUser_ContextCanceled(t *testing.T) {
 // --- unknown tool ---
 
 func TestExecute_Unknown(t *testing.T) {
-	_, err := tools.Execute(context.Background(), ".", "unknown_tool", json.RawMessage(`{}`))
+	_, err := execTool(context.Background(), ".", "unknown_tool", json.RawMessage(`{}`))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown tool")
 }

@@ -7,7 +7,7 @@ package tools
 //   - ToolDef type, Definitions() — all tool JSON schemas
 //   - buildRegistry() — tool name→handler mapping
 //   - ExecutorOption pattern (WithAskUser, WithTaskStore, WithAgentSpawner, WithHTTPClient)
-//   - NewExecutor/Execute
+//   - NewExecutor
 //   - parseInput generic helper, resolvePath helper
 //   - toolHandler type, UserQuestion/AskUserFn/ExecutorFn types
 //
@@ -283,12 +283,6 @@ func NewExecutor(opts ...ExecutorOption) ExecutorFn {
 	return func(ctx context.Context, workDir, name string, input json.RawMessage) (string, error) {
 		return execute(ctx, workDir, name, input, registry)
 	}
-}
-
-// Execute runs a tool by name using the default executor with no ask_user support.
-func Execute(ctx context.Context, workDir string, name string, input json.RawMessage) (string, error) {
-	exec := NewExecutor(WithTaskStore(NewTaskStore()))
-	return exec(ctx, workDir, name, input)
 }
 
 func execute(ctx context.Context, workDir, name string, input json.RawMessage, registry map[string]toolHandler) (string, error) {
