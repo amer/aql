@@ -46,6 +46,11 @@ const (
 	// maxToolIterations is the maximum number of tool use loops before giving up.
 	maxToolIterations = 25
 
+	// MaxToolConcurrency caps how many tools run in parallel within a single
+	// turn, bounding goroutine fan-out and downstream resource use (open files,
+	// sub-agent API calls) when the model requests many tools at once.
+	MaxToolConcurrency = 8
+
 	// streamEventBufSize is the buffer size for the domain.StreamEvent channel.
 	streamEventBufSize = 64
 
@@ -207,11 +212,17 @@ func (a *Agent) emitToolCallEvents(ch chan<- domain.StreamEvent, toolUses []doma
 
 func (a *Agent) runToolsParallel(ctx context.Context, toolUses []domain.ChatToolUse) []toolResult {
 	results := make([]toolResult, len(toolUses))
+	// Bound fan-out: a full slot buffer lets up to MaxToolConcurrency tools run
+	// at once; acquiring a token before launching blocks the rest until a slot
+	// frees.
+	sem := make(chan struct{}, MaxToolConcurrency)
 	var wg sync.WaitGroup
 	for i, tu := range toolUses {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(idx int, tu domain.ChatToolUse) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			slog.Debug("executing tool", "agent", a.config.Name, "tool", tu.Name, "id", tu.ID)
 			output, execErr := a.toolExecutor(ctx, a.WorkDir(), tu.Name, json.RawMessage(tu.Input))
 			if execErr != nil {
