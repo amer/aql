@@ -501,10 +501,7 @@ func renderCollapsedToolGroup(group ToolGroup, width int) string {
 
 // renderConnectorLine renders a ⎿ connector with truncated summary text.
 func renderConnectorLine(summary string, width int) string {
-	maxLen := width - 8
-	if maxLen > 0 && len(summary) > maxLen {
-		summary = summary[:maxLen-6] + ", +more"
-	}
+	summary = truncateEnd(summary, width-8)
 	return transcriptIndent +
 		TranscriptConnectorStyle.Render(transcriptConnector) +
 		"  " + DimStyle.Render(summary)

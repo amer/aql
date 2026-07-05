@@ -252,10 +252,7 @@ func RenderDiffDetail(file diff.DiffFile, scrollTop, height, width int) string {
 
 // fileLine renders a single file entry with path and stats.
 func fileLine(f diff.DiffFile, selected bool, maxWidth int) string {
-	path := f.Path
-	if len(path) > maxWidth-15 {
-		path = "…" + path[len(path)-(maxWidth-16):]
-	}
+	path := truncateTail(f.Path, maxWidth-15)
 
 	var stats string
 	if f.IsBinary {

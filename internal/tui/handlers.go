@@ -27,11 +27,23 @@ package tui
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/amer/aql/internal/domain"
 )
+
+// keyToRune reports whether s is a single-rune key press and returns that rune.
+// A key like "é" or "世" is one rune but multiple bytes, so len(s) == 1 would
+// wrongly drop it; counting runes keeps multibyte input working.
+func keyToRune(s string) (rune, bool) {
+	if utf8.RuneCountInString(s) != 1 {
+		return 0, false
+	}
+	r, _ := utf8.DecodeRuneInString(s)
+	return r, true
+}
 
 func (m Model) handleModelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	tiers := m.GetModelTiers()
@@ -134,8 +146,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if msg.Paste {
 			m.inputBuf.InsertString(string(msg.Runes))
-		} else if len(msg.String()) == 1 {
-			m.inputBuf.Insert(rune(msg.String()[0]))
+		} else if r, ok := keyToRune(msg.String()); ok {
+			m.inputBuf.Insert(r)
 		}
 		m.updatePalette()
 	}
