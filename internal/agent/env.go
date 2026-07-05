@@ -25,6 +25,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -107,16 +108,14 @@ func gitCommand(dir string, args ...string) string {
 }
 
 func detectShell() string {
-	// Check SHELL env var first
-	for _, env := range []string{"SHELL"} {
-		cmd := exec.Command("sh", "-c", "echo $"+env)
-		out, err := cmd.Output()
-		if err == nil {
-			s := strings.TrimSpace(string(out))
-			if s != "" {
-				return filepath.Base(s)
-			}
-		}
+	return shellName(os.Getenv("SHELL"))
+}
+
+// shellName returns the base shell name from a shell path (e.g. "/bin/zsh" ->
+// "zsh"), or "unknown" when the path is empty.
+func shellName(shellPath string) string {
+	if shellPath == "" {
+		return "unknown"
 	}
-	return "unknown"
+	return filepath.Base(shellPath)
 }
