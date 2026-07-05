@@ -43,11 +43,13 @@ func TestRecorder_CapturesExchange(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, `{"reply":"hello"}`, string(body))
 
-	// Recorder should have captured the exchange
-	exchanges := rec.Exchanges()
-	require.Len(t, exchanges, 1)
+	// Recorder appends on the proxy-side body Close() (a separate goroutine),
+	// so wait for the exchange to settle before inspecting it.
+	require.Eventually(t, func() bool {
+		return len(rec.Exchanges()) == 1
+	}, 2*time.Second, 5*time.Millisecond)
 
-	ex := exchanges[0]
+	ex := rec.Exchanges()[0]
 	assert.Equal(t, "POST", ex.Method)
 	assert.Equal(t, "/v1/messages", ex.Path)
 	assert.Equal(t, `{"prompt":"hi"}`, ex.RequestBody)
@@ -66,13 +68,19 @@ func TestRecorder_CapturesMultipleExchanges(t *testing.T) {
 	proxy := httptest.NewServer(rec)
 	defer proxy.Close()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp, err := http.Get(proxy.URL + "/v1/models")
 		require.NoError(t, err)
 		resp.Body.Close()
 	}
 
-	assert.Len(t, rec.Exchanges(), 3)
+	// The recorder appends on the proxy-side body Close(), which the reverse
+	// proxy runs on its own goroutine after streaming the response to us. So a
+	// client that has already read and closed its copy can still be ahead of
+	// the recording — poll until the count settles rather than racing it.
+	require.Eventually(t, func() bool {
+		return len(rec.Exchanges()) == 3
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 func TestRecorder_CapturesHeaders(t *testing.T) {
@@ -95,6 +103,12 @@ func TestRecorder_CapturesHeaders(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	resp.Body.Close()
+
+	// Recording lands on the proxy-side body Close() (a separate goroutine);
+	// wait for it before reading the captured headers.
+	require.Eventually(t, func() bool {
+		return len(rec.Exchanges()) == 1
+	}, 2*time.Second, 5*time.Millisecond)
 
 	ex := rec.Exchanges()[0]
 	// Credentials must never reach committed fixtures — they are redacted at
