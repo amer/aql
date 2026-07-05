@@ -76,11 +76,13 @@ func FormatHistoryForCompaction(history []domain.Message) string {
 // CompactHistory summarizes the conversation history via a Claude API call
 // and replaces the full history with the summary.
 func (a *Agent) CompactHistory(ctx context.Context) (string, error) {
-	summary, compacted, err := a.summarizeHistory(ctx, a.history)
+	// Snapshot under the lock, run the API call without it, then replace under
+	// the lock — never hold the mutex across the network round-trip.
+	summary, compacted, err := a.summarizeHistory(ctx, a.snapshotHistory())
 	if err != nil {
 		return "", err
 	}
-	a.history = compacted
+	a.ReplaceHistory(compacted)
 	return summary, nil
 }
 
@@ -93,7 +95,7 @@ func (a *Agent) summarizeHistory(ctx context.Context, history []domain.Message) 
 	}
 
 	formatted := FormatHistoryForCompaction(history)
-	model := models.ResolveModel(a.config.Model)
+	model := models.ResolveModel(a.modelName())
 
 	slog.Debug("compacting conversation history",
 		"agent", a.config.Name,

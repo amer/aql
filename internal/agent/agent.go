@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amer/aql/internal/agent/tools"
@@ -54,7 +55,16 @@ type AskUserFn = tools.AskUserFn
 type ToolExecutorFn = tools.ExecutorFn
 
 // Agent represents a single coding agent with its config and context.
+//
+// The mutex guards the fields that change over an agent's lifetime and may be
+// read or written from more than one goroutine: history is applied from the
+// stream-forwarding goroutine while /clear, /compact and model switches run on
+// their own tea.Cmd goroutines; systemPrompt/claudeMD/config.Model change on
+// CLAUDE.md hot-reload and model switch. Everything protected by mu must only
+// be touched through the accessor methods below. Because Agent carries a mutex
+// it must never be copied — always pass *Agent.
 type Agent struct {
+	mu           sync.Mutex
 	config       Config
 	claudeMD     string
 	claudeMDTime time.Time // mtime of last CLAUDE.md read
@@ -147,7 +157,31 @@ func (a *Agent) Name() string {
 
 // SystemPrompt returns the current system prompt.
 func (a *Agent) SystemPrompt() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.systemPrompt
+}
+
+// modelName returns the configured model id under the lock.
+func (a *Agent) modelName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.config.Model
+}
+
+// SetModel switches the model the agent uses and rebuilds the system prompt
+// (the environment section embeds the model name). It mutates only the guarded
+// config/prompt fields, so a live Run goroutine can keep applying history
+// concurrently — unlike overwriting the whole Agent value, which would copy the
+// mutex and race the history slice.
+func (a *Agent) SetModel(modelID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.config.Model = modelID
+	parts := BuildPromptParts(a.config, a.claudeMD, a.dir)
+	a.systemPrompt = JoinPromptParts(parts)
+	LogPromptParts(a.config.Name, parts)
+	slog.Info("model switched", "agent", a.config.Name, "model", modelID)
 }
 
 // ClearHistory resets the conversation history so the next message starts
@@ -155,29 +189,35 @@ func (a *Agent) SystemPrompt() string {
 // Called by /clear to give the user a clean slate when the conversation
 // drifts off-topic or the context becomes too noisy to be useful.
 func (a *Agent) ClearHistory() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.history = nil
 	slog.Debug("conversation history cleared", "agent", a.config.Name)
 }
 
 // HistoryLen returns the number of messages in the conversation history.
 func (a *Agent) HistoryLen() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return len(a.history)
 }
 
-// AppendUserMessage adds a user message to the conversation history.
-func (a *Agent) AppendUserMessage(text string) {
-	a.history = append(a.history, domain.NewUserMessage(text))
-}
-
-// AppendAssistantMessage adds an assistant message to the conversation history.
-func (a *Agent) AppendAssistantMessage(text string) {
-	a.history = append(a.history, domain.NewAssistantMessage(text))
+// snapshotHistory returns a copy of the current history for a Run goroutine to
+// work on without touching shared state after the snapshot is taken.
+func (a *Agent) snapshotHistory() []domain.Message {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.Message, len(a.history))
+	copy(out, a.history)
+	return out
 }
 
 // ApplyHistory appends a message to the conversation history.
 // Called by the caller of Run() in response to HistoryAppendMsg events,
 // keeping all history mutation in the caller's goroutine.
 func (a *Agent) ApplyHistory(msg domain.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.history = append(a.history, msg)
 }
 
@@ -185,12 +225,17 @@ func (a *Agent) ApplyHistory(msg domain.Message) {
 // Called by the caller of Run() in response to HistoryReplaceMsg events
 // (auto-compaction).
 func (a *Agent) ReplaceHistory(msgs []domain.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.history = msgs
 }
 
 // RefreshClaudeMD re-reads CLAUDE.md if it has been modified since last read.
 // Returns true if the system prompt was updated.
 func (a *Agent) RefreshClaudeMD() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	path := filepath.Join(a.dir, "CLAUDE.md")
 	info, err := os.Stat(path)
 	if err != nil {

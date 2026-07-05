@@ -76,8 +76,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 
 	// Snapshot the current history so the goroutine works on a local copy.
 	// The caller owns a.history; the goroutine only reads this local slice.
-	localHistory := make([]domain.Message, len(a.history))
-	copy(localHistory, a.history)
+	localHistory := a.snapshotHistory()
 
 	go func() {
 		defer close(ch)
@@ -89,12 +88,16 @@ func (a *Agent) Run(ctx context.Context, userMessage string) <-chan domain.Strea
 		localHistory = append(localHistory, userMsg)
 		ch <- domain.StreamEvent{AgentName: a.config.Name, History: &domain.HistoryAppendMsg{Message: userMsg}}
 
-		model := models.ResolveModel(a.config.Model)
+		// Hot-reload CLAUDE.md and snapshot the prompt/model once for this run,
+		// rather than reading shared agent state on every loop iteration.
+		a.RefreshClaudeMD()
+		systemPrompt := a.SystemPrompt()
+		model := models.ResolveModel(a.modelName())
 		slog.Debug("starting API call", "agent", a.config.Name, "model", model, "historyLength", len(localHistory), "oauth", a.isOAuth)
 
 		// Tool use loop: keep calling the API until we get end_turn
 		for iteration := range maxToolIterations {
-			params := a.buildChatParamsFrom(model, localHistory)
+			params := a.buildChatParamsFrom(model, systemPrompt, localHistory)
 
 			resp, err := a.streamWithRetry(ctx, ch, params)
 			if err != nil {
@@ -266,13 +269,10 @@ func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEve
 	}
 }
 
-// buildChatParamsFrom constructs the domain.ChatParams for an API call
-// using the provided history slice (not a.history), so Run's goroutine
-// doesn't need to read shared state.
-func (a *Agent) buildChatParamsFrom(model string, history []domain.Message) domain.ChatParams {
-	// Hot-reload CLAUDE.md if modified
-	a.RefreshClaudeMD()
-
+// buildChatParamsFrom constructs the domain.ChatParams for an API call using
+// the provided history and system prompt (snapshotted once by Run), so the
+// goroutine never reads shared agent state inside the tool loop.
+func (a *Agent) buildChatParamsFrom(model, systemPrompt string, history []domain.Message) domain.ChatParams {
 	defs := tools.Definitions()
 	toolDefs := make([]domain.ToolDef, len(defs))
 	for i, d := range defs {
@@ -296,7 +296,7 @@ func (a *Agent) buildChatParamsFrom(model string, history []domain.Message) doma
 
 	return domain.ChatParams{
 		Model:        model,
-		System:       a.systemPrompt,
+		System:       systemPrompt,
 		Messages:     history,
 		Tools:        toolDefs,
 		MaxTokens:    maxTokens,

@@ -57,9 +57,11 @@ internal/tui         <- imports domain only, never agent
 
 `agent.Run()` never mutates `a.history`. It snapshots the history into a local copy at the start, works on the local copy, and emits `HistoryAppendMsg` / `HistoryReplaceMsg` events on the channel. The caller (in the `stream.ForwardWithHistory` goroutine) applies these mutations via `agent.ApplyHistory()` and `agent.ReplaceHistory()`.
 
-**Why:** Run() executes in a goroutine. If it wrote to `a.history` directly, every read from the main goroutine (compaction, clear, model switch) would race. The event-driven design keeps all history mutation in one goroutine — no mutex needed.
+**Why:** Run() executes in a goroutine. If it wrote to `a.history` directly, every read from the main goroutine (compaction, clear, model switch) would race. The event-driven design routes all in-run mutation through the caller's goroutine.
 
-**Rule:** Any new code that needs to modify history during a Run must emit a history event, never write `a.history` directly.
+Run() is not the only writer, though: `/clear` (`ClearHistory`), `/compact` (`CompactHistory`) and model switches (`SetModel`) run on their own `tea.Cmd` goroutines, concurrent with the stream-forwarding goroutine that applies history events. All access to `history`, `systemPrompt`, `claudeMD` and `config.Model` therefore goes through accessor methods on `Agent` guarded by `Agent.mu`. Because `Agent` carries a mutex it must never be copied — always pass `*Agent`, and switch models with `SetModel`, never by overwriting the struct.
+
+**Rule:** Any new code that needs to modify history during a Run must emit a history event, never write `a.history` directly. Any code touching the guarded fields from another goroutine must go through an accessor method, never the field directly.
 
 ---
 

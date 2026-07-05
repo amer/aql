@@ -150,7 +150,7 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 
 	var streamCancel context.CancelFunc
 
-	model := configureTUI(cfg, workDir, cachedModels, coder, &streamCancel, &program, opts)
+	model := configureTUI(cfg, workDir, cachedModels, coder, &streamCancel, &program)
 
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
@@ -181,7 +181,6 @@ func configureTUI(
 	coder *agent.Agent,
 	streamCancel *context.CancelFunc,
 	program **tea.Program,
-	opts []agent.Option,
 ) tui.Model {
 	onSubmit := func(input string) tea.Cmd {
 		return func() tea.Msg {
@@ -246,14 +245,10 @@ func configureTUI(
 			slog.Error("failed to save model selection", "error", err)
 			return
 		}
-		cfg.Model = modelID
-		newCoder, createErr := agent.New(cfg, workDir, opts...)
-		if createErr != nil {
-			slog.Error("failed to recreate agent with new model", "model", modelID, "error", createErr)
-			return
-		}
-		*coder = *newCoder
-		slog.Info("model switched", "model", modelID)
+		// Mutate only the model on the live agent. Recreating it and copying
+		// the struct over *coder would copy the agent's mutex and race the
+		// history slice with any in-flight Run goroutine.
+		coder.SetModel(modelID)
 	})
 
 	return model

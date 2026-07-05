@@ -97,9 +97,9 @@ func TestClearHistory_RemovesAllMessages(t *testing.T) {
 	assert.Equal(t, 0, a.HistoryLen(), "new agent starts with empty history")
 
 	// Simulate a conversation: add messages via AppendHistory
-	a.AppendUserMessage("write auth tests")
-	a.AppendAssistantMessage("I'll write the tests now.")
-	a.AppendUserMessage("looks good, add error cases too")
+	a.ApplyHistory(domain.NewUserMessage("write auth tests"))
+	a.ApplyHistory(domain.NewAssistantMessage("I'll write the tests now."))
+	a.ApplyHistory(domain.NewUserMessage("looks good, add error cases too"))
 	assert.Equal(t, 3, a.HistoryLen(), "history should have 3 messages after conversation")
 
 	a.ClearHistory()

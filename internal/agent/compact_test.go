@@ -106,10 +106,10 @@ func TestCompactHistory_ReplacesHistory(t *testing.T) {
 	defer server.Close()
 
 	a := newCompactTestAgent(t, server.URL)
-	a.AppendUserMessage("write auth tests")
-	a.AppendAssistantMessage("I'll write tests for the auth module.")
-	a.AppendUserMessage("add edge cases")
-	a.AppendAssistantMessage("Done, added edge cases.")
+	a.ApplyHistory(domain.NewUserMessage("write auth tests"))
+	a.ApplyHistory(domain.NewAssistantMessage("I'll write tests for the auth module."))
+	a.ApplyHistory(domain.NewUserMessage("add edge cases"))
+	a.ApplyHistory(domain.NewAssistantMessage("Done, added edge cases."))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -131,7 +131,7 @@ func TestCompactHistory_TooShortHistory(t *testing.T) {
 
 func TestCompactHistory_SingleMessage(t *testing.T) {
 	a := newCompactTestAgent(t, "http://unused")
-	a.AppendUserMessage("hello")
+	a.ApplyHistory(domain.NewUserMessage("hello"))
 
 	ctx := context.Background()
 	_, err := a.CompactHistory(ctx)
@@ -152,8 +152,8 @@ func TestCompactHistory_APIError(t *testing.T) {
 	defer server.Close()
 
 	a := newCompactTestAgent(t, server.URL)
-	a.AppendUserMessage("hello")
-	a.AppendAssistantMessage("hi")
+	a.ApplyHistory(domain.NewUserMessage("hello"))
+	a.ApplyHistory(domain.NewAssistantMessage("hi"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
