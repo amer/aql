@@ -461,7 +461,7 @@ func TestAskUser_WithFunc(t *testing.T) {
 		assert.Equal(t, "What is your name?", q.Question)
 		return "Alice", nil
 	}
-	exec := tools.DefaultExecutor(askFn)
+	exec := newDefaultExecutor(askFn)
 
 	result, err := exec(context.Background(), ".", "ask_user",
 		json.RawMessage(`{"question":"What is your name?"}`))
@@ -480,7 +480,7 @@ func TestAskUser_ContextCanceled(t *testing.T) {
 	askFn := func(ctx context.Context, q tools.UserQuestion) (string, error) {
 		return "", ctx.Err()
 	}
-	exec := tools.DefaultExecutor(askFn)
+	exec := newDefaultExecutor(askFn)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

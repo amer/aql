@@ -10,13 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// newDefaultExecutor builds an executor with ask_user support and a fresh task
+// store — the common setup these tests need.
+func newDefaultExecutor(askFn tools.AskUserFn) tools.ExecutorFn {
+	return tools.NewExecutor(tools.WithAskUser(askFn), tools.WithTaskStore(tools.NewTaskStore()))
+}
+
 func TestDefaultExecutor_DispatchesAllKnownTools(t *testing.T) {
 	// Verify that every tool in Definitions() is reachable via DefaultExecutor.
 	// We don't care about the output — just that it doesn't return "unknown tool".
 	dir := t.TempDir()
 	writeTestFile(t, dir, "test.go", "package main")
 
-	exec := tools.DefaultExecutor(nil)
+	exec := newDefaultExecutor(nil)
 
 	for _, def := range tools.Definitions() {
 		t.Run(def.Name, func(t *testing.T) {
@@ -35,7 +41,7 @@ func TestDefaultExecutor_DispatchesAllKnownTools(t *testing.T) {
 }
 
 func TestDefaultExecutor_UnknownToolReturnsError(t *testing.T) {
-	exec := tools.DefaultExecutor(nil)
+	exec := newDefaultExecutor(nil)
 	_, err := exec(context.Background(), ".", "nonexistent_tool", json.RawMessage(`{}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown tool")
@@ -45,7 +51,7 @@ func TestDefaultExecutor_AskUserWithFn(t *testing.T) {
 	askFn := func(ctx context.Context, q tools.UserQuestion) (string, error) {
 		return "answer: " + q.Question, nil
 	}
-	exec := tools.DefaultExecutor(askFn)
+	exec := newDefaultExecutor(askFn)
 	result, err := exec(context.Background(), ".", "ask_user",
 		json.RawMessage(`{"question":"color?"}`))
 	require.NoError(t, err)
