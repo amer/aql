@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/amer/aql/internal/agent/tools"
 	"github.com/stretchr/testify/assert"
@@ -239,6 +240,32 @@ func TestBash_ReportsExitError(t *testing.T) {
 		json.RawMessage(`{"command":"exit 1"}`))
 	require.NoError(t, err)
 	assert.Contains(t, result, "exit")
+}
+
+func TestBash_CancelReturnsDespiteOrphanHoldingPipe(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// The command keeps sh alive on a foreground sleep while a backgrounded
+	// grandchild inherits and holds open the stdout pipe. Killing only sh on
+	// cancel leaves the grandchild holding the pipe, so CombinedOutput blocks
+	// until the 60s sleep exits. The tool must bound the wait and return.
+	input := json.RawMessage(`{"command":"sleep 60 & echo started; sleep 60"}`)
+
+	done := make(chan struct{})
+	go func() {
+		execTool(ctx, dir, "bash", input)
+		close(done)
+	}()
+
+	time.Sleep(200 * time.Millisecond) // let the shell background the grandchild
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("execBash blocked after context cancel — orphan grandchild held the pipe")
+	}
 }
 
 // --- glob ---
