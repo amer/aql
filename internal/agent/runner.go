@@ -262,7 +262,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEve
 	}
 	slog.Info("auto-compacting: input tokens exceed threshold",
 		"agent", a.config.Name, "inputTokens", inputTokens, "threshold", AutoCompactThreshold)
-	summary, compacted, compactErr := a.summarizeHistory(ctx, localHistory)
+	_, compacted, compactErr := a.summarizeHistory(ctx, localHistory)
 	if compactErr != nil {
 		slog.Warn("auto-compact failed", "error", compactErr)
 		return
@@ -271,13 +271,9 @@ func (a *Agent) maybeAutoCompact(ctx context.Context, ch chan<- domain.StreamEve
 		AgentName: a.config.Name,
 		Replace:   &domain.HistoryReplaceMsg{Messages: compacted},
 	}
-	ch <- domain.StreamEvent{
-		AgentName: a.config.Name,
-		TokenUsage: &domain.TokenUsageEvent{
-			InputTokens:  len(summary) / 4, // rough estimate after compaction
-			OutputTokens: 0,
-		},
-	}
+	// Deliberately no token-usage event here: the post-compaction context size
+	// isn't known until the next real API call reports it. Emitting an estimate
+	// (len(summary)/4) would show the user a fabricated count as if measured.
 }
 
 // buildChatParamsFrom constructs the domain.ChatParams for an API call using
