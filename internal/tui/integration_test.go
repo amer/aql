@@ -945,6 +945,42 @@ func TestIntegration_LateDeltaAfterEscDoesNotRestartStream(t *testing.T) {
 	assert.Nil(t, cmd, "late delta after esc must not emit a spinner tick")
 }
 
+func TestIntegration_EscClearsPendingQuestion(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	m = applyMsg(m, tui.AgentAskUserMsg{
+		AgentName:  "coder",
+		Question:   "Which framework?",
+		ResponseCh: make(chan string, 1),
+	})
+	require.True(t, m.HasPendingQuestion())
+
+	// Esc interrupts the run. The question is now dead — nothing is reading its
+	// response channel — so it must be cleared, or the next user message would be
+	// routed into it as an answer and vanish (C4).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+	assert.False(t, m.HasPendingQuestion(), "esc must clear the pending question")
+}
+
+func TestIntegration_StreamErrorClearsPendingQuestion(t *testing.T) {
+	m := testModel(nil)
+
+	m = applyMsg(m, tui.AgentStreamDeltaMsg{AgentName: "coder", Delta: "thinking..."})
+	m = applyMsg(m, tui.AgentAskUserMsg{
+		AgentName:  "coder",
+		Question:   "Which framework?",
+		ResponseCh: make(chan string, 1),
+	})
+	require.True(t, m.HasPendingQuestion())
+
+	// A stream error tears the run down; the pending question is dead and must be
+	// cleared so the next user message is treated as a new prompt (C4).
+	m = applyMsg(m, tui.AgentStreamErrorMsg{AgentName: "coder", Error: fmt.Errorf("boom")})
+	assert.False(t, m.HasPendingQuestion(), "stream error must clear the pending question")
+}
+
 func TestIntegration_CtrlCCancelsStreamContext(t *testing.T) {
 	m := testModel(nil)
 

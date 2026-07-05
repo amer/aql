@@ -198,6 +198,10 @@ func (m *Model) handleEscKey() {
 		}
 		m.stream.active = false
 		m.stream.interrupted = true
+		// A cancelled run may have been blocked in ask_user. Its response channel
+		// is now dead, so drop the pending question — otherwise the next user
+		// message would be routed to it as an answer and vanish (C4).
+		m.pendingQuestion = nil
 		m.chat = append(m.chat, ChatEntry{
 			Type:    EntryAgentStatus,
 			Content: "Interrupted",
@@ -445,6 +449,9 @@ func (m *Model) handleStreamDone() {
 
 func (m *Model) handleStreamError(msg AgentStreamErrorMsg) {
 	m.stream.active = false
+	// The run is over; any pending ask_user is dead. Clear it so the next user
+	// message is treated as a new prompt rather than an answer (C4).
+	m.pendingQuestion = nil
 	m.chat = append(m.chat, ChatEntry{
 		Type:      EntryAgentStatus,
 		AgentName: msg.AgentName,
