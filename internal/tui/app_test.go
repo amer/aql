@@ -221,43 +221,6 @@ func TestModelWindowResize(t *testing.T) {
 	assert.NotEmpty(t, view)
 }
 
-func TestRenderChatEntryUserInput(t *testing.T) {
-	entry := tui.ChatEntry{Type: tui.EntryUserInput, Content: "refactor auth"}
-	result := tui.RenderChatEntry(entry, 80)
-	assert.Contains(t, result, "refactor auth")
-}
-
-func TestRenderChatEntryAgentText(t *testing.T) {
-	entry := tui.ChatEntry{Type: tui.EntryAgentText, AgentName: "coder", Content: "Writing code..."}
-	result := tui.RenderChatEntry(entry, 80)
-	plain := stripAnsi(result)
-	assert.Contains(t, plain, "coder")
-	assert.Contains(t, plain, "Writing code")
-}
-
-func TestRenderChatEntryTool(t *testing.T) {
-	entry := tui.ChatEntry{
-		Type:      tui.EntryAgentTool,
-		AgentName: "coder",
-		ToolCall:  &domain.ToolCall{Name: "bash", Content: "go test ./..."},
-	}
-	result := tui.RenderChatEntry(entry, 80)
-	assert.Contains(t, result, "bash")
-	assert.Contains(t, result, "go test")
-}
-
-func TestRenderChatEntryStatus(t *testing.T) {
-	entry := tui.ChatEntry{
-		Type:      tui.EntryAgentStatus,
-		AgentName: "reviewer",
-		Status:    tui.AgentWaiting,
-		Content:   "waiting for code",
-	}
-	result := tui.RenderChatEntry(entry, 80)
-	assert.Contains(t, result, "reviewer")
-	assert.Contains(t, result, "waiting for code")
-}
-
 func TestPaletteShowsOnSlash(t *testing.T) {
 	m := tui.NewModel("test", []string{"coder"}, nil)
 	m = applyKey(m, "/")

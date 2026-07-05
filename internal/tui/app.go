@@ -8,7 +8,7 @@ package tui
 //     Init/Update/View methods, callback setters (SetOnBash,
 //     SetCancelStream, SetOnClear, SetOnCompact, SetOnModelSelected,
 //     SetModelTiers, etc.), scroll management, command palette logic,
-//     executeCommand handler, View rendering, RenderChatEntry,
+//     executeCommand handler, View rendering,
 //     testing accessors (Chat, IsStreaming, HasSelection, etc.)
 //
 // MUST NOT GO HERE:
@@ -602,51 +602,6 @@ func (m Model) agentName() string {
 		return m.agentNames[0]
 	}
 	return "agent"
-}
-
-// RenderChatEntry renders a single chat entry.
-func RenderChatEntry(entry ChatEntry, width int) string {
-	switch entry.Type {
-	case EntryUserInput:
-		return RenderUserMessage(entry.Content)
-
-	case EntryAgentText:
-		header := RenderAgentHeader(entry.AgentName, AgentActive)
-		rendered := RenderMarkdown(entry.Content, width-2)
-		if rendered == "" {
-			rendered = AgentBody.Render(entry.Content)
-		}
-		return header + "\n" + rendered
-
-	case EntryAgentTool:
-		if entry.ToolCall != nil {
-			return RenderToolBlock(*entry.ToolCall)
-		}
-		return ""
-
-	case EntryAgentStatus:
-		header := RenderAgentHeader(entry.AgentName, entry.Status)
-		if entry.Content == "" {
-			return header
-		}
-		if entry.Status == AgentWaiting {
-			// Ask-user questions: readable text with indentation for multi-line
-			lines := strings.Split(entry.Content, "\n")
-			first := header + " " + AgentBody.Render(lines[0])
-			if len(lines) == 1 {
-				return first
-			}
-			indent := "    "
-			for _, line := range lines[1:] {
-				first += "\n" + indent + AgentBody.Render(line)
-			}
-			return first
-		}
-		return header + " " + DimStyle.Render(entry.Content)
-
-	default:
-		return ""
-	}
 }
 
 // Chat returns all chat entries (for testing).
