@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/amer/aql/test/e2e"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -75,11 +76,14 @@ func TestE2E_RecordAPICall(t *testing.T) {
 	term.Type("say hello")
 	term.SendKey(e2e.KeyEnter)
 
-	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
-		return s.Contains("hello") || s.Contains("Hello")
-	}, 30*time.Second))
+	// Assert on text that only appears if the streamed API response was parsed
+	// and rendered. "friend" is in the recorded assistant reply but not in the
+	// prompt, so — unlike the old WaitFor("hello") — it can't be satisfied by
+	// the echoed input alone.
+	require.NoError(t, term.WaitFor("friend", 30*time.Second))
 
-	term.SaveScreenshot("after-response")
+	final := term.SaveScreenshot("after-response")
+	assert.Contains(t, final.Text, "How can I help you today?")
 }
 
 func TestE2E_SlashDiff(t *testing.T) {
@@ -142,18 +146,13 @@ func TestE2E_SlashDiff(t *testing.T) {
 	term.SaveScreenshot("after-close")
 }
 
-// TestE2E_EditFileShowsDiff verifies that when the agent edits a file,
-// the TUI renders the tool call with a diff showing added/removed lines —
-// not just "Edited file.go".
+// TestE2E_EditFileShowsDiff drives the full edit round-trip: the agent emits an
+// edit tool call, the C6 approval gate prompts for consent, the user approves,
+// and the edit is applied. It asserts the real on-disk effect and that the tool
+// call is surfaced in the transcript — not a vacuous log line.
 //
-// Expected (Claude Code style):
-//
-//	⏺ Update(hello.txt)
-//	  ⎿  Updated 2 lines
-//	     - old line
-//	     + new line
-//
-// Current behavior: only shows "Edited hello.txt" with no diff.
+// A richer Claude-Code-style diff render (± lines under an Update header) is a
+// separate, not-yet-built feature; this test guards the behaviour that exists.
 func TestE2E_EditFileShowsDiff(t *testing.T) {
 	fixtureDir := filepath.Join("testdata", "edit-file-diff")
 	apiOpt := e2e.APIOption(fixtureDir)
@@ -165,7 +164,7 @@ func TestE2E_EditFileShowsDiff(t *testing.T) {
 	workDir := t.TempDir()
 
 	seed := filepath.Join(workDir, "hello.txt")
-	os.WriteFile(seed, []byte("hello world\n"), 0o644)
+	require.NoError(t, os.WriteFile(seed, []byte("hello world\n"), 0o644))
 
 	term := e2e.NewTerminal(t,
 		e2e.WithSize(120, 40),
@@ -182,15 +181,20 @@ func TestE2E_EditFileShowsDiff(t *testing.T) {
 	term.Type("edit hello.txt and change 'hello world' to 'goodbye world'")
 	term.SendKey(e2e.KeyEnter)
 
-	// Wait for the tool call to appear
-	require.NoError(t, term.WaitForFunc(func(s e2e.Screenshot) bool {
-		return s.Contains("Update") || s.Contains("Edited") || s.Contains("hello.txt")
-	}, 30*time.Second))
+	// The approval gate (C6) must intercept the edit before it runs.
+	require.NoError(t, term.WaitFor("(y/n)", 30*time.Second))
+	term.SaveScreenshot("approval-prompt")
 
-	final := term.SaveScreenshot("final")
+	// Approve the edit.
+	term.Type("y")
+	term.SendKey(e2e.KeyEnter)
 
-	hasUpdate := final.Contains("Update")
-	hasDiff := final.Contains("- hello") || final.Contains("+ goodbye")
-	t.Logf("Update header: %v, diff lines: %v, exchanges: %d",
-		hasUpdate, hasDiff, len(term.APIExchanges()))
+	// Wait for the agent's post-edit reply, proving the tool result round-tripped.
+	require.NoError(t, term.WaitFor("goodbye world", 30*time.Second))
+	term.SaveScreenshot("final")
+
+	// The real effect: the file on disk was actually edited.
+	got, err := os.ReadFile(seed)
+	require.NoError(t, err)
+	assert.Equal(t, "goodbye world\n", string(got))
 }

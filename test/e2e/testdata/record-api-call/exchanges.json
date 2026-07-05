@@ -1,115 +1,45 @@
 [
   {
-    "Timestamp": "2026-04-01T00:45:06.708377+02:00",
-    "Method": "POST",
-    "Path": "/v1/messages",
-    "RequestHeaders": {
-      "Accept": [
-        "application/json"
-      ],
-      "Accept-Encoding": [
-        "gzip"
-      ],
-      "Anthropic-Beta": [
-        "claude-code-20250219,interleaved-thinking-2025-05-14,effort-2025-11-24"
-      ],
-      "Anthropic-Version": [
-        "2023-06-01"
-      ],
-      "Content-Length": [
-        "6400"
-      ],
-      "Content-Type": [
-        "application/json"
-      ],
-      "User-Agent": [
-        "Anthropic/Go 1.27.1"
-      ],
-      "X-Api-Key": [
-        "sk-ant-api03-REDACTED"
-      ],
-      "X-Forwarded-For": [
-        "127.0.0.1"
-      ],
-      "X-Stainless-Arch": [
-        "arm64"
-      ],
-      "X-Stainless-Lang": [
-        "go"
-      ],
-      "X-Stainless-Os": [
-        "MacOS"
-      ],
-      "X-Stainless-Package-Version": [
-        "1.27.1"
-      ],
-      "X-Stainless-Retry-Count": [
-        "0"
-      ],
-      "X-Stainless-Runtime": [
-        "go"
-      ],
-      "X-Stainless-Runtime-Version": [
-        "go1.26.1"
-      ]
-    },
-    "RequestBody": "{\"max_tokens\":16384,\"messages\":[{\"content\":[{\"text\":\"say hello\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-sonnet-4-6\",\"output_config\":{\"effort\":\"medium\"},\"system\":[{\"text\":\"x-anthropic-billing-header: cc_version=2.1.87.7b6; cc_entrypoint=cli; cch=22c94;\",\"type\":\"text\"},{\"text\":\"Role: Senior Go developer\\n\\nYou are a senior Go developer working in an interactive terminal. Be concise and helpful.\\n\\nAlways use the most appropriate tool. Prefer edit over write_file for modifying existing files. Use glob to discover files before reading them. Use ask_user when requirements are ambiguous rather than guessing.\\n\\n# Environment\\n- Date: 2026-04-01\\n- Working directory: /private/var/folders/q9/4b97b9ss6lg2sgbfl21zqrvm0000gn/T/TestE2E_RecordAPICall1580091297/001\\n- Platform: darwin/arm64\\n- Shell: zsh\\n- Git repo: no\\n- Model: claude-sonnet-4-6\",\"type\":\"text\"}],\"thinking\":{\"type\":\"adaptive\"},\"tools\":[{\"input_schema\":{\"properties\":{\"path\":{\"description\":\"Absolute or relative path to the file to read\",\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"},\"name\":\"read_file\",\"description\":\"Read the contents of a file at the given path. Returns the file content as text.\"},{\"input_schema\":{\"properties\":{\"content\":{\"description\":\"Content to write to the file\",\"type\":\"string\"},\"path\":{\"description\":\"Absolute or relative path to the file to write\",\"type\":\"string\"}},\"required\":[\"path\",\"content\"],\"type\":\"object\"},\"name\":\"write_file\",\"description\":\"Write content to a file at the given path. Creates the file if it doesn't exist, overwrites if it does.\"},{\"input_schema\":{\"properties\":{\"file_path\":{\"description\":\"Absolute or relative path to the file to edit\",\"type\":\"string\"},\"new_string\":{\"description\":\"The text to replace old_string with. Must be different from old_string.\",\"type\":\"string\"},\"old_string\":{\"description\":\"The exact text to find and replace. Must match the file content exactly.\",\"type\":\"string\"},\"replace_all\":{\"description\":\"If true, replace all occurrences. If false (default), old_string must be unique in the file.\",\"type\":\"boolean\"}},\"required\":[\"file_path\",\"old_string\",\"new_string\"],\"type\":\"object\"},\"name\":\"edit\",\"description\":\"Apply a targeted find/replace edit to a file. More efficient than rewriting the entire file with write_file.\"},{\"input_schema\":{\"properties\":{\"path\":{\"description\":\"Absolute or relative path to the directory to list\",\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"},\"name\":\"list_directory\",\"description\":\"List the files and directories at the given path. Returns one entry per line.\"},{\"input_schema\":{\"properties\":{\"command\":{\"description\":\"The shell command to execute\",\"type\":\"string\"}},\"required\":[\"command\"],\"type\":\"object\"},\"name\":\"bash\",\"description\":\"Execute a shell command and return its combined stdout/stderr output. Use this for running tests, builds, git commands, etc.\"},{\"input_schema\":{\"properties\":{\"path\":{\"description\":\"Base directory to search in. Defaults to working directory.\",\"type\":\"string\"},\"pattern\":{\"description\":\"Glob pattern to match (e.g. **/*.go, src/**/*.ts, *.json). Supports ** for recursive matching.\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"},\"name\":\"glob\",\"description\":\"Find files matching a glob pattern. Returns matching file paths sorted by modification time (newest first).\"},{\"input_schema\":{\"properties\":{\"url\":{\"description\":\"The URL to fetch\",\"type\":\"string\"}},\"required\":[\"url\"],\"type\":\"object\"},\"name\":\"web_fetch\",\"description\":\"Fetch the contents of a URL. Returns the page content as text. For HTML pages, extracts readable text content.\"},{\"input_schema\":{\"properties\":{\"query\":{\"description\":\"The search query\",\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"},\"name\":\"web_search\",\"description\":\"Search the web for a query. Returns a list of search results with titles, URLs, and snippets.\"},{\"input_schema\":{\"properties\":{\"question\":{\"description\":\"The question to ask the user\",\"type\":\"string\"}},\"required\":[\"question\"],\"type\":\"object\"},\"name\":\"ask_user\",\"description\":\"Ask the user a clarifying question when you need more information to proceed. Pauses execution until the user responds.\"},{\"input_schema\":{\"properties\":{\"include\":{\"description\":\"Glob pattern to filter files (e.g. *.go)\",\"type\":\"string\"},\"path\":{\"description\":\"Directory or file to search in\",\"type\":\"string\"},\"pattern\":{\"description\":\"Regular expression pattern to search for\",\"type\":\"string\"}},\"required\":[\"pattern\"],\"type\":\"object\"},\"name\":\"grep\",\"description\":\"Search for a pattern in files. Returns matching lines with file paths and line numbers.\"},{\"input_schema\":{\"properties\":{\"description\":{\"description\":\"A short (3-5 word) description of the task\",\"type\":\"string\"},\"prompt\":{\"description\":\"The task for the sub-agent to perform\",\"type\":\"string\"}},\"required\":[\"prompt\"],\"type\":\"object\"},\"name\":\"agent\",\"description\":\"Spawn a sub-agent to handle a task independently. The sub-agent has its own conversation context and tool access. Use for parallel research, code exploration, or independent subtasks.\"},{\"input_schema\":{\"properties\":{\"description\":{\"description\":\"A description of the task to create\",\"type\":\"string\"}},\"required\":[\"description\"],\"type\":\"object\"},\"name\":\"task_create\",\"description\":\"Create a new task to track a unit of work. Returns the created task with its ID.\"},{\"input_schema\":{\"properties\":{\"id\":{\"description\":\"The task ID to update\",\"type\":\"integer\"},\"status\":{\"description\":\"New status: pending, in_progress, or completed\",\"type\":\"string\"}},\"required\":[\"id\",\"status\"],\"type\":\"object\"},\"name\":\"task_update\",\"description\":\"Update the status of an existing task. Valid statuses: pending, in_progress, completed.\"},{\"input_schema\":{\"properties\":{},\"type\":\"object\"},\"name\":\"task_list\",\"description\":\"List all tracked tasks with their current status.\"},{\"input_schema\":{\"properties\":{\"cell_index\":{\"description\":\"Zero-based index of the cell to edit\",\"type\":\"integer\"},\"cell_type\":{\"description\":\"Optional: change cell type (code or markdown)\",\"type\":\"string\"},\"new_source\":{\"description\":\"New source content for the cell\",\"type\":\"string\"},\"path\":{\"description\":\"Path to the .ipynb notebook file\",\"type\":\"string\"}},\"required\":[\"path\",\"cell_index\",\"new_source\"],\"type\":\"object\"},\"name\":\"notebook_edit\",\"description\":\"Edit a Jupyter notebook cell. Replaces the source of a cell at the given index, optionally changing the cell type.\"}],\"stream\":true}",
-    "StatusCode": 0,
-    "ResponseHeaders": null,
-    "ResponseBody": "",
-    "Duration": 49870458,
-    "Error": "context canceled"
-  },
-  {
-    "Timestamp": "2026-04-01T00:45:06.559357+02:00",
+    "Timestamp": "2026-07-05T00:00:00Z",
     "Method": "GET",
     "Path": "/v1/models",
     "RequestHeaders": {
-      "Accept": [
-        "application/json"
-      ],
-      "Accept-Encoding": [
-        "gzip"
-      ],
-      "Anthropic-Version": [
-        "2023-06-01"
-      ],
-      "User-Agent": [
-        "Anthropic/Go 1.27.1"
-      ],
       "X-Api-Key": [
-        "sk-ant-api03-REDACTED"
-      ],
-      "X-Forwarded-For": [
-        "127.0.0.1"
-      ],
-      "X-Stainless-Arch": [
-        "arm64"
-      ],
-      "X-Stainless-Lang": [
-        "go"
-      ],
-      "X-Stainless-Os": [
-        "MacOS"
-      ],
-      "X-Stainless-Package-Version": [
-        "1.27.1"
-      ],
-      "X-Stainless-Retry-Count": [
-        "0"
-      ],
-      "X-Stainless-Runtime": [
-        "go"
-      ],
-      "X-Stainless-Runtime-Version": [
-        "go1.26.1"
+        "REDACTED"
       ]
     },
     "RequestBody": "",
-    "StatusCode": 0,
-    "ResponseHeaders": null,
-    "ResponseBody": "",
-    "Duration": 198889833,
-    "Error": "context canceled"
+    "StatusCode": 200,
+    "ResponseHeaders": {
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "ResponseBody": "{\"data\":[],\"has_more\":false,\"first_id\":null,\"last_id\":null}",
+    "Duration": 1000000,
+    "Error": ""
+  },
+  {
+    "Timestamp": "2026-07-05T00:00:01Z",
+    "Method": "POST",
+    "Path": "/v1/messages",
+    "RequestHeaders": {
+      "X-Api-Key": [
+        "REDACTED"
+      ],
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "RequestBody": "",
+    "StatusCode": 200,
+    "ResponseHeaders": {
+      "Content-Type": [
+        "text/event-stream"
+      ]
+    },
+    "ResponseBody": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_hello\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-6\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":14,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello there, friend! \"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"How can I help you today?\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":11}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "Duration": 2000000,
+    "Error": ""
   }
 ]
