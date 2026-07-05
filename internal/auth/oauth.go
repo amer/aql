@@ -155,9 +155,9 @@ func ExchangeCode(httpClient *http.Client, tokenURL, code, verifier, state strin
 	}
 	defer resp.Body.Close()
 
-	// Read full body for logging
 	respBody, _ := io.ReadAll(resp.Body)
-	slog.Debug("token exchange response", "status", resp.StatusCode, "body", string(respBody))
+	// SECURITY: never log respBody — it contains the access and refresh tokens.
+	slog.Debug("token exchange response", "status", resp.StatusCode, "bodyBytes", len(respBody))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token exchange failed: %d %s: %s", resp.StatusCode, resp.Status, string(respBody))
@@ -173,7 +173,7 @@ func ExchangeCode(httpClient *http.Client, tokenURL, code, verifier, state strin
 	}
 
 	slog.Debug("token exchange success",
-		"accessTokenPrefix", result.AccessToken[:min(20, len(result.AccessToken))],
+		"hasAccessToken", result.AccessToken != "",
 		"hasRefresh", result.RefreshToken != "",
 		"expiresIn", result.ExpiresIn)
 
@@ -206,7 +206,8 @@ func CreateAPIKey(httpClient *http.Client, createKeyURL, oauthToken string) (str
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	slog.Debug("create API key response", "status", resp.StatusCode, "body", string(respBody))
+	// SECURITY: never log respBody — it contains the raw API key.
+	slog.Debug("create API key response", "status", resp.StatusCode, "bodyBytes", len(respBody))
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("create API key failed: %d %s: %s", resp.StatusCode, resp.Status, string(respBody))

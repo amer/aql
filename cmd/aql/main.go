@@ -162,7 +162,8 @@ Always use the most appropriate tool. Prefer edit over write_file for modifying 
 }
 
 func setupLogging() error {
-	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// 0600: the log may contain sensitive request/response metadata; keep it owner-only.
+	logFile, err := os.OpenFile("aql.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}

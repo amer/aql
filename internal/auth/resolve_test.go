@@ -58,6 +58,24 @@ func TestResolveAPIKey_NoTokensNoEnv(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestResolveAPIKey_EmptyOAuthKeyFallsBackToEnv(t *testing.T) {
+	dir := t.TempDir()
+	// Unexpired tokens but with an empty API key (e.g. a partially written
+	// file, or a subscription login where key creation never ran).
+	tokens := auth.Tokens{
+		APIKey:    "",
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+	require.NoError(t, auth.SaveTokens(dir, tokens))
+
+	t.Setenv("ANTHROPIC_API_KEY", "env-fallback-key")
+
+	key, isOAuth, err := auth.ResolveAPIKey(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "env-fallback-key", key)
+	assert.False(t, isOAuth)
+}
+
 func TestResolveAPIKey_OAuthFromHomeDir(t *testing.T) {
 	workDir := t.TempDir()
 	homeDir := t.TempDir()

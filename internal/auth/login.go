@@ -8,7 +8,7 @@ package auth
 //   - startCallbackServer — local HTTP server for OAuth callback
 //   - exchangeAndCreateKey, openAuthURL, openBrowser
 //   - LoginResult/LoginOptions types
-//   - Success HTML page, generateState, findAvailablePort
+//   - Success HTML page, generateState
 //
 // MUST NOT GO HERE:
 //   - Token storage (oauth.go's SaveTokens/LoadTokens)
@@ -63,10 +63,15 @@ type callbackServer struct {
 // startCallbackServer creates and starts a local HTTP server that listens for
 // the OAuth callback with the authorization code.
 func startCallbackServer(expectedState string) (*callbackServer, error) {
-	port, err := findAvailablePort()
+	// Bind the listener up front and hand it directly to Serve. This avoids a
+	// TOCTOU window (another process grabbing the port between probe and bind)
+	// and removes the need to sleep waiting for the server to come up — the
+	// socket is already listening before Serve is called.
+	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, fmt.Errorf("find available port: %w", err)
+		return nil, fmt.Errorf("listen on callback port: %w", err)
 	}
+	port := listener.Addr().(*net.TCPAddr).Port
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
@@ -96,20 +101,14 @@ func startCallbackServer(expectedState string) (*callbackServer, error) {
 		codeCh <- code
 	})
 
-	srv := &http.Server{
-		Addr:    fmt.Sprintf("localhost:%d", port),
-		Handler: mux,
-	}
+	srv := &http.Server{Handler: mux}
 
 	go func() {
 		slog.Debug("starting OAuth callback server", "port", port)
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		if err := srv.Serve(listener); err != http.ErrServerClosed {
 			errCh <- fmt.Errorf("callback server: %w", err)
 		}
 	}()
-
-	// Give server a moment to start
-	time.Sleep(50 * time.Millisecond)
 
 	return &callbackServer{server: srv, codeCh: codeCh, errCh: errCh, port: port}, nil
 }
@@ -147,7 +146,8 @@ func exchangeAndCreateKey(client *http.Client, tokenURL, code, verifier, state s
 		return nil, fmt.Errorf("create API key: %w", err)
 	}
 	tokens.APIKey = apiKey
-	slog.Info("login successful", "apiKeyPrefix", apiKey[:min(15, len(apiKey))])
+	// SECURITY: never log the API key or a prefix of it.
+	slog.Info("login successful", "hasAPIKey", apiKey != "")
 	return tokens, nil
 }
 
@@ -168,7 +168,10 @@ func Login(ctx context.Context, opts LoginOptions) (*Tokens, error) {
 	}
 
 	verifier, challenge := GeneratePKCE()
-	state := generateState()
+	state, err := generateState()
+	if err != nil {
+		return nil, err
+	}
 
 	cs, err := startCallbackServer(state)
 	if err != nil {
@@ -300,20 +303,12 @@ const successPage = `<!DOCTYPE html>
 </body>
 </html>`
 
-func generateState() string {
+func generateState() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-func findAvailablePort() (int, error) {
-	listener, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate CSRF state: %w", err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	return port, nil
+	return hex.EncodeToString(b), nil
 }
 
 func openBrowser(url string) error {
