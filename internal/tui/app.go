@@ -416,7 +416,8 @@ func (m *Model) executeCommand(cmd string) (string, tea.Cmd) {
 			m.addStatusChat("Compact is not available", AgentError)
 			return "compact", nil
 		}
-		m.chat = nil
+		// Keep the transcript intact until compaction succeeds — handleCompactDone
+		// clears it on success, so a failed compaction no longer destroys history.
 		m.addStatusChat("Compacting conversation...", AgentWaiting)
 		m.startStream()
 		m.stream.phase = PhaseRequesting

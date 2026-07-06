@@ -850,6 +850,25 @@ func TestCompact_ErrorPreservesChat(t *testing.T) {
 	assert.Contains(t, m.Chat()[len(m.Chat())-1].Content, "Compact failed")
 }
 
+func TestCompact_FailureAfterCommandPreservesTranscript(t *testing.T) {
+	m := tui.NewModel("test", []string{"coder"}, nil)
+	m.SetOnCompact(func() tea.Cmd { return nil })
+	m = applyMsg(m, tui.AgentOutputMsg{AgentName: "coder", Output: "important context"})
+
+	// Run the full /compact command, then have compaction fail asynchronously.
+	m = typeString(m, "/compact")
+	m = applyKey(m, "enter")
+	m = applyMsg(m, tui.CompactDoneMsg{Err: fmt.Errorf("API error")})
+
+	found := false
+	for _, c := range m.Chat() {
+		if strings.Contains(c.Content, "important context") {
+			found = true
+		}
+	}
+	assert.True(t, found, "failed compaction must not destroy the transcript")
+}
+
 // --- TokenUsageMsg ---
 
 func TestTokenUsage_SetsPreciseCounts(t *testing.T) {
